@@ -68,8 +68,10 @@ func (m *MapIndex) ByKind(gvk schema.GroupVersionKind) []*unstructured.Unstructu
 	return out
 }
 
-// Lookup implements Index.
-func (m *MapIndex) Lookup(_ /*apiVersion*/, kind, namespace, name string) (*unstructured.Unstructured, bool) {
+// Lookup implements Index. The apiVersion is currently ignored; identity is
+// keyed by kind, namespace and name.
+func (m *MapIndex) Lookup(apiVersion, kind, namespace, name string) (*unstructured.Unstructured, bool) {
+	_ = apiVersion
 	obj, ok := m.byID[idKey(kind, namespace, name)]
 	return obj, ok
 }

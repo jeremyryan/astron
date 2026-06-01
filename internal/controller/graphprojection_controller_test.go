@@ -24,13 +24,31 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
 	"github.com/project-gamera/gamera/internal/graph"
+	"github.com/project-gamera/gamera/internal/projector"
 )
+
+// newProjectorManager builds a projector.Manager wired to envtest with a fake
+// graph store factory.
+func newProjectorManager(restCfg *rest.Config, store graph.Store) *projector.Manager {
+	hc, err := rest.HTTPClientFor(restCfg)
+	Expect(err).NotTo(HaveOccurred())
+	mapper, err := apiutil.NewDynamicRESTMapper(restCfg, hc)
+	Expect(err).NotTo(HaveOccurred())
+	dyn, err := dynamic.NewForConfig(restCfg)
+	Expect(err).NotTo(HaveOccurred())
+	return projector.NewManager(dyn, mapper, func(graph.Neo4jConfig) (graph.Store, error) {
+		return store, nil
+	})
+}
 
 var _ = Describe("GraphProjection Controller", func() {
 	Context("When reconciling a resource", func() {
@@ -47,20 +65,22 @@ var _ = Describe("GraphProjection Controller", func() {
 			Namespace: namespace,
 		}
 
-		var store *fakeStore
+		var (
+			store   *fakeStore
+			manager *projector.Manager
+		)
 
 		newReconciler := func() *GraphProjectionReconciler {
 			return &GraphProjectionReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-				NewStore: func(graph.Neo4jConfig) (graph.Store, error) {
-					return store, nil
-				},
+				Client:     k8sClient,
+				Scheme:     k8sClient.Scheme(),
+				Projectors: manager,
 			}
 		}
 
 		BeforeEach(func() {
 			store = newFakeStore()
+			manager = newProjectorManager(cfg, store)
 
 			By("creating the Neo4J credentials secret")
 			secret := &corev1.Secret{
@@ -140,6 +160,18 @@ var _ = Describe("GraphProjection Controller", func() {
 			cond := metaCondition(updated, conditionAvailable)
 			Expect(cond).NotTo(BeNil())
 			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+
+			By("Creating a watched resource and verifying the projector syncs it")
+			watched := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "watched-config", Namespace: namespace},
+				Data:       map[string]string{"key": "value"},
+			}
+			Expect(k8sClient.Create(ctx, watched)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, watched) })
+
+			Eventually(func() bool {
+				return store.hasNodeNamed("watched-config")
+			}, "15s", "500ms").Should(BeTrue(), "expected the projector to materialize the ConfigMap as a node")
 		})
 
 		It("should mark the projection in error when the store cannot connect", func() {

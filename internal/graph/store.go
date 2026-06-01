@@ -32,23 +32,13 @@ type Store interface {
 	// credentials are valid.
 	Verify(ctx context.Context) error
 
-	// UpsertNode creates or updates a single node owned by the given projection.
-	UpsertNode(ctx context.Context, projection ProjectionID, node Node) error
-
-	// UpsertNodes creates or updates many nodes owned by the given projection in
-	// a single transaction.
-	UpsertNodes(ctx context.Context, projection ProjectionID, nodes []Node) error
-
-	// DeleteNode removes a node (and its relationships) for the given projection.
-	DeleteNode(ctx context.Context, projection ProjectionID, ref Ref) error
-
-	// UpsertRelationship creates or updates a single relationship owned by the
-	// given projection. Both endpoints are merged so dangling edges never occur.
-	UpsertRelationship(ctx context.Context, projection ProjectionID, rel Relationship) error
-
-	// UpsertRelationships creates or updates many relationships in a single
-	// transaction.
-	UpsertRelationships(ctx context.Context, projection ProjectionID, rels []Relationship) error
+	// Sync reconciles the complete desired graph for a projection. It upserts
+	// every given node and relationship, then prunes any nodes or relationships
+	// previously owned by the projection that are no longer present (mark and
+	// sweep). It returns the resulting counts. Sync is the primary write path
+	// used by the resource graph watchers, which rebuild the full desired state
+	// on each (debounced) change.
+	Sync(ctx context.Context, projection ProjectionID, nodes []Node, rels []Relationship) (Counts, error)
 
 	// DeleteProjection removes all nodes and relationships owned by the given
 	// projection. Used when a GraphProjection is deleted.

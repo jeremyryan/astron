@@ -27,6 +27,7 @@ import (
 	"github.com/project-gamera/gamera/internal/graph"
 )
 
+//nolint:unparam // version is always v1 in tests but kept for clarity
 func sel(group, version, kind string) gamerav1alpha1.ResourceSelector {
 	return gamerav1alpha1.ResourceSelector{Group: group, Version: version, Kind: kind}
 }
@@ -59,6 +60,7 @@ func ownerRefs(refs ...map[string]any) []metav1.OwnerReference {
 	return out
 }
 
+//nolint:unparam // toName is always web-1 in current tests but kept for generality
 func findEdge(edges []graph.Relationship, typ, fromName, toName string) *graph.Relationship {
 	for i := range edges {
 		if edges[i].Type == typ && edges[i].From.Name == fromName && edges[i].To.Name == toName {

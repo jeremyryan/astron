@@ -27,6 +27,13 @@ import (
 	"github.com/project-gamera/gamera/internal/graph"
 )
 
+// kindConfigMap and kindSecret are the resource kinds understood by the
+// volume-mount strategy.
+const (
+	kindConfigMap = "ConfigMap"
+	kindSecret    = "Secret"
+)
+
 // ownerReferenceStrategy derives edges from Kubernetes ownerReferences. For
 // every target object (rule.To) whose ownerReferences include an owner matching
 // rule.From, an edge owner -> target is produced. The owner's UID from the
@@ -183,13 +190,13 @@ func referencedConfigNames(pod *unstructured.Unstructured, wantKind string) []st
 			continue
 		}
 		switch wantKind {
-		case "ConfigMap":
+		case kindConfigMap:
 			if n, ok, _ := unstructured.NestedString(vol, "configMap", "name"); ok && n != "" {
 				names = append(names, n)
 			}
 			// projected volumes
 			names = append(names, projectedNames(vol, "configMap")...)
-		case "Secret":
+		case kindSecret:
 			if n, ok, _ := unstructured.NestedString(vol, "secret", "secretName"); ok && n != "" {
 				names = append(names, n)
 			}
@@ -238,11 +245,11 @@ func containerConfigNames(container map[string]any, wantKind string) []string {
 			continue
 		}
 		switch wantKind {
-		case "ConfigMap":
+		case kindConfigMap:
 			if n, ok, _ := unstructured.NestedString(ef, "configMapRef", "name"); ok && n != "" {
 				names = append(names, n)
 			}
-		case "Secret":
+		case kindSecret:
 			if n, ok, _ := unstructured.NestedString(ef, "secretRef", "name"); ok && n != "" {
 				names = append(names, n)
 			}
@@ -257,11 +264,11 @@ func containerConfigNames(container map[string]any, wantKind string) []string {
 			continue
 		}
 		switch wantKind {
-		case "ConfigMap":
+		case kindConfigMap:
 			if n, ok, _ := unstructured.NestedString(ev, "valueFrom", "configMapKeyRef", "name"); ok && n != "" {
 				names = append(names, n)
 			}
-		case "Secret":
+		case kindSecret:
 			if n, ok, _ := unstructured.NestedString(ev, "valueFrom", "secretKeyRef", "name"); ok && n != "" {
 				names = append(names, n)
 			}

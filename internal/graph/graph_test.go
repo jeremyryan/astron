@@ -53,14 +53,17 @@ func TestNodeKeyIsProjectionScoped(t *testing.T) {
 	}
 }
 
-func TestNodeParamsIncludesIdentity(t *testing.T) {
+func TestNodeRowIncludesIdentity(t *testing.T) {
 	node := Node{
 		Ref:        Ref{APIVersion: "apps/v1", Kind: "Deployment", Namespace: "ns", Name: "web", UID: "u1"},
 		Properties: map[string]any{"replicas": int64(3)},
 	}
-	params := nodeParams("proj", node)
-	props := params["props"].(map[string]any)
+	row := nodeRow("proj", node)
+	props := row["props"].(map[string]any)
 
+	if row["key"] != "proj|u1" {
+		t.Errorf("unexpected merge key: %v", row["key"])
+	}
 	if props["kind"] != "Deployment" || props["name"] != "web" || props["uid"] != "u1" {
 		t.Errorf("identity properties missing or wrong: %#v", props)
 	}
@@ -69,6 +72,17 @@ func TestNodeParamsIncludesIdentity(t *testing.T) {
 	}
 	if props["replicas"] != int64(3) {
 		t.Errorf("expected user property to be preserved, got %v", props["replicas"])
+	}
+}
+
+func TestNewSyncTokenIsUnique(t *testing.T) {
+	seen := map[string]bool{}
+	for range 1000 {
+		tok := newSyncToken()
+		if seen[tok] {
+			t.Fatalf("duplicate sync token: %q", tok)
+		}
+		seen[tok] = true
 	}
 }
 

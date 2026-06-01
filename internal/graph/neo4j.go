@@ -19,6 +19,10 @@ package graph
 import (
 	"context"
 	"fmt"
+	"maps"
+	"strconv"
+	"sync/atomic"
+	"time"
 
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 )
@@ -30,6 +34,14 @@ const resourceLabel = "K8sResource"
 // projectionProperty stores the owning ProjectionID on every node and
 // relationship so a projection's data can be tracked and removed independently.
 const projectionProperty = "_projection"
+
+// syncTokenProperty stamps each node/relationship with the token of the sync
+// that last wrote it, enabling mark-and-sweep pruning of stale data.
+const syncTokenProperty = "_syncToken"
+
+// syncCounter guarantees unique, monotonically increasing sync tokens even when
+// two syncs occur within the same nanosecond.
+var syncCounter atomic.Uint64
 
 // Neo4jConfig holds the connection parameters for a Neo4J store.
 type Neo4jConfig struct {
@@ -85,23 +97,9 @@ func (s *Neo4jStore) session(ctx context.Context) neo4j.SessionWithContext {
 	return s.driver.NewSession(ctx, neo4j.SessionConfig{DatabaseName: s.database})
 }
 
-// nodeParams builds the parameter map for a node merge.
-func nodeParams(projection ProjectionID, node Node) map[string]any {
-	props := map[string]any{}
-	for k, v := range node.Properties {
-		props[k] = v
-	}
-	props["apiVersion"] = node.Ref.APIVersion
-	props["kind"] = node.Ref.Kind
-	props["namespace"] = node.Ref.Namespace
-	props["name"] = node.Ref.Name
-	props["uid"] = node.Ref.UID
-	props[projectionProperty] = string(projection)
-
-	return map[string]any{
-		"key":   nodeKey(projection, node.Ref),
-		"props": props,
-	}
+// newSyncToken returns a unique token for a single Sync invocation.
+func newSyncToken() string {
+	return strconv.FormatInt(time.Now().UnixNano(), 10) + "-" + strconv.FormatUint(syncCounter.Add(1), 10)
 }
 
 // nodeKey returns the stable merge key for a node. The UID is preferred; when
@@ -113,63 +111,24 @@ func nodeKey(projection ProjectionID, ref Ref) string {
 	return fmt.Sprintf("%s|%s|%s|%s|%s", projection, ref.APIVersion, ref.Kind, ref.Namespace, ref.Name)
 }
 
-// mergeNodeCypher is the Cypher used to upsert a node. The node is identified
-// by a synthetic _key so it is stable across updates.
-const mergeNodeCypher = `
-MERGE (n:` + resourceLabel + ` {_key: $key})
-SET n += $props`
-
-// UpsertNode creates or updates a single node.
-func (s *Neo4jStore) UpsertNode(ctx context.Context, projection ProjectionID, node Node) error {
-	return s.UpsertNodes(ctx, projection, []Node{node})
-}
-
-// UpsertNodes creates or updates many nodes in a single write transaction.
-func (s *Neo4jStore) UpsertNodes(ctx context.Context, projection ProjectionID, nodes []Node) error {
-	if len(nodes) == 0 {
-		return nil
-	}
-	sess := s.session(ctx)
-	defer sess.Close(ctx)
-
-	_, err := sess.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
-		for _, node := range nodes {
-			if _, err := tx.Run(ctx, mergeNodeCypher, nodeParams(projection, node)); err != nil {
-				return nil, err
-			}
-		}
-		return nil, nil
-	})
-	if err != nil {
-		return fmt.Errorf("upserting %d node(s): %w", len(nodes), err)
-	}
-	return nil
-}
-
-const deleteNodeCypher = `
-MATCH (n:` + resourceLabel + ` {_key: $key})
-DETACH DELETE n`
-
-// DeleteNode removes a node and its relationships.
-func (s *Neo4jStore) DeleteNode(ctx context.Context, projection ProjectionID, ref Ref) error {
-	sess := s.session(ctx)
-	defer sess.Close(ctx)
-
-	_, err := sess.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
-		return tx.Run(ctx, deleteNodeCypher, map[string]any{"key": nodeKey(projection, ref)})
-	})
-	if err != nil {
-		return fmt.Errorf("deleting node %s: %w", ref, err)
-	}
-	return nil
-}
-
-// relParams builds the parameter map for a relationship merge.
-func relParams(projection ProjectionID, rel Relationship) map[string]any {
+// nodeRow builds the per-node parameter map used by the UNWIND merge.
+func nodeRow(projection ProjectionID, node Node) map[string]any {
 	props := map[string]any{}
-	for k, v := range rel.Properties {
-		props[k] = v
-	}
+	maps.Copy(props, node.Properties)
+	props["apiVersion"] = node.Ref.APIVersion
+	props["kind"] = node.Ref.Kind
+	props["namespace"] = node.Ref.Namespace
+	props["name"] = node.Ref.Name
+	props["uid"] = node.Ref.UID
+	props[projectionProperty] = string(projection)
+
+	return map[string]any{"key": nodeKey(projection, node.Ref), "props": props}
+}
+
+// relRow builds the per-relationship parameter map used by the UNWIND merge.
+func relRow(projection ProjectionID, rel Relationship) map[string]any {
+	props := map[string]any{}
+	maps.Copy(props, rel.Properties)
 	props[projectionProperty] = string(projection)
 
 	return map[string]any{
@@ -179,47 +138,79 @@ func relParams(projection ProjectionID, rel Relationship) map[string]any {
 	}
 }
 
-// mergeRelCypher upserts a relationship of a parameterized type. The type is
-// validated/sanitized before being interpolated (Cypher cannot parameterize
-// relationship types).
-func mergeRelCypher(relType string) string {
+const upsertNodesCypher = `
+UNWIND $rows AS row
+MERGE (n:` + resourceLabel + ` {_key: row.key})
+SET n += row.props, n.` + syncTokenProperty + ` = $token`
+
+func upsertRelsCypher(relType string) string {
 	return fmt.Sprintf(`
-MATCH (from:%s {_key: $fromKey})
-MATCH (to:%s {_key: $toKey})
+UNWIND $rows AS row
+MATCH (from:%s {_key: row.fromKey})
+MATCH (to:%s {_key: row.toKey})
 MERGE (from)-[r:%s]->(to)
-SET r += $props`, resourceLabel, resourceLabel, relType)
+SET r += row.props, r.%s = $token`, resourceLabel, resourceLabel, relType, syncTokenProperty)
 }
 
-// UpsertRelationship creates or updates a single relationship.
-func (s *Neo4jStore) UpsertRelationship(ctx context.Context, projection ProjectionID, rel Relationship) error {
-	return s.UpsertRelationships(ctx, projection, []Relationship{rel})
-}
+const pruneNodesCypher = `
+MATCH (n:` + resourceLabel + ` {` + projectionProperty + `: $projection})
+WHERE n.` + syncTokenProperty + ` <> $token
+DETACH DELETE n`
 
-// UpsertRelationships creates or updates many relationships in a single
-// write transaction.
-func (s *Neo4jStore) UpsertRelationships(ctx context.Context, projection ProjectionID, rels []Relationship) error {
-	if len(rels) == 0 {
-		return nil
-	}
+const pruneRelsCypher = `
+MATCH (:` + resourceLabel + `)-[r {` + projectionProperty + `: $projection}]->()
+WHERE r.` + syncTokenProperty + ` <> $token
+DELETE r`
+
+// Sync upserts all nodes and relationships under a fresh token, then prunes any
+// data of the projection not stamped with that token.
+func (s *Neo4jStore) Sync(ctx context.Context, projection ProjectionID, nodes []Node, rels []Relationship) (Counts, error) {
+	token := newSyncToken()
 	sess := s.session(ctx)
-	defer sess.Close(ctx)
+	defer func() { _ = sess.Close(ctx) }()
 
 	_, err := sess.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		if len(nodes) > 0 {
+			rows := make([]any, 0, len(nodes))
+			for _, n := range nodes {
+				rows = append(rows, nodeRow(projection, n))
+			}
+			if _, err := tx.Run(ctx, upsertNodesCypher, map[string]any{"rows": rows, "token": token}); err != nil {
+				return nil, fmt.Errorf("upserting nodes: %w", err)
+			}
+		}
+
+		// Relationship types cannot be parameterized, so group rows by sanitized
+		// type and run one UNWIND merge per type.
+		byType := map[string][]any{}
 		for _, rel := range rels {
 			relType, err := sanitizeRelType(rel.Type)
 			if err != nil {
 				return nil, err
 			}
-			if _, err := tx.Run(ctx, mergeRelCypher(relType), relParams(projection, rel)); err != nil {
-				return nil, err
+			byType[relType] = append(byType[relType], relRow(projection, rel))
+		}
+		for relType, rows := range byType {
+			if _, err := tx.Run(ctx, upsertRelsCypher(relType), map[string]any{"rows": rows, "token": token}); err != nil {
+				return nil, fmt.Errorf("upserting %q relationships: %w", relType, err)
 			}
+		}
+
+		// Mark-and-sweep: remove stale relationships first, then stale nodes.
+		params := map[string]any{"projection": string(projection), "token": token}
+		if _, err := tx.Run(ctx, pruneRelsCypher, params); err != nil {
+			return nil, fmt.Errorf("pruning relationships: %w", err)
+		}
+		if _, err := tx.Run(ctx, pruneNodesCypher, params); err != nil {
+			return nil, fmt.Errorf("pruning nodes: %w", err)
 		}
 		return nil, nil
 	})
 	if err != nil {
-		return fmt.Errorf("upserting %d relationship(s): %w", len(rels), err)
+		return Counts{}, fmt.Errorf("syncing projection %q: %w", projection, err)
 	}
-	return nil
+
+	return s.Counts(ctx, projection)
 }
 
 const deleteProjectionCypher = `
@@ -229,7 +220,7 @@ DETACH DELETE n`
 // DeleteProjection removes all data owned by a projection.
 func (s *Neo4jStore) DeleteProjection(ctx context.Context, projection ProjectionID) error {
 	sess := s.session(ctx)
-	defer sess.Close(ctx)
+	defer func() { _ = sess.Close(ctx) }()
 
 	_, err := sess.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
 		return tx.Run(ctx, deleteProjectionCypher, map[string]any{"projection": string(projection)})
@@ -249,18 +240,14 @@ RETURN nodes, count(r) AS rels`
 // Counts returns the node and relationship counts for a projection.
 func (s *Neo4jStore) Counts(ctx context.Context, projection ProjectionID) (Counts, error) {
 	sess := s.session(ctx)
-	defer sess.Close(ctx)
+	defer func() { _ = sess.Close(ctx) }()
 
 	result, err := sess.ExecuteRead(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
 		res, err := tx.Run(ctx, countsCypher, map[string]any{"projection": string(projection)})
 		if err != nil {
 			return nil, err
 		}
-		rec, err := res.Single(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return rec, nil
+		return res.Single(ctx)
 	})
 	if err != nil {
 		return Counts{}, fmt.Errorf("counting projection %q: %w", projection, err)
@@ -269,10 +256,7 @@ func (s *Neo4jStore) Counts(ctx context.Context, projection ProjectionID) (Count
 	rec := result.(*neo4j.Record)
 	nodes, _ := rec.Get("nodes")
 	rels, _ := rec.Get("rels")
-	return Counts{
-		Nodes:         asInt64(nodes),
-		Relationships: asInt64(rels),
-	}, nil
+	return Counts{Nodes: asInt64(nodes), Relationships: asInt64(rels)}, nil
 }
 
 // Close releases the driver and its connection pool.
