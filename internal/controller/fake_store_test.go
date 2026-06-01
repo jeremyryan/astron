@@ -66,6 +66,16 @@ func (f *fakeStore) DeleteProjection(_ context.Context, p graph.ProjectionID) er
 	return nil
 }
 
+func (f *fakeStore) ReadGraph(context.Context, graph.ProjectionID) (graph.GraphData, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	data := graph.GraphData{Relationships: append([]graph.Relationship(nil), f.rels...)}
+	for _, n := range f.nodes {
+		data.Nodes = append(data.Nodes, n)
+	}
+	return data, nil
+}
+
 func (f *fakeStore) Counts(context.Context, graph.ProjectionID) (graph.Counts, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

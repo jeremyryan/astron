@@ -1,3 +1,11 @@
+# Build the web UI
+FROM node:22 AS web
+WORKDIR /web
+COPY web/package.json web/package-lock.json* ./
+RUN npm install
+COPY web/ ./
+RUN npm run build
+
 # Build the manager binary
 FROM golang:1.25 AS builder
 ARG TARGETOS
@@ -13,6 +21,8 @@ RUN go mod download
 
 # Copy the Go source (relies on .dockerignore to filter)
 COPY . .
+# Bring in the built web assets so they are embedded into the binary.
+COPY --from=web /web/dist ./web/dist
 
 # Build
 # the GOARCH has no default value to allow the binary to be built according to the host where the command

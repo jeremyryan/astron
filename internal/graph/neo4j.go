@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"maps"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -257,6 +258,114 @@ func (s *Neo4jStore) Counts(ctx context.Context, projection ProjectionID) (Count
 	nodes, _ := rec.Get("nodes")
 	rels, _ := rec.Get("rels")
 	return Counts{Nodes: asInt64(nodes), Relationships: asInt64(rels)}, nil
+}
+
+const readGraphCypher = `
+MATCH (n:` + resourceLabel + ` {` + projectionProperty + `: $projection})
+WITH collect(n) AS nodes
+OPTIONAL MATCH (a:` + resourceLabel + `)-[r {` + projectionProperty + `: $projection}]->(b:` + resourceLabel + `)
+RETURN nodes, collect({type: type(r), fromKey: a._key, toKey: b._key, props: properties(r)}) AS rels`
+
+// ReadGraph returns all nodes and relationships owned by a projection.
+func (s *Neo4jStore) ReadGraph(ctx context.Context, projection ProjectionID) (GraphData, error) {
+	sess := s.session(ctx)
+	defer func() { _ = sess.Close(ctx) }()
+
+	result, err := sess.ExecuteRead(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		res, err := tx.Run(ctx, readGraphCypher, map[string]any{"projection": string(projection)})
+		if err != nil {
+			return nil, err
+		}
+		return res.Single(ctx)
+	})
+	if err != nil {
+		return GraphData{}, fmt.Errorf("reading graph for projection %q: %w", projection, err)
+	}
+
+	rec := result.(*neo4j.Record)
+	data := GraphData{}
+
+	rawNodes, _ := rec.Get("nodes")
+	if nodes, ok := rawNodes.([]any); ok {
+		for _, n := range nodes {
+			node, ok := n.(neo4j.Node)
+			if !ok {
+				continue
+			}
+			data.Nodes = append(data.Nodes, nodeFromProps(node.Props))
+		}
+	}
+
+	rawRels, _ := rec.Get("rels")
+	if rels, ok := rawRels.([]any); ok {
+		for _, r := range rels {
+			rel, ok := r.(map[string]any)
+			if !ok || rel["type"] == nil {
+				continue
+			}
+			data.Relationships = append(data.Relationships, relFromProps(rel))
+		}
+	}
+	return data, nil
+}
+
+// nodeFromProps reconstructs a Node from stored Neo4J node properties.
+func nodeFromProps(props map[string]any) Node {
+	ref := Ref{
+		APIVersion: asString(props["apiVersion"]),
+		Kind:       asString(props["kind"]),
+		Namespace:  asString(props["namespace"]),
+		Name:       asString(props["name"]),
+		UID:        asString(props["uid"]),
+	}
+	userProps := map[string]any{}
+	for k, v := range props {
+		switch k {
+		case "apiVersion", "kind", "namespace", "name", "uid", "_key", projectionProperty, syncTokenProperty:
+			continue
+		default:
+			userProps[k] = v
+		}
+	}
+	return Node{Ref: ref, Properties: userProps}
+}
+
+// relFromProps reconstructs a Relationship from a read row. The endpoint keys
+// are the synthetic node keys "<projection>|<uid>"; the UID suffix is used as
+// the endpoint identity.
+func relFromProps(row map[string]any) Relationship {
+	props := map[string]any{}
+	if p, ok := row["props"].(map[string]any); ok {
+		for k, v := range p {
+			if k == projectionProperty || k == syncTokenProperty {
+				continue
+			}
+			props[k] = v
+		}
+	}
+	return Relationship{
+		Type:       asString(row["type"]),
+		From:       Ref{UID: keyToUID(asString(row["fromKey"]))},
+		To:         Ref{UID: keyToUID(asString(row["toKey"]))},
+		Properties: props,
+	}
+}
+
+// keyToUID extracts the identity suffix from a synthetic node key. For
+// UID-based keys ("<projection>|<uid>") it returns the uid; otherwise the whole
+// remainder after the first separator.
+func keyToUID(key string) string {
+	if _, after, found := strings.Cut(key, "|"); found {
+		return after
+	}
+	return key
+}
+
+func asString(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
 }
 
 // Close releases the driver and its connection pool.

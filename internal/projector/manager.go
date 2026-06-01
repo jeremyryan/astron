@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -31,6 +32,9 @@ import (
 	"github.com/project-gamera/gamera/internal/graph"
 	"github.com/project-gamera/gamera/internal/relationship"
 )
+
+// ErrNotRunning indicates no projector is currently serving a projection.
+var ErrNotRunning = errors.New("no projector running for projection")
 
 // StoreFactory builds a graph.Store for a projection from a resolved config.
 type StoreFactory func(cfg graph.Neo4jConfig) (graph.Store, error)
@@ -141,6 +145,16 @@ func (m *Manager) Get(id graph.ProjectionID) (*Projector, bool) {
 		return nil, false
 	}
 	return e.projector, true
+}
+
+// ReadGraph returns the materialized graph for a running projection. It returns
+// ErrNotRunning when no projector is serving the projection.
+func (m *Manager) ReadGraph(ctx context.Context, id graph.ProjectionID) (graph.GraphData, error) {
+	p, ok := m.Get(id)
+	if !ok {
+		return graph.GraphData{}, ErrNotRunning
+	}
+	return p.ReadGraph(ctx)
 }
 
 // specHash produces a stable fingerprint of the inputs that affect a

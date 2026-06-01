@@ -17,9 +17,13 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
+	"errors"
 	"flag"
+	"net/http"
 	"os"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -27,16 +31,22 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/dynamic"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
+	"github.com/project-gamera/gamera/internal/api"
 	"github.com/project-gamera/gamera/internal/controller"
+	"github.com/project-gamera/gamera/internal/graph"
+	"github.com/project-gamera/gamera/internal/projector"
+	"github.com/project-gamera/gamera/web"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -61,7 +71,10 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
+	var apiAddr string
 	var tlsOpts []func(*tls.Config)
+	flag.StringVar(&apiAddr, "api-bind-address", ":8082",
+		"The address the read API and web UI server binds to. Set to 0 to disable.")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -178,14 +191,34 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Build the shared projector manager so the controller and the API server
+	// operate over the same set of running projectors.
+	dynClient, err := dynamic.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		setupLog.Error(err, "Failed to create dynamic client")
+		os.Exit(1)
+	}
+	projectors := projector.NewManager(dynClient, mgr.GetRESTMapper(), func(cfg graph.Neo4jConfig) (graph.Store, error) {
+		return graph.NewNeo4jStore(cfg)
+	})
+
 	if err := (&controller.GraphProjectionReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		Projectors: projectors,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "graphprojection")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
+
+	if apiAddr != "0" {
+		apiServer := api.NewServer(mgr.GetClient(), projectors, web.Assets())
+		if err := mgr.Add(newAPIRunnable(apiAddr, apiServer.Handler())); err != nil {
+			setupLog.Error(err, "Failed to register API server")
+			os.Exit(1)
+		}
+	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "Failed to set up health check")
@@ -201,4 +234,33 @@ func main() {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
 	}
+}
+
+// newAPIRunnable wraps the read API/UI HTTP server as a controller-runtime
+// Runnable so it shares the manager's lifecycle and leader-election-free start.
+func newAPIRunnable(addr string, handler http.Handler) manager.Runnable {
+	return manager.RunnableFunc(func(ctx context.Context) error {
+		srv := &http.Server{
+			Addr:              addr,
+			Handler:           handler,
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+		setupLog.Info("Starting API/UI server", "address", addr)
+
+		errCh := make(chan error, 1)
+		go func() {
+			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errCh <- err
+			}
+		}()
+
+		select {
+		case err := <-errCh:
+			return err
+		case <-ctx.Done():
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			return srv.Shutdown(shutdownCtx)
+		}
+	})
 }

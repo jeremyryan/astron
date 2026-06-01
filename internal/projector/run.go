@@ -125,6 +125,11 @@ func (p *Projector) LastCounts() (graph.Counts, error) {
 	return p.lastCounts, p.lastSyncErr
 }
 
+// ReadGraph returns the materialized graph for this projection from the store.
+func (p *Projector) ReadGraph(ctx context.Context) (graph.GraphData, error) {
+	return p.opts.Store.ReadGraph(ctx, p.opts.ID)
+}
+
 // enqueue requests a (debounced) re-sync without blocking the caller.
 func (p *Projector) enqueue() {
 	select {

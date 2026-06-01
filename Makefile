@@ -108,8 +108,12 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 
 ##@ Build
 
+.PHONY: web
+web: ## Build the web UI into web/dist (requires npm).
+	cd web && npm install && npm run build
+
 .PHONY: build
-build: manifests generate fmt vet ## Build manager binary.
+build: manifests generate fmt vet ## Build manager binary (embeds web/dist).
 	go build -o bin/manager cmd/main.go
 
 .PHONY: run

@@ -48,6 +48,10 @@ type Store interface {
 	// projection.
 	Counts(ctx context.Context, projection ProjectionID) (Counts, error)
 
+	// ReadGraph returns the full set of nodes and relationships owned by the
+	// given projection, for read-only consumption by the API/UI.
+	ReadGraph(ctx context.Context, projection ProjectionID) (GraphData, error)
+
 	// Close releases any resources held by the store (connections, pools).
 	Close(ctx context.Context) error
 }

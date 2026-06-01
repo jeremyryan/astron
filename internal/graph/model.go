@@ -58,6 +58,16 @@ func (r Ref) String() string {
 	return fmt.Sprintf("%s/%s %s/%s", r.APIVersion, r.Kind, r.Namespace, r.Name)
 }
 
+// ID returns a stable identifier for the ref, suitable for use as a graph node
+// id in API responses. The UID is preferred; otherwise a composite of the
+// identifying fields is used.
+func (r Ref) ID() string {
+	if r.UID != "" {
+		return r.UID
+	}
+	return fmt.Sprintf("%s/%s/%s/%s", r.APIVersion, r.Kind, r.Namespace, r.Name)
+}
+
 // Node is a Kubernetes resource materialized as a graph node.
 type Node struct {
 	// Ref identifies the underlying Kubernetes object.
@@ -83,6 +93,12 @@ type Relationship struct {
 // relationships, so that data from different projections can be tracked and
 // cleaned up independently.
 type ProjectionID string
+
+// GraphData is a read-only snapshot of a projection's materialized graph.
+type GraphData struct {
+	Nodes         []Node
+	Relationships []Relationship
+}
 
 // NewRefFromObjectMeta builds a Ref from an object's GVK and metadata.
 func NewRefFromObjectMeta(gvk schema.GroupVersionKind, meta metav1.Object) Ref {
