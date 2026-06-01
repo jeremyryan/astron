@@ -1,0 +1,42 @@
+Project Gamera has been installed.
+
+Release:   {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+
+Operator deployment: {{ include "gamera.fullname" . }}
+
+{{- if .Values.neo4j.enabled }}
+
+A bundled Neo4J instance was deployed as a dependency.
+  Bolt URI:  {{ include "gamera.neo4jUri" . }}
+  Username:  {{ .Values.connection.username }}
+  Password:  (from {{ if .Values.connection.existingSecret }}existing secret "{{ .Values.connection.existingSecret }}"{{ else }}value neo4j.neo4j.password{{ end }})
+
+  NOTE: change the default Neo4J password (neo4j.neo4j.password) for any
+  non-development install.
+{{- else }}
+
+Using an external Neo4J instance:
+  Bolt URI:  {{ include "gamera.neo4jUri" . | default "(set connection.uri)" }}
+  Credentials secret: {{ include "gamera.credentialsSecretName" . }}
+{{- end }}
+
+{{- if .Values.controller.api.enabled }}
+
+To open the web UI locally:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "gamera.fullname" . }}-api {{ .Values.service.api.port }}:{{ .Values.service.api.port }}
+
+  Then browse to http://localhost:{{ .Values.service.api.port }}
+{{- end }}
+
+{{- if .Values.defaultProjection.enabled }}
+
+A default GraphProjection "{{ .Values.defaultProjection.name }}" was created. Inspect it with:
+
+  kubectl -n {{ .Release.Namespace }} get graphprojection {{ .Values.defaultProjection.name }}
+{{- else }}
+
+No default GraphProjection was created. Create one to start projecting the
+cluster graph (see values: defaultProjection.enabled=true).
+{{- end }}

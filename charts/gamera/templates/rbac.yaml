@@ -1,0 +1,108 @@
+{{- if .Values.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "gamera.fullname" . }}-manager
+  labels:
+    {{- include "gamera.labels" . | nindent 4 }}
+rules:
+# Read any resource in the cluster so the dynamic watchers can project them.
+- apiGroups: ["*"]
+  resources: ["*"]
+  verbs: ["get", "list", "watch"]
+# GraphProjection CRD.
+- apiGroups: ["gamera.gamera.io"]
+  resources: ["graphprojections"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+- apiGroups: ["gamera.gamera.io"]
+  resources: ["graphprojections/status"]
+  verbs: ["get", "patch", "update"]
+- apiGroups: ["gamera.gamera.io"]
+  resources: ["graphprojections/finalizers"]
+  verbs: ["update"]
+{{- if .Values.controller.metrics.secure }}
+---
+# Allow the metrics endpoint to authenticate/authorize scrapers.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "gamera.fullname" . }}-metrics-auth
+  labels:
+    {{- include "gamera.labels" . | nindent 4 }}
+rules:
+- apiGroups: ["authentication.k8s.io"]
+  resources: ["tokenreviews"]
+  verbs: ["create"]
+- apiGroups: ["authorization.k8s.io"]
+  resources: ["subjectaccessreviews"]
+  verbs: ["create"]
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "gamera.fullname" . }}-manager
+  labels:
+    {{- include "gamera.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "gamera.fullname" . }}-manager
+subjects:
+- kind: ServiceAccount
+  name: {{ include "gamera.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+{{- if .Values.controller.metrics.secure }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "gamera.fullname" . }}-metrics-auth
+  labels:
+    {{- include "gamera.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "gamera.fullname" . }}-metrics-auth
+subjects:
+- kind: ServiceAccount
+  name: {{ include "gamera.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- if .Values.controller.leaderElection }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "gamera.fullname" . }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gamera.labels" . | nindent 4 }}
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "gamera.fullname" . }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gamera.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "gamera.fullname" . }}-leader-election
+subjects:
+- kind: ServiceAccount
+  name: {{ include "gamera.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

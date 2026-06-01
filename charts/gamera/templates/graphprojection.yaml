@@ -1,0 +1,39 @@
+{{- if .Values.defaultProjection.enabled }}
+{{- $uri := include "gamera.neo4jUri" . }}
+{{- if not $uri }}
+{{- fail "defaultProjection.enabled is true but no Neo4J URI is available: set connection.uri, or enable the bundled Neo4J (neo4j.enabled=true)." }}
+{{- end }}
+apiVersion: gamera.gamera.io/v1alpha1
+kind: GraphProjection
+metadata:
+  name: {{ .Values.defaultProjection.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gamera.labels" . | nindent 4 }}
+  {{- if .Values.neo4j.enabled }}
+  annotations:
+    # Ensure the CRD and operator are in place before the sample is applied.
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+  {{- end }}
+spec:
+  neo4j:
+    uri: {{ $uri | quote }}
+    database: {{ .Values.connection.database | quote }}
+    authSecretRef:
+      name: {{ include "gamera.credentialsSecretName" . }}
+      namespace: {{ .Release.Namespace }}
+      usernameKey: {{ .Values.connection.usernameKey | quote }}
+      passwordKey: {{ .Values.connection.passwordKey | quote }}
+  {{- with .Values.defaultProjection.resyncInterval }}
+  resyncInterval: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.defaultProjection.scope }}
+  scope:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.defaultProjection.relationships }}
+  relationships:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

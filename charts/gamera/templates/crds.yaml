@@ -1,0 +1,396 @@
+{{- if .Values.crds.install }}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+    helm.sh/resource-policy: keep
+  name: graphprojections.gamera.gamera.io
+spec:
+  group: gamera.gamera.io
+  names:
+    kind: GraphProjection
+    listKind: GraphProjectionList
+    plural: graphprojections
+    singular: graphprojection
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.nodeCount
+      name: Nodes
+      type: integer
+    - jsonPath: .status.relationshipCount
+      name: Edges
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: GraphProjection is the Schema for the graphprojections API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of GraphProjection
+            properties:
+              neo4j:
+                description: |-
+                  neo4j configures the connection to the target Neo4J database that this
+                  projection writes nodes and relationships into.
+                properties:
+                  authSecretRef:
+                    description: |-
+                      authSecretRef references a Secret containing the credentials used to
+                      authenticate to Neo4J. The Secret is expected to contain "username" and
+                      "password" keys unless overridden by usernameKey/passwordKey.
+                    properties:
+                      name:
+                        description: name is the name of the Secret.
+                        minLength: 1
+                        type: string
+                      namespace:
+                        description: |-
+                          namespace is the namespace of the Secret. When omitted, the namespace of
+                          the GraphProjection resource is used.
+                        type: string
+                      passwordKey:
+                        default: password
+                        description: passwordKey is the Secret data key holding the
+                          Neo4J password.
+                        type: string
+                      usernameKey:
+                        default: username
+                        description: usernameKey is the Secret data key holding the
+                          Neo4J username.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  database:
+                    default: neo4j
+                    description: database is the name of the Neo4J database to write
+                      into.
+                    type: string
+                  uri:
+                    description: |-
+                      uri is the bolt/neo4j connection URI of the target database,
+                      e.g. "neo4j://neo4j.gamera-system.svc:7687".
+                    minLength: 1
+                    type: string
+                required:
+                - authSecretRef
+                - uri
+                type: object
+              relationships:
+                description: |-
+                  relationships enumerates the relationship rules used to derive edges
+                  between resource nodes in the graph. When empty, a built-in default set of
+                  well-known relationships (e.g. OWNS, MOUNTS, SELECTS) is applied.
+                items:
+                  description: RelationshipRule defines how an edge between two resource
+                    kinds is derived.
+                  properties:
+                    from:
+                      description: from is the source resource kind of the edge.
+                      properties:
+                        group:
+                          description: |-
+                            group is the API group of the resource, e.g. "apps". The empty string
+                            denotes the core API group.
+                          type: string
+                        kind:
+                          description: kind is the kind of the resource, e.g. "Pod"
+                            or "Deployment".
+                          minLength: 1
+                          type: string
+                        version:
+                          description: version is the API version of the resource,
+                            e.g. "v1".
+                          type: string
+                      required:
+                      - kind
+                      type: object
+                    name:
+                      description: |-
+                        name is a unique identifier for this relationship rule within the
+                        projection.
+                      minLength: 1
+                      type: string
+                    strategy:
+                      description: |-
+                        strategy selects how the relationship between source and target resources
+                        is determined.
+                      enum:
+                      - OwnerReference
+                      - LabelSelector
+                      - VolumeMount
+                      - Custom
+                      type: string
+                    to:
+                      description: to is the target resource kind of the edge.
+                      properties:
+                        group:
+                          description: |-
+                            group is the API group of the resource, e.g. "apps". The empty string
+                            denotes the core API group.
+                          type: string
+                        kind:
+                          description: kind is the kind of the resource, e.g. "Pod"
+                            or "Deployment".
+                          minLength: 1
+                          type: string
+                        version:
+                          description: version is the API version of the resource,
+                            e.g. "v1".
+                          type: string
+                      required:
+                      - kind
+                      type: object
+                    type:
+                      description: |-
+                        type is the Neo4J relationship (edge) type to create,
+                        e.g. "OWNS", "MOUNTS", or "SELECTS".
+                      minLength: 1
+                      type: string
+                  required:
+                  - from
+                  - name
+                  - strategy
+                  - to
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+              resyncInterval:
+                description: |-
+                  resyncInterval is how often the projection performs a full reconciliation
+                  of cluster state against the graph, independent of watch events. This acts
+                  as a safety net against missed events and drift.
+                type: string
+              scope:
+                description: |-
+                  scope selects the portion of the cluster that this projection watches and
+                  captures. When omitted, the projection watches the entire cluster.
+                properties:
+                  labelSelector:
+                    description: |-
+                      labelSelector further restricts captured resources to those matching the
+                      given label selector.
+                    properties:
+                      matchExpressions:
+                        description: matchExpressions is a list of label selector
+                          requirements. The requirements are ANDed.
+                        items:
+                          description: |-
+                            A label selector requirement is a selector that contains values, a key, and an operator that
+                            relates the key and values.
+                          properties:
+                            key:
+                              description: key is the label key that the selector
+                                applies to.
+                              type: string
+                            operator:
+                              description: |-
+                                operator represents a key's relationship to a set of values.
+                                Valid operators are In, NotIn, Exists and DoesNotExist.
+                              type: string
+                            values:
+                              description: |-
+                                values is an array of string values. If the operator is In or NotIn,
+                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                the values array must be empty. This array is replaced during a strategic
+                                merge patch.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                          - key
+                          - operator
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                          map is equivalent to an element of matchExpressions, whose key field is "key", the
+                          operator is "In", and the values array contains only "value". The requirements are ANDed.
+                        type: object
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  namespaces:
+                    description: |-
+                      namespaces restricts the projection to the named namespaces. When empty,
+                      resources from all namespaces (and cluster-scoped resources) are captured.
+                    items:
+                      type: string
+                    type: array
+                  resources:
+                    description: |-
+                      resources is an allow-list of resource kinds to capture as nodes. When
+                      empty, a built-in default set of common workload, configuration and
+                      networking resources is captured.
+                    items:
+                      description: |-
+                        ResourceSelector identifies a Kubernetes resource type to capture as graph
+                        nodes.
+                      properties:
+                        group:
+                          description: |-
+                            group is the API group of the resource, e.g. "apps". The empty string
+                            denotes the core API group.
+                          type: string
+                        kind:
+                          description: kind is the kind of the resource, e.g. "Pod"
+                            or "Deployment".
+                          minLength: 1
+                          type: string
+                        version:
+                          description: version is the API version of the resource,
+                            e.g. "v1".
+                          type: string
+                      required:
+                      - kind
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - kind
+                    x-kubernetes-list-type: map
+                type: object
+            required:
+            - neo4j
+            type: object
+          status:
+            description: status defines the observed state of GraphProjection
+            properties:
+              conditions:
+                description: |-
+                  conditions represent the current state of the GraphProjection resource.
+                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
+
+                  Standard condition types include:
+                  - "Available": the resource is fully functional
+                  - "Progressing": the resource is being created or updated
+                  - "Degraded": the resource failed to reach or maintain its desired state
+
+                  The status of each condition is one of True, False, or Unknown.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              lastSyncTime:
+                description: |-
+                  lastSyncTime is the timestamp of the last successful full reconciliation
+                  against the graph database.
+                format: date-time
+                type: string
+              nodeCount:
+                description: |-
+                  nodeCount is the number of resource nodes currently materialized in the
+                  graph by this projection.
+                format: int64
+                type: integer
+              observedGeneration:
+                description: |-
+                  observedGeneration is the most recent generation observed by the
+                  controller for this GraphProjection.
+                format: int64
+                type: integer
+              phase:
+                description: phase is a high-level summary of where the projection
+                  is in its lifecycle.
+                type: string
+              relationshipCount:
+                description: |-
+                  relationshipCount is the number of relationships (edges) currently
+                  materialized in the graph by this projection.
+                format: int64
+                type: integer
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+{{- end }}

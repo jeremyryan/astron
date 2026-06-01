@@ -1,0 +1,39 @@
+{{- if .Values.controller.api.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "gamera.fullname" . }}-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gamera.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.api.type }}
+  selector:
+    {{- include "gamera.selectorLabels" . | nindent 4 }}
+    control-plane: controller-manager
+  ports:
+    - name: api
+      port: {{ .Values.service.api.port }}
+      targetPort: api
+      protocol: TCP
+{{- end }}
+{{- if .Values.controller.metrics.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "gamera.fullname" . }}-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gamera.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.metrics.type }}
+  selector:
+    {{- include "gamera.selectorLabels" . | nindent 4 }}
+    control-plane: controller-manager
+  ports:
+    - name: metrics
+      port: {{ .Values.service.metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+{{- end }}

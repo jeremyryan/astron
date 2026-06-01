@@ -1,0 +1,25 @@
+apiVersion: v2
+name: gamera
+description: |
+  Project Gamera - a Kubernetes operator that projects cluster resources and
+  their relationships into a Neo4J graph, with a web UI to explore them.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - kubernetes
+  - operator
+  - neo4j
+  - graph
+  - visualization
+home: https://github.com/project-gamera/gamera
+sources:
+  - https://github.com/project-gamera/gamera
+maintainers:
+  - name: Project Gamera
+dependencies:
+  - name: neo4j
+    version: "5.26.0"
+    repository: "https://helm.neo4j.com/neo4j"
+    condition: neo4j.enabled
+    alias: neo4j

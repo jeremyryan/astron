@@ -1,0 +1,151 @@
+# Default values for the Gamera operator chart.
+
+# -- Number of operator replicas. Leader election ensures a single active
+# controller, so >1 only provides standby redundancy.
+replicaCount: 1
+
+image:
+  # -- Operator container image repository.
+  repository: ghcr.io/project-gamera/gamera
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+  # -- Image tag. Defaults to the chart appVersion when empty.
+  tag: ""
+
+# -- Image pull secrets for private registries.
+imagePullSecrets: []
+# -- Override the chart name used in resource names.
+nameOverride: ""
+# -- Override the fully qualified release name.
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Create a ServiceAccount for the operator.
+  create: true
+  # -- Annotations to add to the ServiceAccount.
+  annotations: {}
+  # -- ServiceAccount name. Generated from the release when empty.
+  name: ""
+
+rbac:
+  # -- Create the ClusterRole/Role and bindings the operator needs.
+  create: true
+
+crds:
+  # -- Install the GraphProjection CRD with this chart. The CRD is annotated
+  # with helm.sh/resource-policy: keep so it survives uninstall.
+  install: true
+
+controller:
+  # -- Enable leader election (recommended).
+  leaderElection: true
+  # Health probe endpoint.
+  healthProbeBindAddress: ":8081"
+  metrics:
+    # -- Expose the controller metrics endpoint.
+    enabled: true
+    # -- Bind address for metrics. ":8443" (HTTPS) or ":8080" (HTTP).
+    bindAddress: ":8443"
+    # -- Serve metrics over HTTPS with authn/authz.
+    secure: true
+  api:
+    # -- Enable the read API and embedded web UI server.
+    enabled: true
+    # -- Bind address for the API/UI server.
+    bindAddress: ":8082"
+  # -- Extra args passed to the manager.
+  extraArgs: []
+  # -- Resource requests/limits for the manager container.
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 10m
+      memory: 64Mi
+  # -- Pod-level security context.
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  # -- Container-level security context.
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+
+service:
+  api:
+    # -- Service type for the API/UI server.
+    type: ClusterIP
+    # -- Service port for the API/UI server.
+    port: 8082
+  metrics:
+    # -- Service type for the metrics endpoint.
+    type: ClusterIP
+    # -- Service port for the metrics endpoint.
+    port: 8443
+
+# Connection to Neo4J used to materialize the graph. These values feed the
+# credentials Secret and the optional default GraphProjection.
+connection:
+  # -- Bolt/neo4j URI of the target database. Leave empty to auto-derive the
+  # in-cluster address of the bundled Neo4J when neo4j.enabled is true.
+  uri: ""
+  # -- Target Neo4J database name.
+  database: "neo4j"
+  # -- Username for the credentials Secret created by this chart.
+  username: "neo4j"
+  # -- Password for the credentials Secret. When neo4j.enabled is true and this
+  # is empty, the bundled Neo4J password (neo4j.neo4j.password) is used so the
+  # two stay in sync.
+  password: ""
+  # -- Use an existing Secret for credentials instead of creating one. When set,
+  # username/password above are ignored.
+  existingSecret: ""
+  # -- Key in the credentials Secret holding the username.
+  usernameKey: "username"
+  # -- Key in the credentials Secret holding the password.
+  passwordKey: "password"
+
+# Optionally create a default GraphProjection on install.
+defaultProjection:
+  # -- Create a GraphProjection resource pointing at the configured Neo4J.
+  enabled: true
+  # -- Name of the default GraphProjection.
+  name: "default"
+  # -- resyncInterval for the default projection.
+  resyncInterval: "5m"
+  # -- Scope for the default projection (namespaces/resources/labelSelector).
+  # Empty scope watches the whole cluster with the built-in default resource set.
+  scope: {}
+  # -- Relationship rules. Empty uses the operator's built-in defaults.
+  relationships: []
+
+# Bundled Neo4J subchart (https://helm.neo4j.com/neo4j).
+# Set neo4j.enabled to false to use an existing/external Neo4J instead; then
+# configure connection.uri and connection.existingSecret (or username/password).
+neo4j:
+  # -- Deploy the bundled Neo4J subchart. Set to false to use an existing one.
+  enabled: true
+  # The keys below are passed to the official Neo4J chart.
+  neo4j:
+    # -- Name of the bundled Neo4J instance (also its in-cluster service name).
+    name: gamera-neo4j
+    # -- Password for the bundled Neo4J 'neo4j' user. CHANGE THIS.
+    password: "change-me-please"
+    # -- Neo4J edition.
+    edition: community
+  # -- Disable cluster DNS lookups that require elevated permissions.
+  disableLookups: true
+  volumes:
+    data:
+      # -- Storage source for the data volume.
+      mode: defaultStorageClass
