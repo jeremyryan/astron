@@ -34,6 +34,7 @@ import (
 
 	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
 	"github.com/project-gamera/gamera/internal/graph"
+	"github.com/project-gamera/gamera/internal/relationship"
 )
 
 const (
@@ -70,6 +71,10 @@ type GraphProjectionReconciler struct {
 
 	// NewStore builds a graph.Store for a projection. Defaults to a Neo4J store.
 	NewStore StoreFactory
+
+	// Engine derives graph relationships from a projection's rules. Defaults to
+	// the built-in engine with the standard strategies registered.
+	Engine *relationship.Engine
 }
 
 // +kubebuilder:rbac:groups=gamera.gamera.io,resources=graphprojections,verbs=get;list;watch;create;update;patch;delete
@@ -125,9 +130,15 @@ func (r *GraphProjectionReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return r.fail(ctx, &projection, "ConnectionFailed", err)
 	}
 
+	// The relationship engine (r.Engine, see internal/relationship) is ready to
+	// translate the projection's rules into graph edges. It operates over a
+	// relationship.Index snapshot of the in-scope resources.
+	//
 	// TODO(gamera): start/refresh the dynamic informers for the resources in
-	// scope and apply the relationship rules, upserting nodes and edges into the
-	// store. For now we report the current counts and mark the projection ready.
+	// spec.scope, build a relationship.Index from their caches, upsert the
+	// resource nodes, then call r.Engine.Derive(spec.relationships, index) and
+	// upsert the resulting edges via store.UpsertRelationships. For now we report
+	// the current counts and mark the projection ready.
 	counts, err := store.Counts(ctx, graph.ProjectionID(projection.UID))
 	if err != nil {
 		log.Error(err, "failed to read projection counts")
@@ -296,6 +307,9 @@ func (r *GraphProjectionReconciler) resyncInterval(projection *gamerav1alpha1.Gr
 func (r *GraphProjectionReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.NewStore == nil {
 		r.NewStore = defaultStoreFactory
+	}
+	if r.Engine == nil {
+		r.Engine = relationship.NewEngine()
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&gamerav1alpha1.GraphProjection{}).
