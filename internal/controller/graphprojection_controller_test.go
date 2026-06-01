@@ -21,6 +21,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -28,34 +29,65 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
+	"github.com/project-gamera/gamera/internal/graph"
 )
 
 var _ = Describe("GraphProjection Controller", func() {
 	Context("When reconciling a resource", func() {
-		const resourceName = "test-resource"
+		const (
+			resourceName = "test-resource"
+			secretName   = "neo4j-credentials"
+			namespace    = "default"
+		)
 
 		ctx := context.Background()
 
 		typeNamespacedName := types.NamespacedName{
 			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+			Namespace: namespace,
 		}
-		graphprojection := &gamerav1alpha1.GraphProjection{}
+
+		var store *fakeStore
+
+		newReconciler := func() *GraphProjectionReconciler {
+			return &GraphProjectionReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+				NewStore: func(graph.Neo4jConfig) (graph.Store, error) {
+					return store, nil
+				},
+			}
+		}
 
 		BeforeEach(func() {
+			store = newFakeStore()
+
+			By("creating the Neo4J credentials secret")
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: namespace},
+				Data: map[string][]byte{
+					"username": []byte("neo4j"),
+					"password": []byte("s3cret"),
+				},
+			}
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: secretName, Namespace: namespace}, &corev1.Secret{})
+			if err != nil && errors.IsNotFound(err) {
+				Expect(k8sClient.Create(ctx, secret)).To(Succeed())
+			}
+
 			By("creating the custom resource for the Kind GraphProjection")
-			err := k8sClient.Get(ctx, typeNamespacedName, graphprojection)
+			err = k8sClient.Get(ctx, typeNamespacedName, &gamerav1alpha1.GraphProjection{})
 			if err != nil && errors.IsNotFound(err) {
 				resource := &gamerav1alpha1.GraphProjection{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
-						Namespace: "default",
+						Namespace: namespace,
 					},
 					Spec: gamerav1alpha1.GraphProjectionSpec{
 						Neo4j: gamerav1alpha1.Neo4jConnection{
 							URI: "neo4j://neo4j.gamera-system.svc:7687",
 							AuthSecretRef: gamerav1alpha1.SecretReference{
-								Name: "neo4j-credentials",
+								Name: secretName,
 							},
 						},
 					},
@@ -66,48 +98,99 @@ var _ = Describe("GraphProjection Controller", func() {
 
 		AfterEach(func() {
 			resource := &gamerav1alpha1.GraphProjection{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
+			if err := k8sClient.Get(ctx, typeNamespacedName, resource); err == nil {
+				By("Cleanup the specific resource instance GraphProjection")
+				Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+
+				By("Reconciling so the finalizer is removed and deletion completes")
+				_, err := newReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+				Expect(err).NotTo(HaveOccurred())
+
+				Eventually(func() bool {
+					return errors.IsNotFound(k8sClient.Get(ctx, typeNamespacedName, &gamerav1alpha1.GraphProjection{}))
+				}).Should(BeTrue())
+			}
+
+			secret := &corev1.Secret{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: secretName, Namespace: namespace}, secret); err == nil {
+				Expect(k8sClient.Delete(ctx, secret)).To(Succeed())
+			}
+		})
+
+		It("should connect to the graph store and mark the projection ready", func() {
+			controllerReconciler := newReconciler()
+
+			By("First reconcile adds the finalizer")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Cleanup the specific resource instance GraphProjection")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-
-			By("Reconciling so the finalizer is removed and deletion completes")
-			controllerReconciler := &GraphProjectionReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
+			By("Second reconcile verifies connectivity and updates status")
 			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 			Expect(err).NotTo(HaveOccurred())
 
-			Eventually(func() bool {
-				return errors.IsNotFound(k8sClient.Get(ctx, typeNamespacedName, &gamerav1alpha1.GraphProjection{}))
-			}).Should(BeTrue())
-		})
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := &GraphProjectionReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
+			By("Verifying the store connectivity was checked")
+			Expect(store.verifyCalls).To(BeNumerically(">=", 1))
 
-			By("First reconcile adds the finalizer")
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Second reconcile updates status")
-			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Verifying the projection status reflects the syncing phase")
+			By("Verifying the projection status reflects the ready phase")
 			updated := &gamerav1alpha1.GraphProjection{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
-			Expect(updated.Status.Phase).To(Equal(phaseSyncing))
+			Expect(updated.Status.Phase).To(Equal(phaseReady))
 			Expect(updated.Status.ObservedGeneration).To(Equal(updated.Generation))
+
+			cond := metaCondition(updated, conditionAvailable)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+		})
+
+		It("should mark the projection in error when the store cannot connect", func() {
+			store.verifyErr = context.DeadlineExceeded
+			controllerReconciler := newReconciler()
+
+			By("First reconcile adds the finalizer")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Second reconcile fails connectivity verification")
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			updated := &gamerav1alpha1.GraphProjection{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
+			Expect(updated.Status.Phase).To(Equal(phaseError))
+
+			cond := metaCondition(updated, conditionAvailable)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+		})
+
+		It("should delete projection data from the graph on teardown", func() {
+			controllerReconciler := newReconciler()
+
+			By("Reconcile twice to add finalizer and sync")
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			projection := &gamerav1alpha1.GraphProjection{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, projection)).To(Succeed())
+			projectionID := graph.ProjectionID(projection.UID)
+
+			By("Deleting the resource and reconciling the teardown")
+			Expect(k8sClient.Delete(ctx, projection)).To(Succeed())
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(store.wasDeleted(projectionID)).To(BeTrue())
 		})
 	})
 })
+
+func metaCondition(p *gamerav1alpha1.GraphProjection, condType string) *metav1.Condition {
+	for i := range p.Status.Conditions {
+		if p.Status.Conditions[i].Type == condType {
+			return &p.Status.Conditions[i]
+		}
+	}
+	return nil
+}
