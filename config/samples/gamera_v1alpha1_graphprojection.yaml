@@ -1,0 +1,66 @@
+apiVersion: gamera.gamera.io/v1alpha1
+kind: GraphProjection
+metadata:
+  labels:
+    app.kubernetes.io/name: gamera
+    app.kubernetes.io/managed-by: kustomize
+  name: graphprojection-sample
+spec:
+  neo4j:
+    uri: neo4j://neo4j.gamera-system.svc:7687
+    database: neo4j
+    authSecretRef:
+      name: neo4j-credentials
+      namespace: gamera-system
+  resyncInterval: 5m
+  scope:
+    # Leave namespaces empty to watch the whole cluster.
+    namespaces:
+      - default
+    resources:
+      - group: apps
+        version: v1
+        kind: Deployment
+      - group: apps
+        version: v1
+        kind: StatefulSet
+      - group: apps
+        version: v1
+        kind: DaemonSet
+      - version: v1
+        kind: Pod
+      - version: v1
+        kind: Service
+      - version: v1
+        kind: ConfigMap
+      - version: v1
+        kind: Secret
+  relationships:
+    - name: workload-owns-pod
+      type: OWNS
+      strategy: OwnerReference
+      from:
+        group: apps
+        version: v1
+        kind: Deployment
+      to:
+        version: v1
+        kind: Pod
+    - name: service-selects-pod
+      type: SELECTS
+      strategy: LabelSelector
+      from:
+        version: v1
+        kind: Service
+      to:
+        version: v1
+        kind: Pod
+    - name: configmap-mounts-pod
+      type: MOUNTS
+      strategy: VolumeMount
+      from:
+        version: v1
+        kind: ConfigMap
+      to:
+        version: v1
+        kind: Pod
