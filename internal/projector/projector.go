@@ -46,6 +46,9 @@ const debounceWindow = 1 * time.Second
 type Options struct {
 	// ID is the projection identity (used to scope graph data).
 	ID graph.ProjectionID
+	// Namespace is the namespace in which the GraphProjection resource is
+	// defined. It is used when Spec.Scope.OwnNamespaceOnly is set.
+	Namespace string
 	// Spec is the GraphProjection spec driving this projector.
 	Spec gamerav1alpha1.GraphProjectionSpec
 	// Dynamic is the dynamic client used to build informers.
@@ -64,11 +67,13 @@ type Options struct {
 // Projector watches the resources in a projection's scope and keeps the graph
 // store in sync.
 type Projector struct {
-	opts      Options
-	engine    *relationship.Engine
-	namespace map[string]bool
-	selector  labels.Selector
-	gvks      []schema.GroupVersionKind
+	opts             Options
+	engine           *relationship.Engine
+	namespace        map[string]bool
+	ownNamespaceOnly bool
+	ownNamespace     string
+	selector         labels.Selector
+	gvks             []schema.GroupVersionKind
 
 	factory   dynamicinformer.DynamicSharedInformerFactory
 	informers map[schema.GroupVersionKind]informers.GenericInformer
@@ -107,11 +112,13 @@ func New(opts Options) *Projector {
 	}
 
 	return &Projector{
-		opts:      opts,
-		engine:    engine,
-		namespace: nsSet,
-		selector:  sel,
-		trigger:   make(chan struct{}, 1),
-		informers: map[schema.GroupVersionKind]informers.GenericInformer{},
+		opts:             opts,
+		engine:           engine,
+		namespace:        nsSet,
+		ownNamespaceOnly: opts.Spec.Scope.OwnNamespaceOnly,
+		ownNamespace:     opts.Namespace,
+		selector:         sel,
+		trigger:          make(chan struct{}, 1),
+		informers:        map[schema.GroupVersionKind]informers.GenericInformer{},
 	}
 }

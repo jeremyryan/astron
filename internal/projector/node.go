@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
@@ -28,10 +27,11 @@ import (
 	"github.com/project-gamera/gamera/internal/graph"
 )
 
-// newFactory builds a dynamic shared informer factory that watches all
-// namespaces. Namespace and label filtering is performed during sync.
-func newFactory(client dynamic.Interface, resync time.Duration) dynamicinformer.DynamicSharedInformerFactory {
-	return dynamicinformer.NewFilteredDynamicSharedInformerFactory(client, resync, metav1.NamespaceAll, nil)
+// newFactory builds a dynamic shared informer factory scoped to the given
+// namespace (use metav1.NamespaceAll to watch the whole cluster). Additional
+// namespace and label filtering is performed during sync.
+func newFactory(client dynamic.Interface, resync time.Duration, namespace string) dynamicinformer.DynamicSharedInformerFactory {
+	return dynamicinformer.NewFilteredDynamicSharedInformerFactory(client, resync, namespace, nil)
 }
 
 // nodeFor converts a Kubernetes object into a graph.Node, extracting a set of

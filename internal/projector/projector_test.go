@@ -104,6 +104,41 @@ func TestInScope(t *testing.T) {
 	}
 }
 
+func TestInScopeOwnNamespaceOnly(t *testing.T) {
+	spec := gamerav1alpha1.GraphProjectionSpec{
+		Scope: gamerav1alpha1.ProjectionScope{
+			OwnNamespaceOnly: true,
+			// namespaces is ignored when ownNamespaceOnly is set.
+			Namespaces: []string{"other"},
+		},
+	}
+	p := New(Options{Namespace: "team-a", Spec: spec})
+
+	clusterScoped := newObj("", "some-clusterrole", nil)
+
+	cases := []struct {
+		name   string
+		obj    *unstructured.Unstructured
+		expect bool
+	}{
+		{"own-namespace", newObj("team-a", "pod-1", nil), true},
+		{"other-namespace", newObj("team-b", "pod-2", nil), false},
+		{"listed-namespace-ignored", newObj("other", "pod-3", nil), false},
+		{"cluster-scoped-excluded", clusterScoped, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := p.inScope(tc.obj); got != tc.expect {
+				t.Errorf("inScope = %v, want %v", got, tc.expect)
+			}
+		})
+	}
+
+	if got := p.watchNamespace(); got != "team-a" {
+		t.Errorf("watchNamespace = %q, want %q", got, "team-a")
+	}
+}
+
 func TestInScopeNoFilters(t *testing.T) {
 	p := New(Options{Spec: gamerav1alpha1.GraphProjectionSpec{}})
 	if !p.inScope(newObj("anything", "x", nil)) {

@@ -101,8 +101,16 @@ type SecretReference struct {
 
 // ProjectionScope constrains which resources a projection captures.
 type ProjectionScope struct {
+	// ownNamespaceOnly restricts the projection to the namespace in which the
+	// GraphProjection resource itself is defined. When true, only namespaced
+	// resources in that namespace are captured (cluster-scoped resources and the
+	// namespaces field are ignored). This takes precedence over namespaces.
+	// +optional
+	OwnNamespaceOnly bool `json:"ownNamespaceOnly,omitempty"`
+
 	// namespaces restricts the projection to the named namespaces. When empty,
 	// resources from all namespaces (and cluster-scoped resources) are captured.
+	// Ignored when ownNamespaceOnly is true.
 	// +optional
 	Namespaces []string `json:"namespaces,omitempty"`
 

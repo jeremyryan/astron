@@ -14,6 +14,9 @@ spec:
       namespace: gamera-system
   resyncInterval: 5m
   scope:
+    # Set ownNamespaceOnly to capture only resources in this resource's own
+    # namespace (ignores the namespaces field and cluster-scoped resources).
+    ownNamespaceOnly: false
     # Leave namespaces empty to watch the whole cluster.
     namespaces:
       - default

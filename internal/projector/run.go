@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -54,7 +55,7 @@ func (p *Projector) Start(ctx context.Context) error {
 
 	// Watch across all namespaces; namespace/label filtering is applied during
 	// sync so multiple namespaces and label selectors are handled uniformly.
-	p.factory = newFactory(p.opts.Dynamic, p.opts.ResyncInterval)
+	p.factory = newFactory(p.opts.Dynamic, p.opts.ResyncInterval, p.watchNamespace())
 
 	handler := cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(any) { p.enqueue() },
@@ -216,10 +217,28 @@ func (p *Projector) snapshot() []*unstructured.Unstructured {
 
 // inScope reports whether an object passes the namespace and label filters.
 func (p *Projector) inScope(obj *unstructured.Unstructured) bool {
-	if len(p.namespace) > 0 && obj.GetNamespace() != "" && !p.namespace[obj.GetNamespace()] {
+	ns := obj.GetNamespace()
+	if p.ownNamespaceOnly {
+		// Only namespaced resources in the projection's own namespace. This
+		// excludes cluster-scoped resources (empty namespace) as well.
+		if ns != p.ownNamespace {
+			return false
+		}
+	} else if len(p.namespace) > 0 && ns != "" && !p.namespace[ns] {
 		return false
 	}
 	return p.selector.Matches(labels.Set(obj.GetLabels()))
+}
+
+// watchNamespace returns the namespace the informers should watch. When the
+// projection is scoped to its own namespace, only that namespace is watched
+// (reducing watch load); otherwise all namespaces are watched and filtering is
+// applied during sync.
+func (p *Projector) watchNamespace() string {
+	if p.ownNamespaceOnly {
+		return p.ownNamespace
+	}
+	return metav1.NamespaceAll
 }
 
 // scopedGVKs resolves the resource selectors in the projection scope to GVKs.

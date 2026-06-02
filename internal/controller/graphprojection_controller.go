@@ -114,7 +114,7 @@ func (r *GraphProjectionReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	// Ensure a projector is running for this projection with the current config.
-	p, err := r.Projectors.Ensure(ctx, id, projection.Spec, cfg)
+	p, err := r.Projectors.Ensure(ctx, id, projection.Namespace, projection.Spec, cfg)
 	if err != nil {
 		log.Error(err, "failed to start projector")
 		return r.fail(ctx, &projection, "ProjectorStartFailed", err)

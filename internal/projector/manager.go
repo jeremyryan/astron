@@ -71,7 +71,7 @@ func NewManager(dynamicClient dynamic.Interface, mapper meta.RESTMapper, newStor
 // Ensure makes the running state match the desired projection: it starts a new
 // projector, restarts one whose spec changed, or leaves an unchanged one alone.
 // It returns the projector currently serving the projection.
-func (m *Manager) Ensure(ctx context.Context, id graph.ProjectionID, spec gamerav1alpha1.GraphProjectionSpec, cfg graph.Neo4jConfig) (*Projector, error) {
+func (m *Manager) Ensure(ctx context.Context, id graph.ProjectionID, namespace string, spec gamerav1alpha1.GraphProjectionSpec, cfg graph.Neo4jConfig) (*Projector, error) {
 	hash, err := specHash(spec, cfg)
 	if err != nil {
 		return nil, err
@@ -104,6 +104,7 @@ func (m *Manager) Ensure(ctx context.Context, id graph.ProjectionID, spec gamera
 
 	p := New(Options{
 		ID:             id,
+		Namespace:      namespace,
 		Spec:           spec,
 		Dynamic:        m.dynamicClient,
 		Mapper:         m.mapper,

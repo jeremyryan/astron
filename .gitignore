@@ -35,3 +35,4 @@ charts/*/charts/
 # MCP server config and local test artifacts
 .mcp.json
 playwright-test.png
+README.html

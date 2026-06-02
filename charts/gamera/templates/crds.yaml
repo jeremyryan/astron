@@ -247,9 +247,17 @@ spec:
                     description: |-
                       namespaces restricts the projection to the named namespaces. When empty,
                       resources from all namespaces (and cluster-scoped resources) are captured.
+                      Ignored when ownNamespaceOnly is true.
                     items:
                       type: string
                     type: array
+                  ownNamespaceOnly:
+                    description: |-
+                      ownNamespaceOnly restricts the projection to the namespace in which the
+                      GraphProjection resource itself is defined. When true, only namespaced
+                      resources in that namespace are captured (cluster-scoped resources and the
+                      namespaces field are ignored). This takes precedence over namespaces.
+                    type: boolean
                   resources:
                     description: |-
                       resources is an allow-list of resource kinds to capture as nodes. When
