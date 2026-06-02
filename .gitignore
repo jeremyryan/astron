@@ -31,3 +31,7 @@ go.work
 
 # Helm chart vendored dependencies (restore with: helm dependency build)
 charts/*/charts/
+
+# MCP server config and local test artifacts
+.mcp.json
+playwright-test.png

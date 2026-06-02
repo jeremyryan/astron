@@ -9,3 +9,10 @@
 # Re-include Go module files
 !go.mod
 !go.sum
+
+# Re-include the web UI sources (the Dockerfile's node stage builds them).
+!web/**
+# ...but never ship local build artifacts or dependencies into the context.
+web/node_modules/
+web/dist/
+**/*.tsbuildinfo

@@ -68,11 +68,12 @@ Container image reference.
 {{/*
 Name of the Secret holding Neo4J credentials (created or existing).
 */}}
+{{/* Distinct from the bundled Neo4J subchart's own "<name>-auth" secret. */}}
 {{- define "gamera.credentialsSecretName" -}}
 {{- if .Values.connection.existingSecret }}
 {{- .Values.connection.existingSecret }}
 {{- else }}
-{{- printf "%s-neo4j-auth" (include "gamera.fullname" .) }}
+{{- printf "%s-neo4j-credentials" (include "gamera.fullname" .) }}
 {{- end }}
 {{- end }}
 
