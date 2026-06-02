@@ -93,14 +93,13 @@ connection password is given, reuse the bundled instance's password.
 
 {{/*
 Effective Neo4J bolt URI. Uses connection.uri when set, otherwise derives the
-in-cluster address of the bundled Neo4J service.
+in-cluster address of the bundled Neo4J service. The bundled (official) Neo4J
+chart names its primary ClusterIP service after the release name, not neo4j.name.
 */}}
 {{- define "gamera.neo4jUri" -}}
 {{- if .Values.connection.uri }}
 {{- .Values.connection.uri }}
 {{- else if .Values.neo4j.enabled }}
-{{- printf "neo4j://%s.%s.svc.cluster.local:7687" .Values.neo4j.neo4j.name .Release.Namespace }}
-{{- else }}
-{{- "" }}
+{{- printf "neo4j://%s.%s.svc.cluster.local:7687" .Release.Name .Release.Namespace }}
 {{- end }}
 {{- end }}

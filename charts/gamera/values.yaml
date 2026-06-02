@@ -126,8 +126,43 @@ defaultProjection:
   # -- Scope for the default projection (namespaces/resources/labelSelector).
   # Empty scope watches the whole cluster with the built-in default resource set.
   scope: {}
-  # -- Relationship rules. Empty uses the operator's built-in defaults.
-  relationships: []
+  # -- Relationship rules used to derive edges between resource nodes.
+  relationships:
+    - name: replicaset-owns-pod
+      type: OWNS
+      strategy: OwnerReference
+      from: { group: apps, version: v1, kind: ReplicaSet }
+      to: { version: v1, kind: Pod }
+    - name: deployment-owns-replicaset
+      type: OWNS
+      strategy: OwnerReference
+      from: { group: apps, version: v1, kind: Deployment }
+      to: { group: apps, version: v1, kind: ReplicaSet }
+    - name: statefulset-owns-pod
+      type: OWNS
+      strategy: OwnerReference
+      from: { group: apps, version: v1, kind: StatefulSet }
+      to: { version: v1, kind: Pod }
+    - name: daemonset-owns-pod
+      type: OWNS
+      strategy: OwnerReference
+      from: { group: apps, version: v1, kind: DaemonSet }
+      to: { version: v1, kind: Pod }
+    - name: service-selects-pod
+      type: SELECTS
+      strategy: LabelSelector
+      from: { version: v1, kind: Service }
+      to: { version: v1, kind: Pod }
+    - name: configmap-mounts-pod
+      type: MOUNTS
+      strategy: VolumeMount
+      from: { version: v1, kind: ConfigMap }
+      to: { version: v1, kind: Pod }
+    - name: secret-mounts-pod
+      type: MOUNTS
+      strategy: VolumeMount
+      from: { version: v1, kind: Secret }
+      to: { version: v1, kind: Pod }
 
 # Bundled Neo4J subchart (https://helm.neo4j.com/neo4j).
 # Set neo4j.enabled to false to use an existing/external Neo4J instead; then
