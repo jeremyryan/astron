@@ -10,6 +10,8 @@ build:
     # registry by both Docker and containerd by default.
     push: true
     concurrency: 1
+    # Required for the Dockerfile's RUN --mount=type=cache build cache mounts.
+    useBuildkit: true
   tagPolicy:
     # Content-based tags keep redeploys stable and cache-friendly.
     inputDigest: {}

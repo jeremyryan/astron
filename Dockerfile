@@ -1,8 +1,15 @@
+# syntax=docker/dockerfile:1
+# The syntax directive enables BuildKit features such as RUN --mount=type=cache,
+# which keeps the npm, Go module, and Go build caches warm across builds for a
+# fast dev loop (e.g. with Skaffold). Requires BuildKit (default in modern
+# Docker; Skaffold sets build.local.useBuildkit: true).
+
 # Build the web UI
 FROM node:22 AS web
 WORKDIR /web
 COPY web/package.json web/package-lock.json* ./
-RUN npm install
+RUN --mount=type=cache,target=/root/.npm \
+    npm install
 COPY web/ ./
 RUN npm run build
 
@@ -17,7 +24,8 @@ COPY go.mod go.mod
 COPY go.sum go.sum
 # cache deps before building and copying source so that we don't need to re-download as much
 # and so that source changes don't invalidate our downloaded layer
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 # Copy the Go source (relies on .dockerignore to filter)
 COPY . .
@@ -29,7 +37,11 @@ COPY --from=web /web/dist ./web/dist
 # was called. For example, if we call make docker-build in a local env which has the Apple Silicon M1 SO
 # the docker BUILDPLATFORM arg will be linux/arm64 when for Apple x86 it will be linux/amd64. Therefore,
 # by leaving it empty we can ensure that the container and binary shipped on it will have the same platform.
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager cmd/main.go
+# The cache mounts reuse the Go module and build caches across builds. -a is
+# dropped so the build cache can actually be reused (it forces full rebuilds).
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -o manager cmd/main.go
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
