@@ -1,0 +1,28 @@
+# Development overrides used by the Skaffold dev loop (skaffold.yaml).
+# image.repository / image.tag are injected by Skaffold from the freshly built
+# image; only non-image dev settings belong here.
+
+controller:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+# Bundled Neo4J for local development.
+neo4j:
+  enabled: true
+  neo4j:
+    password: "gamera-dev-password"
+  resources:
+    cpu: 500m
+    memory: 1Gi
+
+# Create a default cluster-wide GraphProjection on deploy. To scope it to a
+# single namespace during development, set scope.ownNamespaceOnly: true.
+defaultProjection:
+  enabled: true
+  # scope:
+  #   ownNamespaceOnly: true

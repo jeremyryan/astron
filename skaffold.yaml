@@ -1,0 +1,51 @@
+apiVersion: skaffold/v4beta12
+kind: Config
+metadata:
+  name: gamera
+
+build:
+  local:
+    # Push to the local registry instead of loading into a daemon, so the k3s
+    # node can pull the image. localhost:5000 is treated as an insecure (HTTP)
+    # registry by both Docker and containerd by default.
+    push: true
+    concurrency: 1
+  tagPolicy:
+    # Content-based tags keep redeploys stable and cache-friendly.
+    inputDigest: {}
+  artifacts:
+    - image: localhost:5000/gamera
+      docker:
+        # Build context is the repo root; the Dockerfile builds the web UI
+        # (node stage) and then the Go manager binary.
+        dockerfile: Dockerfile
+
+manifests:
+  helm:
+    releases:
+      - name: gamera
+        chartPath: charts/gamera
+        namespace: gamera
+        createNamespace: true
+        valuesFiles:
+          - charts/gamera/values-dev.yaml
+        # Inject the freshly built, digest-pinned image into the chart. The
+        # variable suffix is the artifact image with non-alphanumerics -> '_'.
+        setValueTemplates:
+          image.repository: "{{.IMAGE_REPO_localhost_5000_gamera}}"
+          image.tag: "{{.IMAGE_TAG_localhost_5000_gamera}}@{{.IMAGE_DIGEST_localhost_5000_gamera}}"
+        setValues:
+          # Unique digest-pinned refs each build, so IfNotPresent is correct.
+          image.pullPolicy: IfNotPresent
+
+deploy:
+  helm: {}
+  # Neo4J's StatefulSet can take a while to become ready on first start.
+  statusCheckDeadlineSeconds: 300
+
+portForward:
+  - resourceType: service
+    resourceName: gamera-api
+    namespace: gamera
+    port: 8082
+    localPort: 8082

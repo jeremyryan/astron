@@ -1,18 +1,32 @@
-# More info: https://docs.docker.com/engine/reference/builder/#dockerignore-file
-# Ignore everything by default and re-include only needed files
-**
+# Denylist style: exclude only what must not enter the build context. This is
+# handled consistently by both Docker and Skaffold's context resolver (the
+# previous "ignore-everything then re-include" form was mis-parsed by Skaffold,
+# dropping nested sources like cmd/main.go).
 
-# Re-include Go source files (but not *_test.go)
-!**/*.go
+# VCS and tooling
+.git/
+.github/
+.devcontainer/
+
+# Build output / binaries
+bin/
+*.tar
+
+# Go test files (not needed to build the manager)
 **/*_test.go
 
-# Re-include Go module files
-!go.mod
-!go.sum
-
-# Re-include the web UI sources (the Dockerfile's node stage builds them).
-!web/**
-# ...but never ship local build artifacts or dependencies into the context.
+# Web build artifacts and dependencies (the Dockerfile's node stage rebuilds dist)
 web/node_modules/
 web/dist/
 **/*.tsbuildinfo
+
+# Helm vendored subcharts (not used by the image build)
+charts/*/charts/
+
+# Local/editor files
+*.bak
+*.orig
+*~
+.vscode/
+.idea/
+Dockerfile.cross

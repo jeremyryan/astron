@@ -120,6 +120,27 @@ build: manifests generate fmt vet ## Build manager binary (embeds web/dist).
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/main.go
 
+.PHONY: helm-deps
+helm-deps: ## Fetch the chart's subchart dependencies (Neo4J).
+	helm repo add neo4j https://helm.neo4j.com/neo4j 2>/dev/null || true
+	cd charts/gamera && helm dependency build
+
+.PHONY: dev
+dev: helm-deps ## Skaffold dev loop: build->push->deploy to the test cluster and watch for changes.
+	skaffold dev
+
+.PHONY: skaffold-run
+skaffold-run: helm-deps ## One-shot Skaffold build->push->deploy.
+	skaffold run
+
+.PHONY: skaffold-render
+skaffold-render: helm-deps ## Render the deployed manifests (verifies image substitution).
+	skaffold render
+
+.PHONY: skaffold-delete
+skaffold-delete: ## Tear down the Skaffold-deployed release.
+	skaffold delete
+
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
