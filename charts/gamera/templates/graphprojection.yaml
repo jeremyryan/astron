@@ -28,10 +28,11 @@ spec:
   {{- with .Values.defaultProjection.resyncInterval }}
   resyncInterval: {{ . | quote }}
   {{- end }}
-  {{- with .Values.defaultProjection.scope }}
   scope:
+    ownNamespaceOnly: {{ .Values.defaultProjection.ownNamespaceOnly }}
+    {{- with .Values.defaultProjection.scope }}
     {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- end }}
   {{- with .Values.defaultProjection.relationships }}
   relationships:
     {{- toYaml . | nindent 4 }}

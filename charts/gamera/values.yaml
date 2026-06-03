@@ -123,8 +123,15 @@ defaultProjection:
   name: "default"
   # -- resyncInterval for the default projection.
   resyncInterval: "5m"
-  # -- Scope for the default projection (namespaces/resources/labelSelector).
-  # Empty scope watches the whole cluster with the built-in default resource set.
+  # -- Restrict the default projection to its own (the release) namespace. When
+  # true, only namespaced resources in the release namespace are captured;
+  # cluster-scoped resources and scope.namespaces are ignored. Set to false to
+  # project across the cluster (subject to scope below).
+  ownNamespaceOnly: true
+  # -- Additional scope for the default projection (namespaces/resources/
+  # labelSelector), merged with ownNamespaceOnly above. Empty captures the
+  # built-in default resource set. Note: namespaces is ignored while
+  # ownNamespaceOnly is true.
   scope: {}
   # -- Relationship rules used to derive edges between resource nodes.
   relationships:

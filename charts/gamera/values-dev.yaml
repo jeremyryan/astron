@@ -20,9 +20,9 @@ neo4j:
     cpu: 500m
     memory: 1Gi
 
-# Create a default cluster-wide GraphProjection on deploy. To scope it to a
-# single namespace during development, set scope.ownNamespaceOnly: true.
+# Create a default GraphProjection on deploy. By default it is scoped to the
+# release namespace (ownNamespaceOnly: true). Set ownNamespaceOnly: false to
+# project across the whole cluster during development.
 defaultProjection:
   enabled: true
-  # scope:
-  #   ownNamespaceOnly: true
+  ownNamespaceOnly: false
