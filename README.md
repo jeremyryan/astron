@@ -1,8 +1,104 @@
-# gamera
-// TODO(user): Add simple overview of use/purpose
+# Project Gamera
 
-## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+Project Gamera is a Kubernetes operator that visualizes, explores, and helps you
+understand a cluster. It watches cluster resources and projects them — and the
+relationships between them — into a [Neo4J](https://neo4j.com/) graph, then
+serves a web UI to explore that graph.
+
+- **Nodes** are Kubernetes resources (Deployments, StatefulSets, DaemonSets,
+  Pods, Services, ConfigMaps, Secrets, ...).
+- **Edges** are their relationships, e.g. `OWNS` (workload → Pod via owner
+  references), `SELECTS` (Service → Pod via label selectors), and `MOUNTS`
+  (ConfigMap/Secret → Pod via volumes/env).
+
+## Components
+
+- **`GraphProjection` CRD** — declares how the cluster graph is projected into
+  Neo4J: the target database, the scope of resources to capture, and the
+  relationship rules.
+- **GraphProjection controller** — reconciles `GraphProjection` resources and
+  manages a per-projection *projector*.
+- **Resource graph projector** — dynamic informers that watch the in-scope
+  resources, materialize them as nodes, and apply the relationship engine to
+  materialize edges (`internal/projector`, `internal/relationship`).
+- **Read API + web UI** — a read-only HTTP API over the graph and an embedded
+  React/Cytoscape single-page app (`internal/api`, `web/`).
+
+The operator binary serves the controller, the API, and the UI together.
+
+## Local Development (dev loop)
+
+The fastest way to iterate is [Skaffold](https://skaffold.dev/), wired up in
+[`skaffold.yaml`](./skaffold.yaml). It builds the operator image, pushes it to a
+local registry, deploys the Helm chart (including a bundled Neo4J), and watches
+for changes.
+
+### Prerequisites
+
+- Go v1.24+, Docker (with BuildKit — default in modern Docker), `kubectl`, `helm` v3.
+- [`skaffold`](https://skaffold.dev/docs/install/) v2.
+- A local Kubernetes cluster (e.g. k3s/kind) you can reach with `kubectl`.
+- A local image registry at **`localhost:5000`** that the cluster can pull from.
+  On single-node clusters this works out of the box because Docker and
+  containerd treat `localhost:` registries as insecure (HTTP) by default.
+
+### Start the dev loop
+
+```sh
+make dev
+```
+
+This runs `skaffold dev`, which on every change to Go sources, the web UI, or
+the chart will:
+
+1. build the operator image (web UI + Go binary) via the multi-stage
+   [`Dockerfile`](./Dockerfile),
+2. push it to `localhost:5000/gamera` with a content-based (digest) tag,
+3. `helm upgrade` the `gamera` release into the `gamera` namespace, injecting the
+   freshly built, digest-pinned image, and
+4. **port-forward the UI** to <http://localhost:8082>.
+
+The `Dockerfile` uses BuildKit `--mount=type=cache` for the npm, Go module, and
+Go build caches, so incremental rebuilds take a few seconds rather than ~40.
+
+Press Ctrl-C to stop; Skaffold tears down what it deployed.
+
+### Other Skaffold targets
+
+```sh
+make helm-deps        # add the Neo4J helm repo + build chart dependencies (run once / on a fresh checkout)
+make skaffold-run     # one-shot: build -> push -> deploy (does NOT keep a port-forward; see below)
+make skaffold-render  # render the manifests Skaffold would deploy (verifies image substitution)
+make skaffold-delete  # tear down the Skaffold-deployed release
+```
+
+### Accessing the UI
+
+The `portForward` in `skaffold.yaml` is only active for commands that keep
+running and watch — **`skaffold dev` and `skaffold debug`**. It is *not* set up
+by `skaffold run`/`make skaffold-run`, which deploy and then exit.
+
+- While `make dev` is running: open <http://localhost:8082>.
+- After a one-shot deploy (`make skaffold-run`), forward the service manually:
+
+  ```sh
+  kubectl -n gamera port-forward svc/gamera-api 8082:8082
+  # then browse http://localhost:8082
+  ```
+
+### Inspecting the projected graph
+
+```sh
+kubectl get graphprojection -A                 # status, node/edge counts
+kubectl -n gamera get graphprojection default -o yaml
+```
+
+The read API is also available (under the same port-forward):
+
+```sh
+curl http://localhost:8082/api/projections
+curl http://localhost:8082/api/projections/gamera/default/graph
+```
 
 ## Getting Started
 
@@ -94,21 +190,21 @@ kubectl apply -f https://raw.githubusercontent.com/<org>/gamera/<tag or branch>/
 
 ### By providing a Helm Chart
 
-1. Build the chart using the optional helm plugin
+The operator ships a Helm chart at [`charts/gamera`](./charts/gamera) that
+installs the CRD, the controller, RBAC, and — optionally — a bundled Neo4J (or
+connects to an existing one). See [`charts/gamera/README.md`](./charts/gamera/README.md)
+for the full set of values.
 
 ```sh
-kubebuilder edit --plugins=helm/v2-alpha
+helm dependency build charts/gamera   # fetch the Neo4J subchart (once)
+helm install gamera charts/gamera \
+  --namespace gamera --create-namespace \
+  --set neo4j.neo4j.password='a-strong-password'
 ```
 
-2. See that a chart was generated under 'dist/chart', and users
-can obtain this solution from there.
-
-**NOTE:** If you change the project, you need to update the Helm Chart
-using the same command above to sync the latest changes. Furthermore,
-if you create webhooks, you need to use the above command with
-the '--force' flag and manually ensure that any custom configuration
-previously added to 'dist/chart/values.yaml' or 'dist/chart/manager/manager.yaml'
-is manually re-applied afterwards.
+To connect to an existing Neo4J instead of the bundled one, set
+`neo4j.enabled=false` and provide `connection.uri` plus credentials
+(`connection.existingSecret` or `connection.username`/`connection.password`).
 
 ## Contributing
 // TODO(user): Add detailed information on how you would like others to contribute to this project
