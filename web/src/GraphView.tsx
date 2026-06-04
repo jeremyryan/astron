@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Menu, Text } from "@mantine/core";
 import cytoscape, { type Core, type ElementDefinition } from "cytoscape";
 import dagre from "cytoscape-dagre";
 import type { Graph, GraphNode } from "./api";
@@ -35,9 +36,18 @@ interface Props {
   maxDistance: number | null;
 }
 
+// Context menu anchored at a viewport position for a right-clicked node.
+interface NodeMenu {
+  x: number;
+  y: number;
+  node: GraphNode;
+}
+
 export function GraphView({ graph, onSelect, selectedId, maxDistance }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
+  // Right-click context menu state (null = closed).
+  const [menu, setMenu] = useState<NodeMenu | null>(null);
   // Tracks whether the view is currently zoomed into a distance subgraph, so we
   // can zoom back out when the filter is cleared.
   const fittedSubgraphRef = useRef(false);
@@ -101,12 +111,33 @@ export function GraphView({ graph, onSelect, selectedId, maxDistance }: Props) {
     });
 
     cy.on("tap", "node", (evt) => {
+      setMenu(null);
       const found = graph.nodes.find((n) => n.id === evt.target.id());
       onSelect(found ?? null);
     });
     cy.on("tap", (evt) => {
-      if (evt.target === cy) onSelect(null);
+      if (evt.target === cy) {
+        setMenu(null);
+        onSelect(null);
+      }
     });
+
+    // Right-click a node to open a context menu at the cursor. Clicking the
+    // background (or panning/zooming) dismisses it.
+    cy.on("cxttap", "node", (evt) => {
+      const found = graph.nodes.find((n) => n.id === evt.target.id());
+      if (!found) return;
+      const oe = evt.originalEvent as MouseEvent;
+      setMenu({ x: oe.clientX, y: oe.clientY, node: found });
+    });
+    cy.on("cxttap", (evt) => {
+      if (evt.target === cy) setMenu(null);
+    });
+    cy.on("viewport", () => setMenu(null));
+
+    // Suppress the browser's native context menu over the canvas.
+    const handleContextMenu = (e: MouseEvent) => e.preventDefault();
+    containerRef.current.addEventListener("contextmenu", handleContextMenu);
 
     // Ctrl-C (or Cmd-C) centers the currently selected node in the view.
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -119,9 +150,11 @@ export function GraphView({ graph, onSelect, selectedId, maxDistance }: Props) {
     };
     window.addEventListener("keydown", handleKeyDown);
 
+    const container = containerRef.current;
     cyRef.current = cy;
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
+      container.removeEventListener("contextmenu", handleContextMenu);
       cy.destroy();
       cyRef.current = null;
     };
@@ -182,5 +215,35 @@ export function GraphView({ graph, onSelect, selectedId, maxDistance }: Props) {
     fittedSubgraphRef.current = true;
   }, [graph, selectedId, maxDistance]);
 
-  return <div ref={containerRef} className="graph-canvas" />;
+  return (
+    <>
+      <div ref={containerRef} className="graph-canvas" />
+      {menu && (
+        <Menu
+          opened
+          onClose={() => setMenu(null)}
+          position="bottom-start"
+          shadow="md"
+          width={160}
+          withinPortal
+        >
+          <Menu.Target>
+            <div
+              style={{ position: "fixed", left: menu.x, top: menu.y, width: 1, height: 1 }}
+            />
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Label>
+              <Text size="xs" truncate>
+                {menu.node.kind}/{menu.node.name}
+              </Text>
+            </Menu.Label>
+            {/* Actions are not implemented yet. */}
+            <Menu.Item>YAML</Menu.Item>
+            <Menu.Item>Edit</Menu.Item>
+          </Menu.Dropdown>
+        </Menu>
+      )}
+    </>
+  );
 }
