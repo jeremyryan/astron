@@ -38,11 +38,16 @@ interface Props {
 export function GraphView({ graph, onSelect, selectedId, maxDistance }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
+  // Tracks whether the view is currently zoomed into a distance subgraph, so we
+  // can zoom back out when the filter is cleared.
+  const fittedSubgraphRef = useRef(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
     const cy = cytoscape({
       container: containerRef.current,
+      // Cap zoom so fitting a tiny subgraph (or a single node) doesn't zoom in absurdly.
+      maxZoom: 2.5,
       elements: toElements(graph),
       style: [
         {
@@ -129,8 +134,15 @@ export function GraphView({ graph, onSelect, selectedId, maxDistance }: Props) {
     if (!cy) return;
     cy.elements().removeClass("faded");
 
-    // No fading when nothing is selected or distance is unlimited.
-    if (!selectedId || maxDistance === null) return;
+    // No fading when nothing is selected or distance is unlimited. If we were
+    // previously zoomed into a subgraph, zoom back out to the whole graph.
+    if (selectedId === null || maxDistance === null) {
+      if (fittedSubgraphRef.current) {
+        fittedSubgraphRef.current = false;
+        cy.animate({ fit: { eles: cy.elements(), padding: 30 }, duration: 250 });
+      }
+      return;
+    }
     const root = cy.getElementById(selectedId);
     if (root.empty()) return;
 
@@ -163,6 +175,11 @@ export function GraphView({ graph, onSelect, selectedId, maxDistance }: Props) {
         e.addClass("faded");
       }
     });
+
+    // Zoom to fit the in-range subgraph so it fills the view.
+    const withinNodes = cy.nodes().filter((n) => within.has(n.id()));
+    cy.animate({ fit: { eles: withinNodes, padding: 50 }, duration: 250 });
+    fittedSubgraphRef.current = true;
   }, [graph, selectedId, maxDistance]);
 
   return <div ref={containerRef} className="graph-canvas" />;
