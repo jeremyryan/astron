@@ -84,8 +84,20 @@ export function GraphView({ graph, onSelect }: Props) {
       if (evt.target === cy) onSelect(null);
     });
 
+    // Ctrl-C (or Cmd-C) centers the currently selected node in the view.
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "c") return;
+      const selected = cy.nodes(":selected");
+      if (selected.nonempty()) {
+        e.preventDefault();
+        cy.animate({ center: { eles: selected }, duration: 200 });
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+
     cyRef.current = cy;
     return () => {
+      window.removeEventListener("keydown", handleKeyDown);
       cy.destroy();
       cyRef.current = null;
     };
