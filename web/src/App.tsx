@@ -1,5 +1,16 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import {
+  AppShell,
+  Box,
+  Group,
+  Loader,
+  NavLink,
+  ScrollArea,
+  Stack,
+  Text,
+  Title,
+} from "@mantine/core";
 import { getGraph, listProjections, type Graph, type GraphNode, type Projection } from "./api";
 import { GraphView } from "./GraphView";
 import { FilterPanel, kindCounts } from "./Filters";
@@ -17,25 +28,40 @@ function ProjectionList({
     refetchInterval: 10_000,
   });
 
-  if (isLoading) return <p className="muted">Loading projections…</p>;
-  if (error) return <p className="error">{(error as Error).message}</p>;
-  if (!data?.length) return <p className="muted">No GraphProjections found.</p>;
+  if (isLoading)
+    return (
+      <Group gap="xs">
+        <Loader size="xs" />
+        <Text size="sm" c="dimmed">
+          Loading projections…
+        </Text>
+      </Group>
+    );
+  if (error)
+    return (
+      <Text size="sm" c="red">
+        {(error as Error).message}
+      </Text>
+    );
+  if (!data?.length)
+    return (
+      <Text size="sm" c="dimmed">
+        No GraphProjections found.
+      </Text>
+    );
 
   return (
-    <ul className="projection-list">
+    <Stack gap={4}>
       {data.map((p) => (
-        <li
+        <NavLink
           key={p.uid}
-          className={selected?.uid === p.uid ? "active" : ""}
+          active={selected?.uid === p.uid}
           onClick={() => onSelect(p)}
-        >
-          <div className="name">{p.name}</div>
-          <div className="meta">
-            {p.namespace} · {p.phase ?? "—"} · {p.nodeCount}n / {p.relationshipCount}e
-          </div>
-        </li>
+          label={<Text fw={600}>{p.name}</Text>}
+          description={`${p.namespace} · ${p.phase ?? "—"} · ${p.nodeCount}n / ${p.relationshipCount}e`}
+        />
       ))}
-    </ul>
+    </Stack>
   );
 }
 
@@ -61,57 +87,84 @@ function asKeyValues(value: unknown): Array<[string, string]> | null {
     .sort((a, b) => a[0].localeCompare(b[0]));
 }
 
+// Field renders a single uppercase label above its value.
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <Text size="xs" c="dimmed" tt="uppercase" style={{ letterSpacing: "0.05em" }}>
+        {label}
+      </Text>
+      <Text size="sm" style={{ wordBreak: "break-word" }}>
+        {value}
+      </Text>
+    </div>
+  );
+}
+
 function KeyValueSection({ title, value }: { title: string; value: unknown }) {
   const entries = asKeyValues(value);
   return (
-    <div className="kv-section">
-      <h4>{title}</h4>
+    <div>
+      <Text size="xs" c="dimmed" tt="uppercase" mb={6} style={{ letterSpacing: "0.05em" }}>
+        {title}
+      </Text>
       {entries && entries.length > 0 ? (
-        <dl className="kv-list">
-          {entries.map(([k, v]) => (
-            <div key={k} className="kv">
-              <dt>{k}</dt>
-              <dd>{v}</dd>
-            </div>
+        <Stack gap={0}>
+          {entries.map(([k, v], i) => (
+            <Box
+              key={k}
+              py={4}
+              style={{
+                borderTop: i > 0 ? "1px solid var(--mantine-color-dark-4)" : undefined,
+              }}
+            >
+              <Text size="xs" c="dimmed" style={{ wordBreak: "break-all" }}>
+                {k}
+              </Text>
+              <Text size="sm" style={{ wordBreak: "break-word" }}>
+                {v}
+              </Text>
+            </Box>
           ))}
-        </dl>
+        </Stack>
       ) : (
-        <p className="muted">none</p>
+        <Text size="sm" c="dimmed">
+          none
+        </Text>
       )}
     </div>
   );
 }
 
 function NodeDetails({ node }: { node: GraphNode | null }) {
-  if (!node) return <p className="muted">Select a node to inspect it.</p>;
+  if (!node)
+    return (
+      <Text size="sm" c="dimmed">
+        Select a node to inspect it.
+      </Text>
+    );
   const props = Object.entries(node.properties ?? {});
   const scalarProps = props.filter(([k]) => !MAP_PROPS.has(k));
   const mapProps = props.filter(([k]) => MAP_PROPS.has(k));
   return (
-    <div className="node-details">
-      <h3>
-        {node.kind} <span className="muted">{node.apiVersion}</span>
-      </h3>
-      <dl>
-        <dt>Name</dt>
-        <dd>{node.name}</dd>
-        {node.namespace && (
-          <>
-            <dt>Namespace</dt>
-            <dd>{node.namespace}</dd>
-          </>
-        )}
+    <Stack gap="md">
+      <Title order={3} size="h4">
+        {node.kind}{" "}
+        <Text span c="dimmed" size="sm" fw={400}>
+          {node.apiVersion}
+        </Text>
+      </Title>
+      <Stack gap="xs">
+        <Field label="Name" value={node.name} />
+        {node.namespace && <Field label="Namespace" value={node.namespace} />}
         {scalarProps.map(([k, v]) => (
-          <div key={k} className="prop">
-            <dt>{k}</dt>
-            <dd>{typeof v === "string" ? v : JSON.stringify(v)}</dd>
-          </div>
+          <Field key={k} label={k} value={typeof v === "string" ? v : JSON.stringify(v)} />
         ))}
-      </dl>
+      </Stack>
       {mapProps.map(([k, v]) => (
         <KeyValueSection key={k} title={k} value={v} />
       ))}
-    </div>
+    </Stack>
   );
 }
 
@@ -163,8 +216,17 @@ function GraphPanel({ projection }: { projection: Projection }) {
         onChangeDistance={setMaxDistance}
       />
       <div className="graph-area">
-        {isLoading && <p className="muted">Loading graph…</p>}
-        {error && <p className="error">{(error as Error).message}</p>}
+        {isLoading && (
+          <Group gap="xs" p="md">
+            <Loader size="sm" />
+            <Text c="dimmed">Loading graph…</Text>
+          </Group>
+        )}
+        {error && (
+          <Text c="red" p="md">
+            {(error as Error).message}
+          </Text>
+        )}
         {filteredGraph && (
           <GraphView
             graph={filteredGraph}
@@ -174,9 +236,9 @@ function GraphPanel({ projection }: { projection: Projection }) {
           />
         )}
       </div>
-      <aside className="inspector">
+      <ScrollArea component="aside" className="inspector" type="scroll">
         <NodeDetails node={selected} />
-      </aside>
+      </ScrollArea>
     </div>
   );
 }
@@ -185,24 +247,36 @@ export default function App() {
   const [selected, setSelected] = useState<Projection>();
 
   return (
-    <div className="app">
-      <header>
-        <h1>Project Gamera</h1>
-        <span className="subtitle">Kubernetes Cluster Graph</span>
-      </header>
-      <div className="body">
-        <nav className="sidebar">
-          <h2>Projections</h2>
+    <AppShell header={{ height: 52 }} navbar={{ width: 260, breakpoint: "sm" }} padding={0}>
+      <AppShell.Header>
+        <Group h="100%" px="md" gap="sm" align="baseline" wrap="nowrap">
+          <Title order={1} size="h4" c="white">
+            Project Gamera
+          </Title>
+          <Text size="xs" c="dimmed">
+            Kubernetes Cluster Graph
+          </Text>
+        </Group>
+      </AppShell.Header>
+
+      <AppShell.Navbar p="md">
+        <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="sm" style={{ letterSpacing: "0.08em" }}>
+          Projections
+        </Text>
+        <AppShell.Section grow component={ScrollArea}>
           <ProjectionList selected={selected} onSelect={setSelected} />
-        </nav>
-        <main>
-          {selected ? (
-            <GraphPanel projection={selected} />
-          ) : (
-            <p className="muted center">Choose a projection to view its graph.</p>
-          )}
-        </main>
-      </div>
-    </div>
+        </AppShell.Section>
+      </AppShell.Navbar>
+
+      <AppShell.Main className="app-main">
+        {selected ? (
+          <GraphPanel projection={selected} />
+        ) : (
+          <Text c="dimmed" p="md">
+            Choose a projection to view its graph.
+          </Text>
+        )}
+      </AppShell.Main>
+    </AppShell>
   );
 }
