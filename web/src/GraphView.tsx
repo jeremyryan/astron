@@ -28,9 +28,14 @@ function toElements(graph: Graph): ElementDefinition[] {
 interface Props {
   graph: Graph;
   onSelect: (node: GraphNode | null) => void;
+  // Id of the currently selected node, used as the root for distance fading.
+  selectedId: string | null;
+  // Max number of hops from the selected node to keep fully visible. null means
+  // unlimited (no fading).
+  maxDistance: number | null;
 }
 
-export function GraphView({ graph, onSelect }: Props) {
+export function GraphView({ graph, onSelect, selectedId, maxDistance }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
 
@@ -72,6 +77,20 @@ export function GraphView({ graph, onSelect }: Props) {
           selector: "node:selected",
           style: { "border-width": 3, "border-color": "#fff" },
         },
+        // Nodes/edges outside the selected node's connection distance are
+        // greyed out and faded so they recede into the background.
+        {
+          selector: "node.faded",
+          style: {
+            "background-color": "#5a606b",
+            opacity: 0.2,
+            "text-opacity": 0.1,
+          },
+        },
+        {
+          selector: "edge.faded",
+          style: { opacity: 0.08 },
+        },
       ],
       layout: { name: "dagre", rankDir: "TB", nodeSep: 30, rankSep: 50 } as cytoscape.LayoutOptions,
     });
@@ -102,6 +121,49 @@ export function GraphView({ graph, onSelect }: Props) {
       cyRef.current = null;
     };
   }, [graph, onSelect]);
+
+  // Fade nodes/edges that are more than `maxDistance` hops from the selected
+  // node. Runs without rebuilding the graph so selecting/adjusting stays cheap.
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    cy.elements().removeClass("faded");
+
+    // No fading when nothing is selected or distance is unlimited.
+    if (!selectedId || maxDistance === null) return;
+    const root = cy.getElementById(selectedId);
+    if (root.empty()) return;
+
+    // Breadth-first traversal up to maxDistance hops (treating edges as
+    // undirected, i.e. connected "directly or indirectly").
+    const within = new Set<string>([selectedId]);
+    let frontier: string[] = [selectedId];
+    for (let d = 0; d < maxDistance && frontier.length > 0; d++) {
+      const next: string[] = [];
+      for (const id of frontier) {
+        cy.getElementById(id)
+          .neighborhood()
+          .nodes()
+          .forEach((nb) => {
+            const nid = nb.id();
+            if (!within.has(nid)) {
+              within.add(nid);
+              next.push(nid);
+            }
+          });
+      }
+      frontier = next;
+    }
+
+    cy.nodes().forEach((n) => {
+      if (!within.has(n.id())) n.addClass("faded");
+    });
+    cy.edges().forEach((e) => {
+      if (!within.has(e.source().id()) || !within.has(e.target().id())) {
+        e.addClass("faded");
+      }
+    });
+  }, [graph, selectedId, maxDistance]);
 
   return <div ref={containerRef} className="graph-canvas" />;
 }

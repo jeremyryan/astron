@@ -25,9 +25,25 @@ interface Props {
   onToggleKind: (kind: string) => void;
   onShowAll: () => void;
   onHideAll: () => void;
+  // Connection-distance filter (relative to the selected node).
+  hasSelection: boolean;
+  // Max hops from the selected node to keep visible; null = all (no fading).
+  maxDistance: number | null;
+  onChangeDistance: (value: number | null) => void;
 }
 
-export function FilterPanel({ kinds, hiddenKinds, onToggleKind, onShowAll, onHideAll }: Props) {
+const MAX_DISTANCE = 9;
+
+export function FilterPanel({
+  kinds,
+  hiddenKinds,
+  onToggleKind,
+  onShowAll,
+  onHideAll,
+  hasSelection,
+  maxDistance,
+  onChangeDistance,
+}: Props) {
   const visibleCount = kinds.filter((k) => !hiddenKinds.has(k.kind)).length;
   const filtering = hiddenKinds.size > 0;
 
@@ -82,6 +98,45 @@ export function FilterPanel({ kinds, hiddenKinds, onToggleKind, onShowAll, onHid
               );
             })}
           </ul>
+        )}
+      </section>
+
+      <section className="filter-group">
+        <div className="filter-group-header">
+          <h3>Connection distance</h3>
+        </div>
+        <label className="distance-all">
+          <input
+            type="checkbox"
+            checked={maxDistance === null}
+            onChange={(e) => onChangeDistance(e.target.checked ? null : 2)}
+          />
+          All connections
+        </label>
+        <div className={`distance-stepper${maxDistance === null ? " disabled" : ""}`}>
+          <button
+            type="button"
+            aria-label="Fewer hops"
+            disabled={maxDistance === null || maxDistance <= 1}
+            onClick={() => onChangeDistance(Math.max(1, (maxDistance ?? 2) - 1))}
+          >
+            −
+          </button>
+          <span className="distance-value">
+            {maxDistance === null ? "∞" : maxDistance}
+            <small>{maxDistance === 1 ? " hop" : " hops"}</small>
+          </span>
+          <button
+            type="button"
+            aria-label="More hops"
+            disabled={maxDistance === null || maxDistance >= MAX_DISTANCE}
+            onClick={() => onChangeDistance(Math.min(MAX_DISTANCE, (maxDistance ?? 2) + 1))}
+          >
+            +
+          </button>
+        </div>
+        {maxDistance !== null && !hasSelection && (
+          <p className="muted hint">Select a node to apply.</p>
         )}
       </section>
     </aside>

@@ -70,6 +70,8 @@ function GraphPanel({ projection }: { projection: Projection }) {
   const [selected, setSelected] = useState<GraphNode | null>(null);
   // Kinds the user has hidden. Empty = show everything (the default).
   const [hiddenKinds, setHiddenKinds] = useState<Set<string>>(new Set());
+  // Max hops from the selected node to keep visible; null = all (no fading).
+  const [maxDistance, setMaxDistance] = useState<number | null>(null);
   const { data, isLoading, error } = useQuery({
     queryKey: ["graph", projection.uid],
     queryFn: () => getGraph(projection.namespace, projection.name),
@@ -107,11 +109,21 @@ function GraphPanel({ projection }: { projection: Projection }) {
         onToggleKind={toggleKind}
         onShowAll={showAll}
         onHideAll={hideAll}
+        hasSelection={selected !== null}
+        maxDistance={maxDistance}
+        onChangeDistance={setMaxDistance}
       />
       <div className="graph-area">
         {isLoading && <p className="muted">Loading graph…</p>}
         {error && <p className="error">{(error as Error).message}</p>}
-        {filteredGraph && <GraphView graph={filteredGraph} onSelect={setSelected} />}
+        {filteredGraph && (
+          <GraphView
+            graph={filteredGraph}
+            onSelect={setSelected}
+            selectedId={selected?.id ?? null}
+            maxDistance={maxDistance}
+          />
+        )}
       </div>
       <aside className="inspector">
         <NodeDetails node={selected} />

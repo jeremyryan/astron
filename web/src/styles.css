@@ -239,6 +239,68 @@ main {
   color: var(--muted);
 }
 
+.distance-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.distance-all input[type="checkbox"] {
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+.distance-stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+}
+
+.distance-stepper.disabled {
+  opacity: 0.4;
+}
+
+.distance-stepper button {
+  width: 24px;
+  height: 24px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text);
+  background: #2c313a;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.distance-stepper button:hover:not(:disabled) {
+  background: #343b46;
+}
+
+.distance-stepper button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.distance-value {
+  min-width: 56px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.distance-value small {
+  color: var(--muted);
+}
+
+.hint {
+  font-size: 11px;
+  padding: 0 6px;
+  margin: 2px 0 0;
+}
+
 .graph-area {
   flex: 1;
   position: relative;
