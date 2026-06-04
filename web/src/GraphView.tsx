@@ -141,13 +141,21 @@ export function GraphView({ graph, onSelect, selectedId, maxDistance, onShowYaml
     const handleContextMenu = (e: MouseEvent) => e.preventDefault();
     containerRef.current.addEventListener("contextmenu", handleContextMenu);
 
-    // Ctrl-C (or Cmd-C) centers the currently selected node in the view.
+    // Keyboard shortcuts acting on the currently selected node:
+    //   Ctrl/Cmd-C  centers it in the view
+    //   Ctrl/Cmd-Y  opens its YAML manifest modal
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "c") return;
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const key = e.key.toLowerCase();
+      if (key !== "c" && key !== "y") return;
       const selected = cy.nodes(":selected");
-      if (selected.nonempty()) {
-        e.preventDefault();
+      if (selected.empty()) return;
+      e.preventDefault();
+      if (key === "c") {
         cy.animate({ center: { eles: selected }, duration: 200 });
+      } else {
+        const found = graph.nodes.find((n) => n.id === selected.first().id());
+        if (found) onShowYaml(found);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -160,7 +168,7 @@ export function GraphView({ graph, onSelect, selectedId, maxDistance, onShowYaml
       cy.destroy();
       cyRef.current = null;
     };
-  }, [graph, onSelect]);
+  }, [graph, onSelect, onShowYaml]);
 
   // Fade nodes/edges that are more than `maxDistance` hops from the selected
   // node. Runs without rebuilding the graph so selecting/adjusting stays cheap.
