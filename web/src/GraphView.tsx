@@ -2,24 +2,9 @@ import { useEffect, useRef } from "react";
 import cytoscape, { type Core, type ElementDefinition } from "cytoscape";
 import dagre from "cytoscape-dagre";
 import type { Graph, GraphNode } from "./api";
+import { colorForKind } from "./kinds";
 
 cytoscape.use(dagre);
-
-// A distinct color per common Kubernetes kind; unknown kinds fall back to grey.
-const KIND_COLORS: Record<string, string> = {
-  Deployment: "#326ce5",
-  StatefulSet: "#326ce5",
-  DaemonSet: "#326ce5",
-  ReplicaSet: "#5b8def",
-  Pod: "#2ecc71",
-  Service: "#e67e22",
-  ConfigMap: "#9b59b6",
-  Secret: "#c0392b",
-};
-
-function colorFor(kind: string): string {
-  return KIND_COLORS[kind] ?? "#7f8c8d";
-}
 
 function toElements(graph: Graph): ElementDefinition[] {
   const ids = new Set(graph.nodes.map((n) => n.id));
@@ -28,7 +13,7 @@ function toElements(graph: Graph): ElementDefinition[] {
       id: n.id,
       label: `${n.kind}\n${n.name}`,
       kind: n.kind,
-      color: colorFor(n.kind),
+      color: colorForKind(n.kind),
     },
   }));
   // Drop edges whose endpoints are not present to avoid render errors.
