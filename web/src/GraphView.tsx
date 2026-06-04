@@ -34,6 +34,8 @@ interface Props {
   // Max number of hops from the selected node to keep fully visible. null means
   // unlimited (no fading).
   maxDistance: number | null;
+  // Called when the user picks "YAML" from a node's right-click menu.
+  onShowYaml: (node: GraphNode) => void;
 }
 
 // Context menu anchored at a viewport position for a right-clicked node.
@@ -43,7 +45,7 @@ interface NodeMenu {
   node: GraphNode;
 }
 
-export function GraphView({ graph, onSelect, selectedId, maxDistance }: Props) {
+export function GraphView({ graph, onSelect, selectedId, maxDistance, onShowYaml }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
   // Right-click context menu state (null = closed).
@@ -238,8 +240,15 @@ export function GraphView({ graph, onSelect, selectedId, maxDistance }: Props) {
                 {menu.node.kind}/{menu.node.name}
               </Text>
             </Menu.Label>
-            {/* Actions are not implemented yet. */}
-            <Menu.Item>YAML</Menu.Item>
+            <Menu.Item
+              onClick={() => {
+                onShowYaml(menu.node);
+                setMenu(null);
+              }}
+            >
+              YAML
+            </Menu.Item>
+            {/* Edit is not implemented yet. */}
             <Menu.Item>Edit</Menu.Item>
           </Menu.Dropdown>
         </Menu>

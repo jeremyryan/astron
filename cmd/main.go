@@ -213,7 +213,7 @@ func main() {
 	// +kubebuilder:scaffold:builder
 
 	if apiAddr != "0" {
-		apiServer := api.NewServer(mgr.GetClient(), projectors, web.Assets())
+		apiServer := api.NewServer(mgr.GetClient(), projectors, dynClient, mgr.GetRESTMapper(), web.Assets())
 		if err := mgr.Add(newAPIRunnable(apiAddr, apiServer.Handler())); err != nil {
 			setupLog.Error(err, "Failed to register API server")
 			os.Exit(1)

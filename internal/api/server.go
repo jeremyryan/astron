@@ -27,7 +27,13 @@ import (
 	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 
 	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
 	"github.com/project-gamera/gamera/internal/graph"
@@ -38,13 +44,19 @@ import (
 type Server struct {
 	client     client.Client
 	projectors *projector.Manager
-	assets     fs.FS
+	// dyn and mapper are used to fetch arbitrary live resources (for the YAML
+	// view) without going through the controller-runtime cache. They may be nil,
+	// in which case the resource endpoint is disabled.
+	dyn    dynamic.Interface
+	mapper meta.RESTMapper
+	assets fs.FS
 }
 
 // NewServer builds a Server. assets may be nil to disable static UI serving
-// (e.g. in tests or API-only deployments).
-func NewServer(c client.Client, projectors *projector.Manager, assets fs.FS) *Server {
-	return &Server{client: c, projectors: projectors, assets: assets}
+// (e.g. in tests or API-only deployments). dyn and mapper may be nil to disable
+// the live-resource (YAML) endpoint.
+func NewServer(c client.Client, projectors *projector.Manager, dyn dynamic.Interface, mapper meta.RESTMapper, assets fs.FS) *Server {
+	return &Server{client: c, projectors: projectors, dyn: dyn, mapper: mapper, assets: assets}
 }
 
 // Handler returns the HTTP handler for the API and UI.
@@ -53,6 +65,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/healthz", s.handleHealth)
 	mux.HandleFunc("GET /api/projections", s.handleListProjections)
 	mux.HandleFunc("GET /api/projections/{namespace}/{name}/graph", s.handleGraph)
+	mux.HandleFunc("GET /api/resource", s.handleResourceYAML)
 
 	if s.assets != nil {
 		mux.Handle("/", s.spaHandler())
@@ -103,6 +116,74 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, graphToDTO(data))
+}
+
+// handleResourceYAML fetches a single live resource from the cluster and returns
+// its YAML representation. The resource is identified by query parameters:
+// apiVersion, kind, name and (for namespaced kinds) namespace.
+func (s *Server) handleResourceYAML(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	apiVersion := q.Get("apiVersion")
+	kind := q.Get("kind")
+	name := q.Get("name")
+	namespace := q.Get("namespace")
+	if apiVersion == "" || kind == "" || name == "" {
+		writeError(w, http.StatusBadRequest, errors.New("apiVersion, kind and name query parameters are required"))
+		return
+	}
+	if s.dyn == nil || s.mapper == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("live resource fetching is not configured"))
+		return
+	}
+
+	gv, err := schema.ParseGroupVersion(apiVersion)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	gvk := gv.WithKind(kind)
+	mapping, err := s.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	var ri dynamic.ResourceInterface
+	if mapping.Scope.Name() == meta.RESTScopeNameNamespace {
+		ri = s.dyn.Resource(mapping.Resource).Namespace(namespace)
+	} else {
+		ri = s.dyn.Resource(mapping.Resource)
+	}
+
+	obj, err := ri.Get(r.Context(), name, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			writeError(w, http.StatusNotFound, err)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	// Strip noisy server-managed fields for a readable manifest.
+	unstructured.RemoveNestedField(obj.Object, "metadata", "managedFields")
+	if ann := obj.GetAnnotations(); ann != nil {
+		delete(ann, "kubectl.kubernetes.io/last-applied-configuration")
+		if len(ann) == 0 {
+			unstructured.RemoveNestedField(obj.Object, "metadata", "annotations")
+		} else {
+			obj.SetAnnotations(ann)
+		}
+	}
+
+	out, err := yaml.Marshal(obj.Object)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/yaml")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(out)
 }
 
 // spaHandler serves the embedded single-page app, falling back to index.html

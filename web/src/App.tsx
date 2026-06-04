@@ -14,6 +14,7 @@ import {
 import { getGraph, listProjections, type Graph, type GraphNode, type Projection } from "./api";
 import { GraphView } from "./GraphView";
 import { FilterPanel, kindCounts } from "./Filters";
+import { YamlModal } from "./YamlModal";
 
 function ProjectionList({
   selected,
@@ -170,6 +171,8 @@ function NodeDetails({ node }: { node: GraphNode | null }) {
 
 function GraphPanel({ projection }: { projection: Projection }) {
   const [selected, setSelected] = useState<GraphNode | null>(null);
+  // Node whose YAML manifest is shown in the modal (null = closed).
+  const [yamlNode, setYamlNode] = useState<GraphNode | null>(null);
   // Kinds the user has hidden. Empty = show everything (the default).
   const [hiddenKinds, setHiddenKinds] = useState<Set<string>>(new Set());
   // Max hops from the selected node to keep visible; null = all (no fading).
@@ -233,9 +236,11 @@ function GraphPanel({ projection }: { projection: Projection }) {
             onSelect={setSelected}
             selectedId={selected?.id ?? null}
             maxDistance={maxDistance}
+            onShowYaml={setYamlNode}
           />
         )}
       </div>
+      <YamlModal node={yamlNode} onClose={() => setYamlNode(null)} />
       <ScrollArea component="aside" className="inspector" type="scroll">
         <NodeDetails node={selected} />
       </ScrollArea>

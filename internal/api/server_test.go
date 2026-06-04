@@ -20,12 +20,17 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/fstest"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -50,7 +55,7 @@ func newTestServer(t *testing.T, objs ...client.Object) *Server {
 	t.Helper()
 	c := fakeclient.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(objs...).Build()
 	mgr := projector.NewManager(nil, nil, nil)
-	return NewServer(c, mgr, nil)
+	return NewServer(c, mgr, nil, nil, nil)
 }
 
 func TestHealth(t *testing.T) {
@@ -102,7 +107,7 @@ func TestSPAServesAssetsAndFallsBack(t *testing.T) {
 		"assets/app.js": {Data: []byte("console.log('hi')")},
 	}
 	c := fakeclient.NewClientBuilder().WithScheme(testScheme(t)).Build()
-	srv := NewServer(c, projector.NewManager(nil, nil, nil), assets)
+	srv := NewServer(c, projector.NewManager(nil, nil, nil), nil, nil, assets)
 	handler := srv.Handler()
 
 	// Existing asset is served directly.
@@ -124,6 +129,60 @@ func TestSPAServesAssetsAndFallsBack(t *testing.T) {
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/healthz", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("api route shadowed by SPA: code=%d", rec.Code)
+	}
+}
+
+func TestResourceYAML(t *testing.T) {
+	scheme := testScheme(t)
+	cm := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1",
+		"kind":       "ConfigMap",
+		"metadata": map[string]any{
+			"name":          "demo",
+			"namespace":     "default",
+			"managedFields": []any{map[string]any{"manager": "kubectl"}},
+			"annotations": map[string]any{
+				"kubectl.kubernetes.io/last-applied-configuration": "{}",
+				"keep-me": "yes",
+			},
+		},
+		"data": map[string]any{"key": "value"},
+	}}
+	dc := dynamicfake.NewSimpleDynamicClient(scheme, cm)
+	mapper := meta.NewDefaultRESTMapper(nil)
+	mapper.Add(schema.GroupVersionKind{Version: "v1", Kind: "ConfigMap"}, meta.RESTScopeNamespace)
+
+	c := fakeclient.NewClientBuilder().WithScheme(scheme).Build()
+	srv := NewServer(c, projector.NewManager(nil, nil, nil), dc, mapper, nil)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/resource?apiVersion=v1&kind=ConfigMap&namespace=default&name=demo", nil)
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "kind: ConfigMap") || !strings.Contains(body, "key: value") {
+		t.Fatalf("unexpected YAML body:\n%s", body)
+	}
+	if strings.Contains(body, "managedFields") {
+		t.Fatalf("managedFields should have been stripped:\n%s", body)
+	}
+	if strings.Contains(body, "last-applied-configuration") {
+		t.Fatalf("last-applied-configuration should have been stripped:\n%s", body)
+	}
+	if !strings.Contains(body, "keep-me:") {
+		t.Fatalf("expected remaining annotation to be kept:\n%s", body)
+	}
+}
+
+func TestResourceYAMLMissingParams(t *testing.T) {
+	srv := newTestServer(t)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/resource?kind=Pod", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
 	}
 }
 

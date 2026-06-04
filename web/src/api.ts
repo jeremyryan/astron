@@ -47,3 +47,24 @@ export function listProjections(): Promise<Projection[]> {
 export function getGraph(namespace: string, name: string): Promise<Graph> {
   return getJSON<Graph>(`/api/projections/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/graph`);
 }
+
+// getResourceYaml fetches the live YAML manifest for a single resource.
+export async function getResourceYaml(node: {
+  apiVersion: string;
+  kind: string;
+  namespace?: string;
+  name: string;
+}): Promise<string> {
+  const params = new URLSearchParams({
+    apiVersion: node.apiVersion,
+    kind: node.kind,
+    name: node.name,
+  });
+  if (node.namespace) params.set("namespace", node.namespace);
+  const res = await fetch(`/api/resource?${params.toString()}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? `request failed: ${res.status}`);
+  }
+  return res.text();
+}
