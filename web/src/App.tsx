@@ -39,8 +39,54 @@ function ProjectionList({
   );
 }
 
+// Properties that hold a map of key/value pairs (stored as a JSON string by the
+// backend) and should be rendered as individual entries rather than raw JSON.
+const MAP_PROPS = new Set(["labels", "annotations"]);
+
+// asKeyValues parses a property value into sorted key/value entries when it
+// represents an object (either an object or a JSON-encoded string). Returns null
+// when the value is not a map.
+function asKeyValues(value: unknown): Array<[string, string]> | null {
+  let obj: unknown = value;
+  if (typeof value === "string") {
+    try {
+      obj = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
+  return Object.entries(obj as Record<string, unknown>)
+    .map(([k, v]): [string, string] => [k, typeof v === "string" ? v : JSON.stringify(v)])
+    .sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+function KeyValueSection({ title, value }: { title: string; value: unknown }) {
+  const entries = asKeyValues(value);
+  return (
+    <div className="kv-section">
+      <h4>{title}</h4>
+      {entries && entries.length > 0 ? (
+        <dl className="kv-list">
+          {entries.map(([k, v]) => (
+            <div key={k} className="kv">
+              <dt>{k}</dt>
+              <dd>{v}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <p className="muted">none</p>
+      )}
+    </div>
+  );
+}
+
 function NodeDetails({ node }: { node: GraphNode | null }) {
   if (!node) return <p className="muted">Select a node to inspect it.</p>;
+  const props = Object.entries(node.properties ?? {});
+  const scalarProps = props.filter(([k]) => !MAP_PROPS.has(k));
+  const mapProps = props.filter(([k]) => MAP_PROPS.has(k));
   return (
     <div className="node-details">
       <h3>
@@ -55,13 +101,16 @@ function NodeDetails({ node }: { node: GraphNode | null }) {
             <dd>{node.namespace}</dd>
           </>
         )}
-        {Object.entries(node.properties ?? {}).map(([k, v]) => (
+        {scalarProps.map(([k, v]) => (
           <div key={k} className="prop">
             <dt>{k}</dt>
             <dd>{typeof v === "string" ? v : JSON.stringify(v)}</dd>
           </div>
         ))}
       </dl>
+      {mapProps.map(([k, v]) => (
+        <KeyValueSection key={k} title={k} value={v} />
+      ))}
     </div>
   );
 }
