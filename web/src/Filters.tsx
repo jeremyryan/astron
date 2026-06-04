@@ -1,3 +1,13 @@
+import {
+  Badge,
+  Box,
+  Button,
+  Checkbox,
+  Group,
+  NumberInput,
+  Stack,
+  Text,
+} from "@mantine/core";
 import type { Graph } from "./api";
 import { colorForKind } from "./kinds";
 
@@ -48,97 +58,113 @@ export function FilterPanel({
   const filtering = hiddenKinds.size > 0;
 
   return (
-    <aside className="filters">
-      <div className="filters-header">
-        <h2>Filters</h2>
-      </div>
+    <Box component="aside" className="filters">
+      <Stack gap="lg">
+        <Text size="xs" fw={700} tt="uppercase" c="dimmed">
+          Filters
+        </Text>
 
-      <section className="filter-group">
-        <div className="filter-group-header">
-          <h3>
-            Resource types
-            {filtering && (
-              <span className="filter-badge">
-                {visibleCount}/{kinds.length}
-              </span>
-            )}
-          </h3>
-          <div className="filter-actions">
-            <button type="button" onClick={onShowAll} disabled={hiddenKinds.size === 0}>
-              All
-            </button>
-            <button type="button" onClick={onHideAll} disabled={visibleCount === 0}>
-              None
-            </button>
-          </div>
-        </div>
+        {/* Resource types */}
+        <Stack gap="xs">
+          <Group justify="space-between" align="center" wrap="nowrap">
+            <Group gap={6} wrap="nowrap">
+              <Text size="sm" fw={600}>
+                Resource types
+              </Text>
+              {filtering && (
+                <Badge size="sm" variant="light" color="gray">
+                  {visibleCount}/{kinds.length}
+                </Badge>
+              )}
+            </Group>
+            <Button.Group>
+              <Button
+                size="compact-xs"
+                variant="default"
+                onClick={onShowAll}
+                disabled={hiddenKinds.size === 0}
+              >
+                All
+              </Button>
+              <Button
+                size="compact-xs"
+                variant="default"
+                onClick={onHideAll}
+                disabled={visibleCount === 0}
+              >
+                None
+              </Button>
+            </Button.Group>
+          </Group>
 
-        {kinds.length === 0 ? (
-          <p className="muted">No resources.</p>
-        ) : (
-          <ul className="filter-list">
-            {kinds.map(({ kind, count }) => {
-              const visible = !hiddenKinds.has(kind);
-              return (
-                <li key={kind}>
-                  <label className={visible ? "" : "dimmed"}>
-                    <input
-                      type="checkbox"
-                      checked={visible}
-                      onChange={() => onToggleKind(kind)}
-                    />
-                    <span
-                      className="kind-swatch"
-                      style={{ background: colorForKind(kind) }}
-                    />
-                    <span className="kind-name">{kind}</span>
-                    <span className="kind-count">{count}</span>
-                  </label>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+          {kinds.length === 0 ? (
+            <Text size="sm" c="dimmed">
+              No resources.
+            </Text>
+          ) : (
+            <Stack gap={6}>
+              {kinds.map(({ kind, count }) => (
+                <Checkbox
+                  key={kind}
+                  size="xs"
+                  checked={!hiddenKinds.has(kind)}
+                  onChange={() => onToggleKind(kind)}
+                  styles={{ labelWrapper: { flex: 1 } }}
+                  label={
+                    <Group justify="space-between" wrap="nowrap" gap={8}>
+                      <Group gap={8} wrap="nowrap">
+                        <Box
+                          w={10}
+                          h={10}
+                          style={{
+                            borderRadius: 2,
+                            background: colorForKind(kind),
+                            flex: "0 0 auto",
+                          }}
+                        />
+                        <Text size="sm">{kind}</Text>
+                      </Group>
+                      <Text size="xs" c="dimmed">
+                        {count}
+                      </Text>
+                    </Group>
+                  }
+                />
+              ))}
+            </Stack>
+          )}
+        </Stack>
 
-      <section className="filter-group">
-        <div className="filter-group-header">
-          <h3>Connection distance</h3>
-        </div>
-        <label className="distance-all">
-          <input
-            type="checkbox"
+        {/* Connection distance */}
+        <Stack gap="xs">
+          <Text size="sm" fw={600}>
+            Connection distance
+          </Text>
+          <Checkbox
+            size="xs"
+            label="All connections"
             checked={maxDistance === null}
-            onChange={(e) => onChangeDistance(e.target.checked ? null : 2)}
+            onChange={(e) => onChangeDistance(e.currentTarget.checked ? null : 2)}
           />
-          All connections
-        </label>
-        <div className={`distance-stepper${maxDistance === null ? " disabled" : ""}`}>
-          <button
-            type="button"
-            aria-label="Fewer hops"
-            disabled={maxDistance === null || maxDistance <= 1}
-            onClick={() => onChangeDistance(Math.max(1, (maxDistance ?? 2) - 1))}
-          >
-            −
-          </button>
-          <span className="distance-value">
-            {maxDistance === null ? "∞" : maxDistance}
-            <small>{maxDistance === 1 ? " hop" : " hops"}</small>
-          </span>
-          <button
-            type="button"
-            aria-label="More hops"
-            disabled={maxDistance === null || maxDistance >= MAX_DISTANCE}
-            onClick={() => onChangeDistance(Math.min(MAX_DISTANCE, (maxDistance ?? 2) + 1))}
-          >
-            +
-          </button>
-        </div>
-        {maxDistance !== null && !hasSelection && (
-          <p className="muted hint">Select a node to apply.</p>
-        )}
-      </section>
-    </aside>
+          <NumberInput
+            size="xs"
+            min={1}
+            max={MAX_DISTANCE}
+            clampBehavior="strict"
+            disabled={maxDistance === null}
+            value={maxDistance ?? 2}
+            onChange={(v) => onChangeDistance(typeof v === "number" ? v : 2)}
+            suffix=" hops"
+            allowDecimal={false}
+            allowNegative={false}
+          />
+          {maxDistance !== null && !hasSelection && (
+            <Text size="xs" c="dimmed">
+              Select a node to apply.
+            </Text>
+          )}
+        </Stack>
+      </Stack>
+    </Box>
   );
 }
