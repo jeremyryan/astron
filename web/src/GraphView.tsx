@@ -104,6 +104,10 @@ export function GraphView({
       container: containerRef.current,
       // Cap zoom so fitting a tiny subgraph (or a single node) doesn't zoom in absurdly.
       maxZoom: 2.5,
+      // Shift+drag on the background draws a selection box (panning is the
+      // unmodified drag). Selecting multiple nodes lets them be moved together.
+      boxSelectionEnabled: true,
+      selectionType: "single",
       elements: toElements(graph, groupByNamespace),
       style: [
         {
@@ -245,8 +249,9 @@ export function GraphView({
       el.style.cursor = evt.target.hasClass(GROUP_CLASS) ? "" : "pointer";
     });
     cy.on("mousedown", (evt) => {
-      if (evt.target === cy) {
-        // Background press begins a pan.
+      const oe = evt.originalEvent as MouseEvent | undefined;
+      if (evt.target === cy && !(oe && oe.shiftKey)) {
+        // Background press without shift begins a pan (shift+drag box-selects).
         dragging = true;
         el.style.cursor = "grabbing";
       }
