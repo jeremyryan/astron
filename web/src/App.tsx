@@ -6,7 +6,6 @@ import {
   Box,
   Group,
   Loader,
-  Modal,
   NavLink,
   ScrollArea,
   Stack,
@@ -18,6 +17,8 @@ import { getGraph, listProjections, type Graph, type GraphNode, type Projection 
 import { GraphView } from "./GraphView";
 import { FilterPanel, kindCounts } from "./Filters";
 import { YamlModal } from "./YamlModal";
+import { SettingsModal } from "./SettingsModal";
+import { useSettings } from "./settings";
 import { IconHierarchy2, IconSettings, IconTopologyStar3 } from "./icons";
 
 function ProjectionList({
@@ -175,6 +176,7 @@ function NodeDetails({ node }: { node: GraphNode | null }) {
 }
 
 function GraphPanel({ projection }: { projection: Projection }) {
+  const { settings } = useSettings();
   const [selected, setSelected] = useState<GraphNode | null>(null);
   // Node whose YAML manifest is shown in the modal (null = closed).
   const [yamlNode, setYamlNode] = useState<GraphNode | null>(null);
@@ -227,7 +229,19 @@ function GraphPanel({ projection }: { projection: Projection }) {
         groupByNamespace={groupByNamespace}
         onToggleGroupByNamespace={setGroupByNamespace}
       />
-      <div className="graph-area">
+      <div
+        className="graph-area"
+        style={
+          settings.wallpaper
+            ? {
+                backgroundImage: `url(${settings.wallpaper})`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+                backgroundRepeat: "no-repeat",
+              }
+            : undefined
+        }
+      >
         {isLoading && (
           <Group gap="xs" p="md">
             <Loader size="sm" />
@@ -309,16 +323,7 @@ export default function App() {
         )}
       </AppShell.Main>
 
-      <Modal
-        opened={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        title="Settings"
-        size="lg"
-      >
-        <Text c="dimmed" size="sm">
-          Settings management is coming soon.
-        </Text>
-      </Modal>
+      <SettingsModal opened={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </AppShell>
   );
 }
