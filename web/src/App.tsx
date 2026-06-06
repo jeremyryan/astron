@@ -15,7 +15,12 @@ import {
 } from "@mantine/core";
 import { getGraph, listProjections, type Graph, type GraphNode, type Projection } from "./api";
 import { GraphView } from "./GraphView";
-import { FilterPanel, kindCounts } from "./Filters";
+import {
+  FilterPanel,
+  kindCounts,
+  type LabelFilter,
+  type LabelMatchMode,
+} from "./Filters";
 import { YamlModal } from "./YamlModal";
 import { SettingsModal } from "./SettingsModal";
 import { useSettings } from "./settings";
@@ -175,6 +180,47 @@ function NodeDetails({ node }: { node: GraphNode | null }) {
   );
 }
 
+// nodeLabels parses a node's labels property (stored as a JSON string by the
+// backend) into a flat string map.
+function nodeLabels(node: GraphNode): Record<string, string> {
+  const raw = node.properties?.labels;
+  let obj: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      obj = JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+    out[k] = typeof v === "string" ? v : JSON.stringify(v);
+  }
+  return out;
+}
+
+// matchesLabelFilters returns true when a node satisfies the active label
+// filters. A filter with an empty value matches any value for the key. Rows
+// with an empty key are ignored. Mode "all" requires every filter to match
+// (AND); "any" requires at least one (OR).
+function matchesLabelFilters(
+  node: GraphNode,
+  filters: LabelFilter[],
+  mode: LabelMatchMode,
+): boolean {
+  const active = filters.filter((f) => f.key.trim() !== "");
+  if (active.length === 0) return true;
+  const labels = nodeLabels(node);
+  const test = (f: LabelFilter) => {
+    const key = f.key.trim();
+    if (!(key in labels)) return false;
+    const value = f.value.trim();
+    return value === "" ? true : labels[key] === value;
+  };
+  return mode === "all" ? active.every(test) : active.some(test);
+}
+
 function GraphPanel({ projection }: { projection: Projection }) {
   const { settings } = useSettings();
   const [selected, setSelected] = useState<GraphNode | null>(null);
@@ -186,6 +232,9 @@ function GraphPanel({ projection }: { projection: Projection }) {
   const [maxDistance, setMaxDistance] = useState<number | null>(null);
   // Whether to group resources into compound nodes by namespace.
   const [groupByNamespace, setGroupByNamespace] = useState(true);
+  // Label filters and the AND/OR mode used to combine them.
+  const [labelFilters, setLabelFilters] = useState<LabelFilter[]>([]);
+  const [labelMode, setLabelMode] = useState<LabelMatchMode>("any");
   const { data, isLoading, error } = useQuery({
     queryKey: ["graph", projection.uid],
     queryFn: () => getGraph(projection.namespace, projection.name),
@@ -196,14 +245,17 @@ function GraphPanel({ projection }: { projection: Projection }) {
 
   const filteredGraph = useMemo<Graph | undefined>(() => {
     if (!data) return undefined;
-    if (hiddenKinds.size === 0) return data;
-    const nodes = data.nodes.filter((n) => !hiddenKinds.has(n.kind));
+    const hasLabelFilter = labelFilters.some((f) => f.key.trim() !== "");
+    if (hiddenKinds.size === 0 && !hasLabelFilter) return data;
+    const nodes = data.nodes.filter(
+      (n) => !hiddenKinds.has(n.kind) && matchesLabelFilters(n, labelFilters, labelMode),
+    );
     const visibleIds = new Set(nodes.map((n) => n.id));
     const edges = data.edges.filter(
       (e) => visibleIds.has(e.source) && visibleIds.has(e.target),
     );
     return { nodes, edges };
-  }, [data, hiddenKinds]);
+  }, [data, hiddenKinds, labelFilters, labelMode]);
 
   const toggleKind = (kind: string) =>
     setHiddenKinds((prev) => {
@@ -214,6 +266,13 @@ function GraphPanel({ projection }: { projection: Projection }) {
     });
   const showAll = () => setHiddenKinds(new Set());
   const hideAll = () => setHiddenKinds(new Set(kinds.map((k) => k.kind)));
+
+  const addLabel = () =>
+    setLabelFilters((prev) => [...prev, { id: crypto.randomUUID(), key: "", value: "" }]);
+  const updateLabel = (id: string, patch: Partial<Pick<LabelFilter, "key" | "value">>) =>
+    setLabelFilters((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
+  const removeLabel = (id: string) =>
+    setLabelFilters((prev) => prev.filter((f) => f.id !== id));
 
   return (
     <div className="graph-panel">
@@ -228,6 +287,12 @@ function GraphPanel({ projection }: { projection: Projection }) {
         onChangeDistance={setMaxDistance}
         groupByNamespace={groupByNamespace}
         onToggleGroupByNamespace={setGroupByNamespace}
+        labelFilters={labelFilters}
+        labelMode={labelMode}
+        onAddLabel={addLabel}
+        onUpdateLabel={updateLabel}
+        onRemoveLabel={removeLabel}
+        onChangeLabelMode={setLabelMode}
       />
       <div
         className="graph-area"

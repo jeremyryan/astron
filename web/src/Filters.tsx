@@ -1,16 +1,29 @@
 import {
+  ActionIcon,
   Badge,
   Box,
   Button,
   Checkbox,
   Group,
   NumberInput,
+  SegmentedControl,
   Stack,
   Text,
+  TextInput,
 } from "@mantine/core";
 import type { Graph } from "./api";
 import { colorForKind } from "./kinds";
-import { IconEye, IconEyeOff, IconFilter } from "./icons";
+import { IconEye, IconEyeOff, IconFilter, IconPlus, IconX } from "./icons";
+
+// A single label filter row. An empty value matches any value for the key.
+export interface LabelFilter {
+  id: string;
+  key: string;
+  value: string;
+}
+
+// Combine label filters with OR ("any") or AND ("all") logic.
+export type LabelMatchMode = "any" | "all";
 
 export interface KindCount {
   kind: string;
@@ -44,6 +57,13 @@ interface Props {
   // Whether resources are grouped into namespace boxes.
   groupByNamespace: boolean;
   onToggleGroupByNamespace: (value: boolean) => void;
+  // Label filtering.
+  labelFilters: LabelFilter[];
+  labelMode: LabelMatchMode;
+  onAddLabel: () => void;
+  onUpdateLabel: (id: string, patch: Partial<Pick<LabelFilter, "key" | "value">>) => void;
+  onRemoveLabel: (id: string) => void;
+  onChangeLabelMode: (mode: LabelMatchMode) => void;
 }
 
 const MAX_DISTANCE = 9;
@@ -59,6 +79,12 @@ export function FilterPanel({
   onChangeDistance,
   groupByNamespace,
   onToggleGroupByNamespace,
+  labelFilters,
+  labelMode,
+  onAddLabel,
+  onUpdateLabel,
+  onRemoveLabel,
+  onChangeLabelMode,
 }: Props) {
   const visibleCount = kinds.filter((k) => !hiddenKinds.has(k.kind)).length;
   const filtering = hiddenKinds.size > 0;
@@ -174,6 +200,76 @@ export function FilterPanel({
               Select a node to apply.
             </Text>
           )}
+        </Stack>
+
+        {/* Labels */}
+        <Stack gap="xs">
+          <Group justify="space-between" align="center" wrap="nowrap">
+            <Text size="sm" fw={600}>
+              Labels
+            </Text>
+            <SegmentedControl
+              size="xs"
+              value={labelMode}
+              onChange={(v) => onChangeLabelMode(v as LabelMatchMode)}
+              data={[
+                { label: "Any", value: "any" },
+                { label: "All", value: "all" },
+              ]}
+            />
+          </Group>
+
+          {labelFilters.length === 0 ? (
+            <Text size="xs" c="dimmed">
+              No label filters.
+            </Text>
+          ) : (
+            <Stack gap={6}>
+              {labelFilters.map((f) => (
+                <Group key={f.id} gap={4} wrap="nowrap" align="center">
+                  <TextInput
+                    size="xs"
+                    placeholder="key"
+                    value={f.key}
+                    onChange={(e) => onUpdateLabel(f.id, { key: e.currentTarget.value })}
+                    style={{ flex: 1, minWidth: 0 }}
+                  />
+                  <Text size="xs" c="dimmed">
+                    =
+                  </Text>
+                  <TextInput
+                    size="xs"
+                    placeholder="value"
+                    value={f.value}
+                    onChange={(e) => onUpdateLabel(f.id, { value: e.currentTarget.value })}
+                    style={{ flex: 1, minWidth: 0 }}
+                  />
+                  <ActionIcon
+                    size="sm"
+                    variant="subtle"
+                    color="gray"
+                    aria-label="Remove label filter"
+                    onClick={() => onRemoveLabel(f.id)}
+                  >
+                    <IconX size={14} stroke={1.5} />
+                  </ActionIcon>
+                </Group>
+              ))}
+              <Text size="xs" c="dimmed">
+                Leave a value empty to match any value for that key.
+              </Text>
+            </Stack>
+          )}
+
+          <Button
+            size="compact-xs"
+            variant="default"
+            leftSection={<IconPlus size={13} stroke={1.5} />}
+            onClick={onAddLabel}
+            style={{ alignSelf: "flex-start" }}
+          >
+            Add label
+          </Button>
         </Stack>
 
         {/* Grouping */}
