@@ -36,3 +36,4 @@ charts/*/charts/
 .mcp.json
 playwright-test.png
 README.html
+.playwright-mcp/

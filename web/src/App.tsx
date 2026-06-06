@@ -15,6 +15,7 @@ import { getGraph, listProjections, type Graph, type GraphNode, type Projection 
 import { GraphView } from "./GraphView";
 import { FilterPanel, kindCounts } from "./Filters";
 import { YamlModal } from "./YamlModal";
+import { IconHierarchy2, IconTopologyStar3 } from "./icons";
 
 function ProjectionList({
   selected,
@@ -58,6 +59,7 @@ function ProjectionList({
           key={p.uid}
           active={selected?.uid === p.uid}
           onClick={() => onSelect(p)}
+          leftSection={<IconHierarchy2 size={16} stroke={1.5} />}
           label={<Text fw={600}>{p.name}</Text>}
           description={`${p.namespace} · ${p.phase ?? "—"} · ${p.nodeCount}n / ${p.relationshipCount}e`}
         />
@@ -259,7 +261,8 @@ export default function App() {
   return (
     <AppShell header={{ height: 52 }} navbar={{ width: 260, breakpoint: "sm" }} padding={0}>
       <AppShell.Header>
-        <Group h="100%" px="md" gap="sm" align="baseline" wrap="nowrap">
+        <Group h="100%" px="md" gap="sm" align="center" wrap="nowrap">
+          <IconTopologyStar3 size={22} stroke={1.5} color="var(--mantine-color-brand-6)" />
           <Title order={1} size="h4" c="white">
             Project Gamera
           </Title>

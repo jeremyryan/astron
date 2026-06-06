@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Menu, Text } from "@mantine/core";
+import { IconCode, IconPencil } from "./icons";
 import cytoscape, { type Core, type ElementDefinition } from "cytoscape";
 import dagre from "cytoscape-dagre";
 import fcose from "cytoscape-fcose";
@@ -319,6 +320,7 @@ export function GraphView({
               </Text>
             </Menu.Label>
             <Menu.Item
+              leftSection={<IconCode size={16} stroke={1.5} />}
               onClick={() => {
                 onShowYaml(menu.node);
                 setMenu(null);
@@ -327,7 +329,7 @@ export function GraphView({
               YAML
             </Menu.Item>
             {/* Edit is not implemented yet. */}
-            <Menu.Item>Edit</Menu.Item>
+            <Menu.Item leftSection={<IconPencil size={16} stroke={1.5} />}>Edit</Menu.Item>
           </Menu.Dropdown>
         </Menu>
       )}

@@ -10,6 +10,7 @@ import {
 } from "@mantine/core";
 import type { Graph } from "./api";
 import { colorForKind } from "./kinds";
+import { IconEye, IconEyeOff, IconFilter } from "./icons";
 
 export interface KindCount {
   kind: string;
@@ -65,9 +66,12 @@ export function FilterPanel({
   return (
     <Box component="aside" className="filters">
       <Stack gap="lg">
-        <Text size="xs" fw={700} tt="uppercase" c="dimmed">
-          Filters
-        </Text>
+        <Group gap={6} align="center">
+          <IconFilter size={14} stroke={1.5} />
+          <Text size="xs" fw={700} tt="uppercase" c="dimmed">
+            Filters
+          </Text>
+        </Group>
 
         {/* Resource types */}
         <Stack gap="xs">
@@ -86,6 +90,7 @@ export function FilterPanel({
               <Button
                 size="compact-xs"
                 variant="default"
+                leftSection={<IconEye size={13} stroke={1.5} />}
                 onClick={onShowAll}
                 disabled={hiddenKinds.size === 0}
               >
@@ -94,6 +99,7 @@ export function FilterPanel({
               <Button
                 size="compact-xs"
                 variant="default"
+                leftSection={<IconEyeOff size={13} stroke={1.5} />}
                 onClick={onHideAll}
                 disabled={visibleCount === 0}
               >

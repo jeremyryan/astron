@@ -6,6 +6,11 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   base: "./",
+  // Pre-bundle the large @tabler/icons-react barrel so the dev server stays
+  // fast and doesn't spawn a module per icon on cold start.
+  optimizeDeps: {
+    include: ["@tabler/icons-react"],
+  },
   build: {
     outDir: "dist",
     emptyOutDir: true,

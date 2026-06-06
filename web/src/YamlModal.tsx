@@ -1,6 +1,7 @@
 import { Code, Group, Loader, Modal, ScrollArea, Text } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
 import { getResourceYaml, type GraphNode } from "./api";
+import { IconFileCode } from "./icons";
 
 // YamlModal displays the live YAML manifest for the given node. It is open while
 // `node` is non-null and fetches the manifest lazily on open.
@@ -11,9 +12,17 @@ export function YamlModal({ node, onClose }: { node: GraphNode | null; onClose: 
     enabled: !!node,
   });
 
-  const title = node
-    ? `${node.kind} · ${node.namespace ? `${node.namespace}/` : ""}${node.name}`
-    : "";
+  const title = node ? (
+    <Group gap={8} wrap="nowrap">
+      <IconFileCode size={18} stroke={1.5} />
+      <Text fw={600}>
+        {node.kind} · {node.namespace ? `${node.namespace}/` : ""}
+        {node.name}
+      </Text>
+    </Group>
+  ) : (
+    ""
+  );
 
   return (
     <Modal
