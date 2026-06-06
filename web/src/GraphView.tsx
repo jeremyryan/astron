@@ -208,6 +208,43 @@ export function GraphView({
     });
     cy.on("viewport", () => setMenu(null));
 
+    // Cursor feedback: a "grabbing" cursor while dragging the canvas (pan) or a
+    // node, and a "pointer" cursor when hovering a selectable node.
+    const el = containerRef.current;
+    let dragging = false;
+    cy.on("mouseover", "node", (evt) => {
+      if (dragging || evt.target.hasClass(GROUP_CLASS)) return;
+      el.style.cursor = "pointer";
+    });
+    cy.on("mouseout", "node", (evt) => {
+      if (dragging || evt.target.hasClass(GROUP_CLASS)) return;
+      el.style.cursor = "";
+    });
+    cy.on("grab", "node", () => {
+      dragging = true;
+      el.style.cursor = "grabbing";
+    });
+    cy.on("free", "node", (evt) => {
+      dragging = false;
+      // The cursor ends up over the just-dropped node, which is selectable.
+      el.style.cursor = evt.target.hasClass(GROUP_CLASS) ? "" : "pointer";
+    });
+    cy.on("mousedown", (evt) => {
+      if (evt.target === cy) {
+        // Background press begins a pan.
+        dragging = true;
+        el.style.cursor = "grabbing";
+      }
+    });
+    const endDrag = () => {
+      if (!dragging) return;
+      dragging = false;
+      el.style.cursor = "";
+    };
+    cy.on("mouseup", endDrag);
+    // Catch releases that happen outside the canvas during a pan/drag.
+    window.addEventListener("mouseup", endDrag);
+
     // Suppress the browser's native context menu over the canvas.
     const handleContextMenu = (e: MouseEvent) => e.preventDefault();
     containerRef.current.addEventListener("contextmenu", handleContextMenu);
@@ -235,6 +272,7 @@ export function GraphView({
     cyRef.current = cy;
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("mouseup", endDrag);
       container.removeEventListener("contextmenu", handleContextMenu);
       cy.destroy();
       cyRef.current = null;
