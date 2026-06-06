@@ -180,7 +180,7 @@ function GraphPanel({ projection }: { projection: Projection }) {
   // Max hops from the selected node to keep visible; null = all (no fading).
   const [maxDistance, setMaxDistance] = useState<number | null>(null);
   // Whether to group resources into compound nodes by namespace.
-  const [groupByNamespace, setGroupByNamespace] = useState(false);
+  const [groupByNamespace, setGroupByNamespace] = useState(true);
   const { data, isLoading, error } = useQuery({
     queryKey: ["graph", projection.uid],
     queryFn: () => getGraph(projection.namespace, projection.name),
