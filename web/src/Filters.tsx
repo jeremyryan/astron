@@ -1,9 +1,11 @@
+import { useState, type ReactNode } from "react";
 import {
   ActionIcon,
   Badge,
   Box,
   Button,
   Checkbox,
+  Collapse,
   Group,
   NumberInput,
   SegmentedControl,
@@ -11,10 +13,18 @@ import {
   Text,
   TextInput,
   Tooltip,
+  UnstyledButton,
 } from "@mantine/core";
 import type { Graph } from "./api";
 import { colorForKind } from "./kinds";
-import { IconEye, IconEyeOff, IconFilter, IconPlus, IconX } from "./icons";
+import {
+  IconChevronRight,
+  IconEye,
+  IconEyeOff,
+  IconFilter,
+  IconPlus,
+  IconX,
+} from "./icons";
 
 // A single label filter row. An empty value matches any value for the key.
 export interface LabelFilter {
@@ -122,6 +132,54 @@ function ShowHideButtons({
   );
 }
 
+// FilterSection is a collapsible filter group: a clickable title row (with a
+// rotating chevron) toggles the body. An optional `actions` slot on the right
+// (e.g. show-all/hide-all or an Any/All control) does not toggle the section.
+function FilterSection({
+  title,
+  badge,
+  actions,
+  defaultOpen = true,
+  children,
+}: {
+  title: string;
+  badge?: ReactNode;
+  actions?: ReactNode;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <Stack gap="xs">
+      <Group justify="space-between" align="center" wrap="nowrap" gap={6}>
+        <UnstyledButton
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          style={{ flex: 1, minWidth: 0 }}
+        >
+          <Group gap={6} wrap="nowrap">
+            <IconChevronRight
+              size={14}
+              stroke={2}
+              style={{
+                flex: "0 0 auto",
+                transition: "transform 150ms ease",
+                transform: open ? "rotate(90deg)" : "none",
+              }}
+            />
+            <Text size="sm" fw={600}>
+              {title}
+            </Text>
+            {badge}
+          </Group>
+        </UnstyledButton>
+        {actions}
+      </Group>
+      <Collapse expanded={open}>{children}</Collapse>
+    </Stack>
+  );
+}
+
 export function FilterPanel({
   kinds,
   hiddenKinds,
@@ -161,26 +219,24 @@ export function FilterPanel({
         </Group>
 
         {/* Resource types */}
-        <Stack gap="xs">
-          <Group justify="space-between" align="center" wrap="nowrap">
-            <Group gap={6} wrap="nowrap">
-              <Text size="sm" fw={600}>
-                Resource types
-              </Text>
-              {filtering && (
-                <Badge size="sm" variant="light" color="gray">
-                  {visibleCount}/{kinds.length}
-                </Badge>
-              )}
-            </Group>
+        <FilterSection
+          title="Resource types"
+          badge={
+            filtering ? (
+              <Badge size="sm" variant="light" color="gray">
+                {visibleCount}/{kinds.length}
+              </Badge>
+            ) : null
+          }
+          actions={
             <ShowHideButtons
               onShowAll={onShowAll}
               onHideAll={onHideAll}
               showDisabled={hiddenKinds.size === 0}
               hideDisabled={visibleCount === 0}
             />
-          </Group>
-
+          }
+        >
           {kinds.length === 0 ? (
             <Text size="sm" c="dimmed">
               No resources.
@@ -217,29 +273,28 @@ export function FilterPanel({
               ))}
             </Stack>
           )}
-        </Stack>
+        </FilterSection>
 
         {/* Namespaces (shown only when more than one is present) */}
         {namespaces.length > 1 && (
-          <Stack gap="xs">
-            <Group justify="space-between" align="center" wrap="nowrap">
-              <Group gap={6} wrap="nowrap">
-                <Text size="sm" fw={600}>
-                  Namespaces
-                </Text>
-                {nsFiltering && (
-                  <Badge size="sm" variant="light" color="gray">
-                    {visibleNamespaces}/{namespaces.length}
-                  </Badge>
-                )}
-              </Group>
+          <FilterSection
+            title="Namespaces"
+            badge={
+              nsFiltering ? (
+                <Badge size="sm" variant="light" color="gray">
+                  {visibleNamespaces}/{namespaces.length}
+                </Badge>
+              ) : null
+            }
+            actions={
               <ShowHideButtons
                 onShowAll={onShowAllNamespaces}
                 onHideAll={onHideAllNamespaces}
                 showDisabled={hiddenNamespaces.size === 0}
                 hideDisabled={visibleNamespaces === 0}
               />
-            </Group>
+            }
+          >
             <Stack gap={6}>
               {namespaces.map(({ namespace, count }) => (
                 <Checkbox
@@ -265,14 +320,12 @@ export function FilterPanel({
                 />
               ))}
             </Stack>
-          </Stack>
+          </FilterSection>
         )}
 
         {/* Connection distance */}
-        <Stack gap="xs">
-          <Text size="sm" fw={600}>
-            Connection distance
-          </Text>
+        <FilterSection title="Connection distance">
+          <Stack gap="xs">
           <Checkbox
             size="xs"
             label="All connections"
@@ -296,14 +349,13 @@ export function FilterPanel({
               Select a node to apply.
             </Text>
           )}
-        </Stack>
+          </Stack>
+        </FilterSection>
 
         {/* Labels */}
-        <Stack gap="xs">
-          <Group justify="space-between" align="center" wrap="nowrap">
-            <Text size="sm" fw={600}>
-              Labels
-            </Text>
+        <FilterSection
+          title="Labels"
+          actions={
             <SegmentedControl
               size="xs"
               value={labelMode}
@@ -313,8 +365,9 @@ export function FilterPanel({
                 { label: "All", value: "all" },
               ]}
             />
-          </Group>
-
+          }
+        >
+          <Stack gap="xs">
           {labelFilters.length === 0 ? (
             <Text size="xs" c="dimmed">
               No label filters.
@@ -366,20 +419,18 @@ export function FilterPanel({
           >
             Add label
           </Button>
-        </Stack>
+          </Stack>
+        </FilterSection>
 
         {/* Grouping */}
-        <Stack gap="xs">
-          <Text size="sm" fw={600}>
-            Grouping
-          </Text>
+        <FilterSection title="Grouping">
           <Checkbox
             size="xs"
             label="Group by namespace"
             checked={groupByNamespace}
             onChange={(e) => onToggleGroupByNamespace(e.currentTarget.checked)}
           />
-        </Stack>
+        </FilterSection>
       </Stack>
     </Box>
   );

@@ -12,4 +12,5 @@ export {
   IconSettings,
   IconPlus,
   IconX,
+  IconChevronRight,
 } from "@tabler/icons-react";
