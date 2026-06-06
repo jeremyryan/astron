@@ -18,6 +18,7 @@ import { GraphView } from "./GraphView";
 import {
   FilterPanel,
   kindCounts,
+  namespaceCounts,
   type LabelFilter,
   type LabelMatchMode,
 } from "./Filters";
@@ -228,6 +229,8 @@ function GraphPanel({ projection }: { projection: Projection }) {
   const [yamlNode, setYamlNode] = useState<GraphNode | null>(null);
   // Kinds the user has hidden. Empty = show everything (the default).
   const [hiddenKinds, setHiddenKinds] = useState<Set<string>>(new Set());
+  // Namespaces the user has hidden ("" = cluster-scoped). Empty = show all.
+  const [hiddenNamespaces, setHiddenNamespaces] = useState<Set<string>>(new Set());
   // Max hops from the selected node to keep visible; null = all (no fading).
   const [maxDistance, setMaxDistance] = useState<number | null>(null);
   // Whether to group resources into compound nodes by namespace.
@@ -242,20 +245,24 @@ function GraphPanel({ projection }: { projection: Projection }) {
   });
 
   const kinds = useMemo(() => (data ? kindCounts(data) : []), [data]);
+  const namespaces = useMemo(() => (data ? namespaceCounts(data) : []), [data]);
 
   const filteredGraph = useMemo<Graph | undefined>(() => {
     if (!data) return undefined;
     const hasLabelFilter = labelFilters.some((f) => f.key.trim() !== "");
-    if (hiddenKinds.size === 0 && !hasLabelFilter) return data;
+    if (hiddenKinds.size === 0 && hiddenNamespaces.size === 0 && !hasLabelFilter) return data;
     const nodes = data.nodes.filter(
-      (n) => !hiddenKinds.has(n.kind) && matchesLabelFilters(n, labelFilters, labelMode),
+      (n) =>
+        !hiddenKinds.has(n.kind) &&
+        !hiddenNamespaces.has(n.namespace ?? "") &&
+        matchesLabelFilters(n, labelFilters, labelMode),
     );
     const visibleIds = new Set(nodes.map((n) => n.id));
     const edges = data.edges.filter(
       (e) => visibleIds.has(e.source) && visibleIds.has(e.target),
     );
     return { nodes, edges };
-  }, [data, hiddenKinds, labelFilters, labelMode]);
+  }, [data, hiddenKinds, hiddenNamespaces, labelFilters, labelMode]);
 
   const toggleKind = (kind: string) =>
     setHiddenKinds((prev) => {
@@ -266,6 +273,17 @@ function GraphPanel({ projection }: { projection: Projection }) {
     });
   const showAll = () => setHiddenKinds(new Set());
   const hideAll = () => setHiddenKinds(new Set(kinds.map((k) => k.kind)));
+
+  const toggleNamespace = (ns: string) =>
+    setHiddenNamespaces((prev) => {
+      const next = new Set(prev);
+      if (next.has(ns)) next.delete(ns);
+      else next.add(ns);
+      return next;
+    });
+  const showAllNamespaces = () => setHiddenNamespaces(new Set());
+  const hideAllNamespaces = () =>
+    setHiddenNamespaces(new Set(namespaces.map((n) => n.namespace)));
 
   const addLabel = () =>
     setLabelFilters((prev) => [...prev, { id: crypto.randomUUID(), key: "", value: "" }]);
@@ -282,6 +300,11 @@ function GraphPanel({ projection }: { projection: Projection }) {
         onToggleKind={toggleKind}
         onShowAll={showAll}
         onHideAll={hideAll}
+        namespaces={namespaces}
+        hiddenNamespaces={hiddenNamespaces}
+        onToggleNamespace={toggleNamespace}
+        onShowAllNamespaces={showAllNamespaces}
+        onHideAllNamespaces={hideAllNamespaces}
         hasSelection={selected !== null}
         maxDistance={maxDistance}
         onChangeDistance={setMaxDistance}

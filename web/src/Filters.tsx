@@ -10,6 +10,7 @@ import {
   Stack,
   Text,
   TextInput,
+  Tooltip,
 } from "@mantine/core";
 import type { Graph } from "./api";
 import { colorForKind } from "./kinds";
@@ -24,6 +25,25 @@ export interface LabelFilter {
 
 // Combine label filters with OR ("any") or AND ("all") logic.
 export type LabelMatchMode = "any" | "all";
+
+export interface NamespaceCount {
+  // Empty string represents cluster-scoped resources.
+  namespace: string;
+  count: number;
+}
+
+// namespaceCounts returns the distinct namespaces present in a graph with their
+// node counts, sorted alphabetically (cluster-scoped sorts first).
+export function namespaceCounts(graph: Graph): NamespaceCount[] {
+  const counts = new Map<string, number>();
+  for (const n of graph.nodes) {
+    const ns = n.namespace ?? "";
+    counts.set(ns, (counts.get(ns) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([namespace, count]) => ({ namespace, count }))
+    .sort((a, b) => a.namespace.localeCompare(b.namespace));
+}
 
 export interface KindCount {
   kind: string;
@@ -49,6 +69,12 @@ interface Props {
   onToggleKind: (kind: string) => void;
   onShowAll: () => void;
   onHideAll: () => void;
+  // Namespace filtering (only meaningful when more than one namespace exists).
+  namespaces: NamespaceCount[];
+  hiddenNamespaces: Set<string>;
+  onToggleNamespace: (namespace: string) => void;
+  onShowAllNamespaces: () => void;
+  onHideAllNamespaces: () => void;
   // Connection-distance filter (relative to the selected node).
   hasSelection: boolean;
   // Max hops from the selected node to keep visible; null = all (no fading).
@@ -68,12 +94,45 @@ interface Props {
 
 const MAX_DISTANCE = 9;
 
+// Compact icon-only "show all" / "hide all" controls used by the section headers.
+function ShowHideButtons({
+  onShowAll,
+  onHideAll,
+  showDisabled,
+  hideDisabled,
+}: {
+  onShowAll: () => void;
+  onHideAll: () => void;
+  showDisabled: boolean;
+  hideDisabled: boolean;
+}) {
+  return (
+    <ActionIcon.Group>
+      <Tooltip label="Show all" withArrow>
+        <ActionIcon variant="default" size="sm" aria-label="Show all" onClick={onShowAll} disabled={showDisabled}>
+          <IconEye size={14} stroke={1.5} />
+        </ActionIcon>
+      </Tooltip>
+      <Tooltip label="Hide all" withArrow>
+        <ActionIcon variant="default" size="sm" aria-label="Hide all" onClick={onHideAll} disabled={hideDisabled}>
+          <IconEyeOff size={14} stroke={1.5} />
+        </ActionIcon>
+      </Tooltip>
+    </ActionIcon.Group>
+  );
+}
+
 export function FilterPanel({
   kinds,
   hiddenKinds,
   onToggleKind,
   onShowAll,
   onHideAll,
+  namespaces,
+  hiddenNamespaces,
+  onToggleNamespace,
+  onShowAllNamespaces,
+  onHideAllNamespaces,
   hasSelection,
   maxDistance,
   onChangeDistance,
@@ -88,6 +147,8 @@ export function FilterPanel({
 }: Props) {
   const visibleCount = kinds.filter((k) => !hiddenKinds.has(k.kind)).length;
   const filtering = hiddenKinds.size > 0;
+  const visibleNamespaces = namespaces.filter((n) => !hiddenNamespaces.has(n.namespace)).length;
+  const nsFiltering = hiddenNamespaces.size > 0;
 
   return (
     <Box component="aside" className="filters">
@@ -112,26 +173,12 @@ export function FilterPanel({
                 </Badge>
               )}
             </Group>
-            <Button.Group>
-              <Button
-                size="compact-xs"
-                variant="default"
-                leftSection={<IconEye size={13} stroke={1.5} />}
-                onClick={onShowAll}
-                disabled={hiddenKinds.size === 0}
-              >
-                All
-              </Button>
-              <Button
-                size="compact-xs"
-                variant="default"
-                leftSection={<IconEyeOff size={13} stroke={1.5} />}
-                onClick={onHideAll}
-                disabled={visibleCount === 0}
-              >
-                None
-              </Button>
-            </Button.Group>
+            <ShowHideButtons
+              onShowAll={onShowAll}
+              onHideAll={onHideAll}
+              showDisabled={hiddenKinds.size === 0}
+              hideDisabled={visibleCount === 0}
+            />
           </Group>
 
           {kinds.length === 0 ? (
@@ -171,6 +218,55 @@ export function FilterPanel({
             </Stack>
           )}
         </Stack>
+
+        {/* Namespaces (shown only when more than one is present) */}
+        {namespaces.length > 1 && (
+          <Stack gap="xs">
+            <Group justify="space-between" align="center" wrap="nowrap">
+              <Group gap={6} wrap="nowrap">
+                <Text size="sm" fw={600}>
+                  Namespaces
+                </Text>
+                {nsFiltering && (
+                  <Badge size="sm" variant="light" color="gray">
+                    {visibleNamespaces}/{namespaces.length}
+                  </Badge>
+                )}
+              </Group>
+              <ShowHideButtons
+                onShowAll={onShowAllNamespaces}
+                onHideAll={onHideAllNamespaces}
+                showDisabled={hiddenNamespaces.size === 0}
+                hideDisabled={visibleNamespaces === 0}
+              />
+            </Group>
+            <Stack gap={6}>
+              {namespaces.map(({ namespace, count }) => (
+                <Checkbox
+                  key={namespace || "__cluster__"}
+                  size="xs"
+                  checked={!hiddenNamespaces.has(namespace)}
+                  onChange={() => onToggleNamespace(namespace)}
+                  styles={{ labelWrapper: { flex: 1 } }}
+                  label={
+                    <Group justify="space-between" wrap="nowrap" gap={8}>
+                      <Text
+                        size="sm"
+                        c={namespace ? undefined : "dimmed"}
+                        style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                      >
+                        {namespace || "(cluster-scoped)"}
+                      </Text>
+                      <Text size="xs" c="dimmed">
+                        {count}
+                      </Text>
+                    </Group>
+                  }
+                />
+              ))}
+            </Stack>
+          </Stack>
+        )}
 
         {/* Connection distance */}
         <Stack gap="xs">
