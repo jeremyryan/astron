@@ -16,7 +16,7 @@ import {
   UnstyledButton,
 } from "@mantine/core";
 import type { Graph } from "./api";
-import { colorForKind } from "./kinds";
+import { colorForKind, iconForKind } from "./kinds";
 import {
   IconChevronRight,
   IconEye,
@@ -253,15 +253,25 @@ export function FilterPanel({
                   label={
                     <Group justify="space-between" wrap="nowrap" gap={8}>
                       <Group gap={8} wrap="nowrap">
-                        <Box
-                          w={10}
-                          h={10}
-                          style={{
-                            borderRadius: 2,
-                            background: colorForKind(kind),
-                            flex: "0 0 auto",
-                          }}
-                        />
+                        {iconForKind(kind) ? (
+                          <img
+                            src={iconForKind(kind)}
+                            width={16}
+                            height={16}
+                            alt=""
+                            style={{ flex: "0 0 auto" }}
+                          />
+                        ) : (
+                          <Box
+                            w={10}
+                            h={10}
+                            style={{
+                              borderRadius: 2,
+                              background: colorForKind(kind),
+                              flex: "0 0 auto",
+                            }}
+                          />
+                        )}
                         <Text size="sm">{kind}</Text>
                       </Group>
                       <Text size="xs" c="dimmed">

@@ -5,7 +5,7 @@ import cytoscape, { type Core, type ElementDefinition } from "cytoscape";
 import dagre from "cytoscape-dagre";
 import fcose from "cytoscape-fcose";
 import type { Graph, GraphNode } from "./api";
-import { colorForKind } from "./kinds";
+import { colorForKind, iconForKind } from "./kinds";
 
 cytoscape.use(dagre);
 cytoscape.use(fcose);
@@ -45,6 +45,8 @@ function toElements(graph: Graph, groupByNamespace: boolean): ElementDefinition[
       kind: n.kind,
       color: colorForKind(n.kind),
     };
+    const icon = iconForKind(n.kind);
+    if (icon) data.icon = icon;
     if (groupByNamespace) {
       data.parent = n.namespace ? GROUP_PREFIX + n.namespace : CLUSTER_GROUP_ID;
     }
@@ -114,8 +116,21 @@ export function GraphView({
             "text-margin-y": 4,
             "font-size": 9,
             color: "#d0d0d0",
-            width: 26,
-            height: 26,
+            width: 28,
+            height: 28,
+          },
+        },
+        // Nodes with an official Kubernetes icon render the icon instead of the
+        // solid color circle.
+        {
+          selector: "node[icon]",
+          style: {
+            shape: "round-rectangle",
+            "background-image": "data(icon)",
+            "background-fit": "contain",
+            "background-opacity": 0,
+            width: 32,
+            height: 32,
           },
         },
         {

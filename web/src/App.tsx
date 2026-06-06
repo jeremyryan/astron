@@ -25,6 +25,7 @@ import {
 import { YamlModal } from "./YamlModal";
 import { SettingsModal } from "./SettingsModal";
 import { useSettings } from "./settings";
+import { iconForKind } from "./kinds";
 import { IconHierarchy2, IconSettings, IconTopologyStar3 } from "./icons";
 
 function ProjectionList({
@@ -159,14 +160,18 @@ function NodeDetails({ node }: { node: GraphNode | null }) {
   const props = Object.entries(node.properties ?? {});
   const scalarProps = props.filter(([k]) => !MAP_PROPS.has(k));
   const mapProps = props.filter(([k]) => MAP_PROPS.has(k));
+  const icon = iconForKind(node.kind);
   return (
     <Stack gap="md">
-      <Title order={3} size="h4">
-        {node.kind}{" "}
-        <Text span c="dimmed" size="sm" fw={400}>
-          {node.apiVersion}
-        </Text>
-      </Title>
+      <Group gap={8} wrap="nowrap" align="center">
+        {icon && <img src={icon} width={22} height={22} alt="" />}
+        <Title order={3} size="h4">
+          {node.kind}{" "}
+          <Text span c="dimmed" size="sm" fw={400}>
+            {node.apiVersion}
+          </Text>
+        </Title>
+      </Group>
       <Stack gap="xs">
         <Field label="Name" value={node.name} />
         {node.namespace && <Field label="Namespace" value={node.namespace} />}
