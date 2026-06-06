@@ -2,28 +2,60 @@ import { useEffect, useRef, useState } from "react";
 import { Menu, Text } from "@mantine/core";
 import cytoscape, { type Core, type ElementDefinition } from "cytoscape";
 import dagre from "cytoscape-dagre";
+import fcose from "cytoscape-fcose";
 import type { Graph, GraphNode } from "./api";
 import { colorForKind } from "./kinds";
 
 cytoscape.use(dagre);
+cytoscape.use(fcose);
 
-function toElements(graph: Graph): ElementDefinition[] {
+// Class applied to synthetic compound "namespace" parent nodes so they can be
+// excluded from selection, fading and menus.
+const GROUP_CLASS = "namespace-group";
+const GROUP_PREFIX = "ns::";
+const CLUSTER_GROUP_ID = `${GROUP_PREFIX}__cluster__`;
+
+function toElements(graph: Graph, groupByNamespace: boolean): ElementDefinition[] {
   const ids = new Set(graph.nodes.map((n) => n.id));
-  const nodes: ElementDefinition[] = graph.nodes.map((n: GraphNode) => ({
-    data: {
+  const elements: ElementDefinition[] = [];
+
+  // When grouping, synthesize one compound parent node per namespace (plus one
+  // for cluster-scoped resources) and parent each resource into it.
+  const groups = new Map<string, string>();
+  if (groupByNamespace) {
+    for (const n of graph.nodes) {
+      const gid = n.namespace ? GROUP_PREFIX + n.namespace : CLUSTER_GROUP_ID;
+      if (!groups.has(gid)) groups.set(gid, n.namespace ?? "(cluster-scoped)");
+    }
+    for (const [gid, label] of groups) {
+      elements.push({
+        data: { id: gid, label },
+        classes: GROUP_CLASS,
+        selectable: false,
+        grabbable: false,
+      });
+    }
+  }
+
+  for (const n of graph.nodes as GraphNode[]) {
+    const data: Record<string, unknown> = {
       id: n.id,
       label: `${n.kind}\n${n.name}`,
       kind: n.kind,
       color: colorForKind(n.kind),
-    },
-  }));
+    };
+    if (groupByNamespace) {
+      data.parent = n.namespace ? GROUP_PREFIX + n.namespace : CLUSTER_GROUP_ID;
+    }
+    elements.push({ data });
+  }
+
   // Drop edges whose endpoints are not present to avoid render errors.
-  const edges: ElementDefinition[] = graph.edges
-    .filter((e) => ids.has(e.source) && ids.has(e.target))
-    .map((e) => ({
-      data: { id: e.id, source: e.source, target: e.target, label: e.type },
-    }));
-  return [...nodes, ...edges];
+  for (const e of graph.edges) {
+    if (!ids.has(e.source) || !ids.has(e.target)) continue;
+    elements.push({ data: { id: e.id, source: e.source, target: e.target, label: e.type } });
+  }
+  return elements;
 }
 
 interface Props {
@@ -36,6 +68,8 @@ interface Props {
   maxDistance: number | null;
   // Called when the user picks "YAML" from a node's right-click menu.
   onShowYaml: (node: GraphNode) => void;
+  // When true, resources are grouped into compound nodes by namespace.
+  groupByNamespace: boolean;
 }
 
 // Context menu anchored at a viewport position for a right-clicked node.
@@ -45,7 +79,14 @@ interface NodeMenu {
   node: GraphNode;
 }
 
-export function GraphView({ graph, onSelect, selectedId, maxDistance, onShowYaml }: Props) {
+export function GraphView({
+  graph,
+  onSelect,
+  selectedId,
+  maxDistance,
+  onShowYaml,
+  groupByNamespace,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
   // Right-click context menu state (null = closed).
@@ -60,7 +101,7 @@ export function GraphView({ graph, onSelect, selectedId, maxDistance, onShowYaml
       container: containerRef.current,
       // Cap zoom so fitting a tiny subgraph (or a single node) doesn't zoom in absurdly.
       maxZoom: 2.5,
-      elements: toElements(graph),
+      elements: toElements(graph, groupByNamespace),
       style: [
         {
           selector: "node",
@@ -94,6 +135,24 @@ export function GraphView({ graph, onSelect, selectedId, maxDistance, onShowYaml
           selector: "node:selected",
           style: { "border-width": 3, "border-color": "#fff" },
         },
+        // Compound parent nodes used to group resources by namespace.
+        {
+          selector: `.${GROUP_CLASS}`,
+          style: {
+            shape: "round-rectangle",
+            "background-color": "#2c313a",
+            "background-opacity": 0.35,
+            "border-color": "#444b57",
+            "border-width": 1,
+            label: "data(label)",
+            "text-valign": "top",
+            "text-halign": "center",
+            "text-margin-y": -4,
+            color: "#aab0bb",
+            "font-size": 12,
+            padding: "14px",
+          },
+        },
         // Nodes/edges outside the selected node's connection distance are
         // greyed out and faded so they recede into the background.
         {
@@ -109,10 +168,20 @@ export function GraphView({ graph, onSelect, selectedId, maxDistance, onShowYaml
           style: { opacity: 0.08 },
         },
       ],
-      layout: { name: "dagre", rankDir: "TB", nodeSep: 30, rankSep: 50 } as cytoscape.LayoutOptions,
+      layout: groupByNamespace
+        ? ({
+            name: "fcose",
+            quality: "proof",
+            animate: false,
+            nodeSeparation: 75,
+            padding: 20,
+            nodeDimensionsIncludeLabels: true,
+          } as unknown as cytoscape.LayoutOptions)
+        : ({ name: "dagre", rankDir: "TB", nodeSep: 30, rankSep: 50 } as cytoscape.LayoutOptions),
     });
 
     cy.on("tap", "node", (evt) => {
+      if (evt.target.hasClass(GROUP_CLASS)) return;
       setMenu(null);
       const found = graph.nodes.find((n) => n.id === evt.target.id());
       onSelect(found ?? null);
@@ -168,7 +237,7 @@ export function GraphView({ graph, onSelect, selectedId, maxDistance, onShowYaml
       cy.destroy();
       cyRef.current = null;
     };
-  }, [graph, onSelect, onShowYaml]);
+  }, [graph, onSelect, onShowYaml, groupByNamespace]);
 
   // Fade nodes/edges that are more than `maxDistance` hops from the selected
   // node. Runs without rebuilding the graph so selecting/adjusting stays cheap.
@@ -211,6 +280,7 @@ export function GraphView({ graph, onSelect, selectedId, maxDistance, onShowYaml
     }
 
     cy.nodes().forEach((n) => {
+      if (n.hasClass(GROUP_CLASS)) return;
       if (!within.has(n.id())) n.addClass("faded");
     });
     cy.edges().forEach((e) => {

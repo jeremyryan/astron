@@ -40,6 +40,9 @@ interface Props {
   // Max hops from the selected node to keep visible; null = all (no fading).
   maxDistance: number | null;
   onChangeDistance: (value: number | null) => void;
+  // Whether resources are grouped into namespace boxes.
+  groupByNamespace: boolean;
+  onToggleGroupByNamespace: (value: boolean) => void;
 }
 
 const MAX_DISTANCE = 9;
@@ -53,6 +56,8 @@ export function FilterPanel({
   hasSelection,
   maxDistance,
   onChangeDistance,
+  groupByNamespace,
+  onToggleGroupByNamespace,
 }: Props) {
   const visibleCount = kinds.filter((k) => !hiddenKinds.has(k.kind)).length;
   const filtering = hiddenKinds.size > 0;
@@ -163,6 +168,19 @@ export function FilterPanel({
               Select a node to apply.
             </Text>
           )}
+        </Stack>
+
+        {/* Grouping */}
+        <Stack gap="xs">
+          <Text size="sm" fw={600}>
+            Grouping
+          </Text>
+          <Checkbox
+            size="xs"
+            label="Group by namespace"
+            checked={groupByNamespace}
+            onChange={(e) => onToggleGroupByNamespace(e.currentTarget.checked)}
+          />
         </Stack>
       </Stack>
     </Box>
