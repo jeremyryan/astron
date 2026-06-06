@@ -38,6 +38,15 @@ spec:
         kind: ConfigMap
       - version: v1
         kind: Secret
+    # Capture CustomResourceDefinitions as graph nodes. When enabled, a DEFINES
+    # edge is created from each captured CRD to every captured resource that is
+    # an instance of it (the instance kind must also appear under resources).
+    crds:
+      # include: true captures all CRDs in the cluster. Alternatively, set names
+      # to capture only specific CRDs (names implies inclusion):
+      #   names:
+      #     - widgets.example.com
+      include: true
   relationships:
     - name: workload-owns-pod
       type: OWNS

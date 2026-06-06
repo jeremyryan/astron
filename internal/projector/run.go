@@ -34,6 +34,17 @@ import (
 	"github.com/project-gamera/gamera/internal/relationship"
 )
 
+// crdGroup/crdKind identify CustomResourceDefinition objects, and crdDefinesType
+// is the edge type from a CRD to its instances.
+const (
+	crdGroup       = "apiextensions.k8s.io"
+	crdKind        = "CustomResourceDefinition"
+	crdDefinesType = "DEFINES"
+)
+
+// crdGVK is the GroupVersionKind of CustomResourceDefinition resources.
+var crdGVK = schema.GroupVersionKind{Group: crdGroup, Version: "v1", Kind: crdKind}
+
 // Start builds and starts the informers for the projection's scope and runs the
 // sync loop until the given context is cancelled or Stop is called. It blocks
 // until the informer caches are synced, then returns; the sync loop continues
@@ -189,6 +200,8 @@ func (p *Projector) Sync(ctx context.Context) (graph.Counts, error) {
 	}
 
 	edges, deriveErr := p.engine.Derive(p.opts.Spec.Relationships, index)
+	// When CRDs are captured, link each CRD to the in-scope resources it defines.
+	edges = append(edges, p.crdEdges(objs, index)...)
 
 	counts, err := p.opts.Store.Sync(ctx, p.opts.ID, nodes, edges)
 	if err != nil {
@@ -215,8 +228,63 @@ func (p *Projector) snapshot() []*unstructured.Unstructured {
 	return out
 }
 
+// crdEdges derives DEFINES edges from each captured CustomResourceDefinition to
+// every captured resource that is an instance of it (i.e. whose group and kind
+// match the CRD's spec.group and spec.names.kind). Because only resources in
+// the projection's configured set are present in the index, edges are naturally
+// limited to instances that are themselves captured.
+func (p *Projector) crdEdges(objs []*unstructured.Unstructured, index relationship.Index) []graph.Relationship {
+	if !p.crdInclude {
+		return nil
+	}
+	var edges []graph.Relationship
+	for _, o := range objs {
+		if !isCRD(o) {
+			continue
+		}
+		group, _, _ := unstructured.NestedString(o.Object, "spec", "group")
+		kind, _, _ := unstructured.NestedString(o.Object, "spec", "names", "kind")
+		if kind == "" {
+			continue
+		}
+		crdRef := refForObj(o)
+		for _, instance := range index.ByKind(schema.GroupVersionKind{Group: group, Kind: kind}) {
+			edges = append(edges, graph.Relationship{
+				Type: crdDefinesType,
+				From: crdRef,
+				To:   refForObj(instance),
+			})
+		}
+	}
+	return edges
+}
+
+// isCRD reports whether an object is a CustomResourceDefinition.
+func isCRD(obj *unstructured.Unstructured) bool {
+	gvk := obj.GroupVersionKind()
+	return gvk.Group == crdGroup && gvk.Kind == crdKind
+}
+
+// refForObj builds a graph.Ref identifying an unstructured object.
+func refForObj(o *unstructured.Unstructured) graph.Ref {
+	return graph.Ref{
+		APIVersion: o.GetAPIVersion(),
+		Kind:       o.GetKind(),
+		Namespace:  o.GetNamespace(),
+		Name:       o.GetName(),
+		UID:        string(o.GetUID()),
+	}
+}
+
 // inScope reports whether an object passes the namespace and label filters.
 func (p *Projector) inScope(obj *unstructured.Unstructured) bool {
+	// CustomResourceDefinitions are cluster-scoped and explicitly requested via
+	// the crds selection, so they bypass the namespace/label filters and are
+	// included only when selected.
+	if isCRD(obj) {
+		return p.crdSelected(obj)
+	}
+
 	ns := obj.GetNamespace()
 	if p.ownNamespaceOnly {
 		// Only namespaced resources in the projection's own namespace. This
@@ -228,6 +296,19 @@ func (p *Projector) inScope(obj *unstructured.Unstructured) bool {
 		return false
 	}
 	return p.selector.Matches(labels.Set(obj.GetLabels()))
+}
+
+// crdSelected reports whether a CustomResourceDefinition object should be
+// captured, based on the crds selection. When a name list is configured, only
+// those CRDs are captured; otherwise all CRDs are captured when enabled.
+func (p *Projector) crdSelected(obj *unstructured.Unstructured) bool {
+	if !p.crdInclude {
+		return false
+	}
+	if len(p.crdNames) > 0 {
+		return p.crdNames[obj.GetName()]
+	}
+	return true
 }
 
 // watchNamespace returns the namespace the informers should watch. When the
@@ -248,9 +329,19 @@ func (p *Projector) scopedGVKs() []schema.GroupVersionKind {
 	if len(resources) == 0 {
 		resources = defaultResources()
 	}
-	gvks := make([]schema.GroupVersionKind, 0, len(resources))
+	gvks := make([]schema.GroupVersionKind, 0, len(resources)+1)
+	seen := map[schema.GroupVersionKind]bool{}
 	for _, r := range resources {
-		gvks = append(gvks, schema.GroupVersionKind{Group: r.Group, Version: r.Version, Kind: r.Kind})
+		gvk := schema.GroupVersionKind{Group: r.Group, Version: r.Version, Kind: r.Kind}
+		if seen[gvk] {
+			continue
+		}
+		seen[gvk] = true
+		gvks = append(gvks, gvk)
+	}
+	// When CRDs are captured, also watch CustomResourceDefinition objects.
+	if p.crdInclude && !seen[crdGVK] {
+		gvks = append(gvks, crdGVK)
 	}
 	return gvks
 }

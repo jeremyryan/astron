@@ -25,7 +25,32 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
+	"github.com/project-gamera/gamera/internal/relationship"
 )
+
+// newCRD builds a CustomResourceDefinition object in the example.com group that
+// defines the given kind.
+func newCRD(name, kind string) *unstructured.Unstructured {
+	o := &unstructured.Unstructured{}
+	o.SetAPIVersion("apiextensions.k8s.io/v1")
+	o.SetKind("CustomResourceDefinition")
+	o.SetName(name)
+	o.SetUID(types.UID("uid-" + name))
+	_ = unstructured.SetNestedField(o.Object, "example.com", "spec", "group")
+	_ = unstructured.SetNestedField(o.Object, kind, "spec", "names", "kind")
+	return o
+}
+
+// newCustom builds an arbitrary custom resource instance.
+func newCustom(apiVersion, kind, namespace, name string) *unstructured.Unstructured {
+	o := &unstructured.Unstructured{}
+	o.SetAPIVersion(apiVersion)
+	o.SetKind(kind)
+	o.SetNamespace(namespace)
+	o.SetName(name)
+	o.SetUID(types.UID("uid-" + name))
+	return o
+}
 
 func newObj(namespace, name string, labels map[string]string) *unstructured.Unstructured {
 	o := &unstructured.Unstructured{}
@@ -151,6 +176,117 @@ func TestScopedGVKsDefaults(t *testing.T) {
 	gvks := p.scopedGVKs()
 	if len(gvks) != len(defaultResources()) {
 		t.Errorf("expected default resource set, got %d kinds", len(gvks))
+	}
+}
+
+func TestScopedGVKsIncludesCRDWhenEnabled(t *testing.T) {
+	spec := gamerav1alpha1.GraphProjectionSpec{
+		Scope: gamerav1alpha1.ProjectionScope{
+			Resources: []gamerav1alpha1.ResourceSelector{{Group: "example.com", Version: "v1", Kind: "Widget"}},
+			CRDs:      &gamerav1alpha1.CRDSelection{Include: true},
+		},
+	}
+	p := New(Options{Spec: spec})
+	gvks := p.scopedGVKs()
+	var hasCRD, hasWidget bool
+	for _, g := range gvks {
+		if g == crdGVK {
+			hasCRD = true
+		}
+		if g.Kind == "Widget" {
+			hasWidget = true
+		}
+	}
+	if !hasCRD || !hasWidget {
+		t.Fatalf("expected Widget and CRD GVKs, got %+v", gvks)
+	}
+}
+
+func TestCRDSelected(t *testing.T) {
+	crdA := newCRD("widgets.example.com", "Widget")
+	crdB := newCRD("gadgets.example.com", "Gadget")
+
+	// Not enabled: no CRD captured.
+	p := New(Options{Spec: gamerav1alpha1.GraphProjectionSpec{}})
+	if p.inScope(crdA) {
+		t.Error("expected CRD not captured when crds is unset")
+	}
+
+	// Include all.
+	pAll := New(Options{Spec: gamerav1alpha1.GraphProjectionSpec{
+		Scope: gamerav1alpha1.ProjectionScope{CRDs: &gamerav1alpha1.CRDSelection{Include: true}},
+	}})
+	if !pAll.inScope(crdA) || !pAll.inScope(crdB) {
+		t.Error("expected all CRDs captured when include is true")
+	}
+
+	// Named list only.
+	pNamed := New(Options{Spec: gamerav1alpha1.GraphProjectionSpec{
+		Scope: gamerav1alpha1.ProjectionScope{CRDs: &gamerav1alpha1.CRDSelection{Names: []string{"widgets.example.com"}}},
+	}})
+	if !pNamed.inScope(crdA) {
+		t.Error("expected named CRD to be captured")
+	}
+	if pNamed.inScope(crdB) {
+		t.Error("expected unnamed CRD to be excluded")
+	}
+}
+
+func TestCRDSelectedBypassesOwnNamespaceFilter(t *testing.T) {
+	// CRDs are cluster-scoped; capturing them must work even under
+	// ownNamespaceOnly, which otherwise drops cluster-scoped objects.
+	p := New(Options{
+		Namespace: "team-a",
+		Spec: gamerav1alpha1.GraphProjectionSpec{
+			Scope: gamerav1alpha1.ProjectionScope{
+				OwnNamespaceOnly: true,
+				CRDs:             &gamerav1alpha1.CRDSelection{Include: true},
+			},
+		},
+	})
+	if !p.inScope(newCRD("widgets.example.com", "Widget")) {
+		t.Error("expected CRD captured despite ownNamespaceOnly")
+	}
+}
+
+func TestCRDEdges(t *testing.T) {
+	crd := newCRD("widgets.example.com", "Widget")
+	w1 := newCustom("example.com/v1", "Widget", "ns1", "w1")
+	w2 := newCustom("example.com/v1", "Widget", "ns2", "w2")
+	pod := newObj("ns1", "p1", nil) // unrelated kind: must not be linked
+	objs := []*unstructured.Unstructured{crd, w1, w2, pod}
+
+	p := New(Options{Spec: gamerav1alpha1.GraphProjectionSpec{
+		Scope: gamerav1alpha1.ProjectionScope{CRDs: &gamerav1alpha1.CRDSelection{Include: true}},
+	}})
+	index := relationship.NewMapIndex(objs...)
+	edges := p.crdEdges(objs, index)
+
+	if len(edges) != 2 {
+		t.Fatalf("expected 2 DEFINES edges, got %d: %+v", len(edges), edges)
+	}
+	gotTargets := map[string]bool{}
+	for _, e := range edges {
+		if e.Type != crdDefinesType {
+			t.Errorf("unexpected edge type %q", e.Type)
+		}
+		if e.From.Name != "widgets.example.com" || e.From.Kind != crdKind {
+			t.Errorf("unexpected edge source %+v", e.From)
+		}
+		gotTargets[e.To.Name] = true
+	}
+	if !gotTargets["w1"] || !gotTargets["w2"] {
+		t.Errorf("expected edges to w1 and w2, got %v", gotTargets)
+	}
+}
+
+func TestCRDEdgesDisabled(t *testing.T) {
+	p := New(Options{Spec: gamerav1alpha1.GraphProjectionSpec{}})
+	crd := newCRD("widgets.example.com", "Widget")
+	w1 := newCustom("example.com/v1", "Widget", "ns1", "w1")
+	objs := []*unstructured.Unstructured{crd, w1}
+	if edges := p.crdEdges(objs, relationship.NewMapIndex(objs...)); edges != nil {
+		t.Errorf("expected no edges when crds disabled, got %+v", edges)
 	}
 }
 

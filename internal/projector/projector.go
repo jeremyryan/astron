@@ -74,6 +74,10 @@ type Projector struct {
 	ownNamespace     string
 	selector         labels.Selector
 	gvks             []schema.GroupVersionKind
+	// crdInclude is true when CustomResourceDefinitions should be captured as
+	// nodes. crdNames, when non-empty, restricts capture to those CRD names.
+	crdInclude bool
+	crdNames   map[string]bool
 
 	factory   dynamicinformer.DynamicSharedInformerFactory
 	informers map[schema.GroupVersionKind]informers.GenericInformer
@@ -111,6 +115,15 @@ func New(opts Options) *Projector {
 		}
 	}
 
+	crdInclude := false
+	crdNames := map[string]bool{}
+	if c := opts.Spec.Scope.CRDs; c != nil {
+		crdInclude = c.Include || len(c.Names) > 0
+		for _, n := range c.Names {
+			crdNames[n] = true
+		}
+	}
+
 	return &Projector{
 		opts:             opts,
 		engine:           engine,
@@ -118,6 +131,8 @@ func New(opts Options) *Projector {
 		ownNamespaceOnly: opts.Spec.Scope.OwnNamespaceOnly,
 		ownNamespace:     opts.Namespace,
 		selector:         sel,
+		crdInclude:       crdInclude,
+		crdNames:         crdNames,
 		trigger:          make(chan struct{}, 1),
 		informers:        map[schema.GroupVersionKind]informers.GenericInformer{},
 	}
