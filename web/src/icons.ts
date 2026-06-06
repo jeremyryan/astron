@@ -9,4 +9,5 @@ export {
   IconCode,
   IconPencil,
   IconFileCode,
+  IconSettings,
 } from "@tabler/icons-react";

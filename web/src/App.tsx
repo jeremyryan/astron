@@ -1,21 +1,24 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  ActionIcon,
   AppShell,
   Box,
   Group,
   Loader,
+  Modal,
   NavLink,
   ScrollArea,
   Stack,
   Text,
   Title,
+  Tooltip,
 } from "@mantine/core";
 import { getGraph, listProjections, type Graph, type GraphNode, type Projection } from "./api";
 import { GraphView } from "./GraphView";
 import { FilterPanel, kindCounts } from "./Filters";
 import { YamlModal } from "./YamlModal";
-import { IconHierarchy2, IconTopologyStar3 } from "./icons";
+import { IconHierarchy2, IconSettings, IconTopologyStar3 } from "./icons";
 
 function ProjectionList({
   selected,
@@ -257,18 +260,33 @@ function GraphPanel({ projection }: { projection: Projection }) {
 
 export default function App() {
   const [selected, setSelected] = useState<Projection>();
+  // Whether the settings modal is open.
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <AppShell header={{ height: 52 }} navbar={{ width: 260, breakpoint: "sm" }} padding={0}>
       <AppShell.Header>
-        <Group h="100%" px="md" gap="sm" align="center" wrap="nowrap">
-          <IconTopologyStar3 size={22} stroke={1.5} color="var(--mantine-color-brand-6)" />
-          <Title order={1} size="h4" c="white">
-            Project Gamera
-          </Title>
-          <Text size="xs" c="dimmed">
-            Kubernetes Cluster Graph
-          </Text>
+        <Group h="100%" px="md" gap="sm" align="center" justify="space-between" wrap="nowrap">
+          <Group gap="sm" align="center" wrap="nowrap">
+            <IconTopologyStar3 size={22} stroke={1.5} color="var(--mantine-color-brand-6)" />
+            <Title order={1} size="h4" c="white">
+              Project Gamera
+            </Title>
+            <Text size="xs" c="dimmed">
+              Kubernetes Cluster Graph
+            </Text>
+          </Group>
+          <Tooltip label="Settings" position="bottom" withArrow>
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size="lg"
+              aria-label="Settings"
+              onClick={() => setSettingsOpen(true)}
+            >
+              <IconSettings size={20} stroke={1.5} />
+            </ActionIcon>
+          </Tooltip>
         </Group>
       </AppShell.Header>
 
@@ -290,6 +308,17 @@ export default function App() {
           </Text>
         )}
       </AppShell.Main>
+
+      <Modal
+        opened={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        title="Settings"
+        size="lg"
+      >
+        <Text c="dimmed" size="sm">
+          Settings management is coming soon.
+        </Text>
+      </Modal>
     </AppShell>
   );
 }
