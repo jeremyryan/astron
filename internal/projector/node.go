@@ -18,6 +18,7 @@ package projector
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -26,6 +27,10 @@ import (
 
 	"github.com/project-gamera/gamera/internal/graph"
 )
+
+// podKind is the Kind of core/v1 Pod objects, whose status is surfaced as flat
+// node properties so that lifecycle changes are visible in the UI.
+const podKind = "Pod"
 
 // newFactory builds a dynamic shared informer factory scoped to the given
 // namespace (use metav1.NamespaceAll to watch the whole cluster). Additional
@@ -55,6 +60,14 @@ func nodeFor(obj *unstructured.Unstructured) graph.Node {
 		}
 	}
 
+	// Surface Pod status as flat scalar properties so status changes (phase,
+	// readiness, restarts) flow through to the graph and the UI on each re-sync.
+	if obj.GetAPIVersion() == "v1" && obj.GetKind() == podKind {
+		for k, v := range podStatusProps(obj) {
+			props[k] = v
+		}
+	}
+
 	return graph.Node{
 		Ref: graph.Ref{
 			APIVersion: obj.GetAPIVersion(),
@@ -65,6 +78,80 @@ func nodeFor(obj *unstructured.Unstructured) graph.Node {
 		},
 		Properties: props,
 	}
+}
+
+// podStatusProps extracts a set of flat, generally useful Pod status fields.
+// Neo4J properties cannot be nested, so the status is flattened into scalars:
+//
+//   - phase:     the high-level pod phase (Pending/Running/Succeeded/Failed)
+//   - status:    a human-friendly status, mirroring kubectl's STATUS column
+//     (e.g. "CrashLoopBackOff", "Completed") when a container condition refines
+//     the phase; otherwise equal to phase
+//   - ready:     ready container count over total, e.g. "2/3"
+//   - restarts:  total container restart count
+//   - podIP:     the assigned pod IP, when present
+//   - startTime: when the pod was acknowledged by the kubelet (RFC3339)
+func podStatusProps(obj *unstructured.Unstructured) map[string]any {
+	out := map[string]any{}
+
+	phase, _, _ := unstructured.NestedString(obj.Object, "status", "phase")
+	if phase != "" {
+		out["phase"] = phase
+	}
+	if ip, ok, _ := unstructured.NestedString(obj.Object, "status", "podIP"); ok && ip != "" {
+		out["podIP"] = ip
+	}
+	if st, ok, _ := unstructured.NestedString(obj.Object, "status", "startTime"); ok && st != "" {
+		out["startTime"] = st
+	}
+
+	statuses, _, _ := unstructured.NestedSlice(obj.Object, "status", "containerStatuses")
+	ready, restarts := 0, int64(0)
+	var reason string
+	for _, c := range statuses {
+		cs, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		if r, ok, _ := unstructured.NestedBool(cs, "ready"); ok && r {
+			ready++
+		}
+		if rc, ok, _ := unstructured.NestedInt64(cs, "restartCount"); ok {
+			restarts += rc
+		}
+		if reason == "" {
+			reason = containerStateReason(cs)
+		}
+	}
+	if len(statuses) > 0 {
+		out["ready"] = fmt.Sprintf("%d/%d", ready, len(statuses))
+	}
+	out["restarts"] = restarts
+
+	// Mirror kubectl: a container-level reason (e.g. CrashLoopBackOff,
+	// ImagePullBackOff, Completed) refines the coarse phase when present.
+	switch {
+	case reason != "":
+		out["status"] = reason
+	case phase != "":
+		out["status"] = phase
+	}
+
+	return out
+}
+
+// containerStateReason returns a refining status reason from a single container
+// status: a waiting reason (e.g. CrashLoopBackOff), or a terminated reason
+// (e.g. Completed, Error, OOMKilled). It returns "" when the container is
+// running normally.
+func containerStateReason(cs map[string]any) string {
+	if r, ok, _ := unstructured.NestedString(cs, "state", "waiting", "reason"); ok && r != "" {
+		return r
+	}
+	if r, ok, _ := unstructured.NestedString(cs, "state", "terminated", "reason"); ok && r != "" {
+		return r
+	}
+	return ""
 }
 
 // stripLastApplied removes the noisy kubectl last-applied-configuration

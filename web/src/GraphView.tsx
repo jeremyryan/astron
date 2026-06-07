@@ -16,6 +16,33 @@ const GROUP_CLASS = "namespace-group";
 const GROUP_PREFIX = "ns::";
 const CLUSTER_GROUP_ID = `${GROUP_PREFIX}__cluster__`;
 
+// phaseColor maps a Pod status (phase, or a refining reason like
+// CrashLoopBackOff) to a node border color so pod health is visible at a glance.
+// Returns undefined for resources without a status, leaving them unbordered.
+function phaseColor(status: unknown): string | undefined {
+  if (typeof status !== "string" || status === "") return undefined;
+  switch (status) {
+    case "Running":
+    case "Succeeded":
+    case "Completed":
+      return "#4caf50"; // healthy / done
+    case "Pending":
+    case "ContainerCreating":
+    case "PodInitializing":
+      return "#f0a020"; // in progress
+    case "Failed":
+    case "Unknown":
+    case "CrashLoopBackOff":
+    case "ImagePullBackOff":
+    case "ErrImagePull":
+    case "Error":
+    case "OOMKilled":
+      return "#e03131"; // unhealthy
+    default:
+      return "#f0a020"; // unrecognized, transient state
+  }
+}
+
 function toElements(graph: Graph, groupByNamespace: boolean): ElementDefinition[] {
   const ids = new Set(graph.nodes.map((n) => n.id));
   const elements: ElementDefinition[] = [];
@@ -45,6 +72,10 @@ function toElements(graph: Graph, groupByNamespace: boolean): ElementDefinition[
       kind: n.kind,
       color: colorForKind(n.kind),
     };
+    // Border pods (and any status-bearing node) by health. Prefer the refined
+    // `status` (e.g. CrashLoopBackOff) over the coarse `phase`.
+    const statusColor = phaseColor(n.properties?.status ?? n.properties?.phase);
+    if (statusColor) data.statusColor = statusColor;
     if (groupByNamespace) {
       data.parent = n.namespace ? GROUP_PREFIX + n.namespace : CLUSTER_GROUP_ID;
     }
@@ -131,6 +162,11 @@ export function GraphView({
             color: "#888",
             "text-rotation": "autorotate",
           },
+        },
+        // Status-bearing nodes (e.g. Pods) get a health-colored border.
+        {
+          selector: "node[statusColor]",
+          style: { "border-width": 3, "border-color": "data(statusColor)" },
         },
         {
           selector: "node:selected",

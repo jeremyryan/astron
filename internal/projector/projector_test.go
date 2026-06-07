@@ -76,6 +76,63 @@ func TestNodeFor(t *testing.T) {
 	}
 }
 
+func TestNodeForPodStatus(t *testing.T) {
+	o := newObj("default", "web", nil)
+	if err := unstructured.SetNestedField(o.Object, "Running", "status", "phase"); err != nil {
+		t.Fatal(err)
+	}
+	if err := unstructured.SetNestedField(o.Object, "10.1.2.3", "status", "podIP"); err != nil {
+		t.Fatal(err)
+	}
+	containers := []any{
+		map[string]any{
+			"ready":        true,
+			"restartCount": int64(1),
+			"state":        map[string]any{"running": map[string]any{}},
+		},
+		map[string]any{
+			"ready":        false,
+			"restartCount": int64(4),
+			"state": map[string]any{
+				"waiting": map[string]any{"reason": "CrashLoopBackOff"},
+			},
+		},
+	}
+	if err := unstructured.SetNestedSlice(o.Object, containers, "status", "containerStatuses"); err != nil {
+		t.Fatal(err)
+	}
+
+	props := nodeFor(o).Properties
+	if props["phase"] != "Running" {
+		t.Errorf("phase = %v, want Running", props["phase"])
+	}
+	if props["podIP"] != "10.1.2.3" {
+		t.Errorf("podIP = %v, want 10.1.2.3", props["podIP"])
+	}
+	if props["ready"] != "1/2" {
+		t.Errorf("ready = %v, want 1/2", props["ready"])
+	}
+	if props["restarts"] != int64(5) {
+		t.Errorf("restarts = %v, want 5", props["restarts"])
+	}
+	// A container-level waiting reason refines the coarse phase.
+	if props["status"] != "CrashLoopBackOff" {
+		t.Errorf("status = %v, want CrashLoopBackOff", props["status"])
+	}
+}
+
+func TestNodeForNonPodHasNoStatus(t *testing.T) {
+	o := newObj("default", "cm", nil)
+	o.SetKind("ConfigMap")
+	props := nodeFor(o).Properties
+	if _, ok := props["phase"]; ok {
+		t.Error("non-Pod object should not have a phase property")
+	}
+	if _, ok := props["restarts"]; ok {
+		t.Error("non-Pod object should not have a restarts property")
+	}
+}
+
 func TestInScope(t *testing.T) {
 	spec := gamerav1alpha1.GraphProjectionSpec{
 		Scope: gamerav1alpha1.ProjectionScope{
