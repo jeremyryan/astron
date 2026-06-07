@@ -160,6 +160,11 @@ export function GraphView({
           selector: `.${GROUP_CLASS}`,
           style: {
             shape: "round-rectangle",
+            // Let presses fall through to the background so the canvas can be
+            // panned / box-selected from over a namespace box (its empty
+            // interior would otherwise swallow the drag). Child nodes, drawn
+            // on top, still receive their own events.
+            events: "no",
             "background-color": "#2c313a",
             "background-opacity": 0.35,
             "border-color": "#444b57",
