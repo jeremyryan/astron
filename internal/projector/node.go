@@ -19,6 +19,7 @@ package projector
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -63,9 +64,7 @@ func nodeFor(obj *unstructured.Unstructured) graph.Node {
 	// Surface Pod status as flat scalar properties so status changes (phase,
 	// readiness, restarts) flow through to the graph and the UI on each re-sync.
 	if obj.GetAPIVersion() == "v1" && obj.GetKind() == podKind {
-		for k, v := range podStatusProps(obj) {
-			props[k] = v
-		}
+		maps.Copy(props, podStatusProps(obj))
 	}
 
 	return graph.Node{

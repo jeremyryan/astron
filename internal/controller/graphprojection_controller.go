@@ -72,6 +72,8 @@ type GraphProjectionReconciler struct {
 // +kubebuilder:rbac:groups=gamera.gamera.io,resources=graphprojections,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=gamera.gamera.io,resources=graphprojections/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=gamera.gamera.io,resources=graphprojections/finalizers,verbs=update
+// +kubebuilder:rbac:groups=gamera.gamera.io,resources=graphviews,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=gamera.gamera.io,resources=graphviews/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="*",resources="*",verbs=get;list;watch
 

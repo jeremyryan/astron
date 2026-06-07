@@ -20,6 +20,13 @@ rules:
 - apiGroups: ["gamera.gamera.io"]
   resources: ["graphprojections/finalizers"]
   verbs: ["update"]
+# GraphView CRD (saved filter sets) managed via the read/write API.
+- apiGroups: ["gamera.gamera.io"]
+  resources: ["graphviews"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+- apiGroups: ["gamera.gamera.io"]
+  resources: ["graphviews/status"]
+  verbs: ["get", "patch", "update"]
 {{- if .Values.controller.metrics.secure }}
 ---
 # Allow the metrics endpoint to authenticate/authorize scrapers.

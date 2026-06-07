@@ -24,6 +24,7 @@ rules:
   - gamera.gamera.io
   resources:
   - graphprojections
+  - graphviews
   verbs:
   - create
   - delete
@@ -42,6 +43,7 @@ rules:
   - gamera.gamera.io
   resources:
   - graphprojections/status
+  - graphviews/status
   verbs:
   - get
   - patch

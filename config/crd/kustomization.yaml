@@ -3,6 +3,7 @@
 # It should be run by config/default
 resources:
 - bases/gamera.gamera.io_graphprojections.yaml
+- bases/gamera.gamera.io_graphviews.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:
