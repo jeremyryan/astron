@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  ActionIcon,
   AppShell,
   Box,
   Group,
@@ -10,12 +11,22 @@ import {
   Stack,
   Text,
   Title,
+  Tooltip,
 } from "@mantine/core";
 import { getGraph, listProjections, type Graph, type GraphNode, type Projection } from "./api";
 import { GraphView } from "./GraphView";
-import { FilterPanel, kindCounts } from "./Filters";
+import {
+  FilterPanel,
+  kindCounts,
+  namespaceCounts,
+  type LabelFilter,
+  type LabelMatchMode,
+} from "./Filters";
 import { YamlModal } from "./YamlModal";
-import { IconHierarchy2, IconTopologyStar3 } from "./icons";
+import { SettingsModal } from "./SettingsModal";
+import { useSettings } from "./settings";
+import { iconForKind } from "./kinds";
+import { IconHierarchy2, IconSettings, IconTopologyStar3 } from "./icons";
 
 function ProjectionList({
   selected,
@@ -149,14 +160,18 @@ function NodeDetails({ node }: { node: GraphNode | null }) {
   const props = Object.entries(node.properties ?? {});
   const scalarProps = props.filter(([k]) => !MAP_PROPS.has(k));
   const mapProps = props.filter(([k]) => MAP_PROPS.has(k));
+  const icon = iconForKind(node.kind);
   return (
     <Stack gap="md">
-      <Title order={3} size="h4">
-        {node.kind}{" "}
-        <Text span c="dimmed" size="sm" fw={400}>
-          {node.apiVersion}
-        </Text>
-      </Title>
+      <Group gap={8} wrap="nowrap" align="center">
+        {icon && <img src={icon} width={22} height={22} alt="" />}
+        <Title order={3} size="h4">
+          {node.kind}{" "}
+          <Text span c="dimmed" size="sm" fw={400}>
+            {node.apiVersion}
+          </Text>
+        </Title>
+      </Group>
       <Stack gap="xs">
         <Field label="Name" value={node.name} />
         {node.namespace && <Field label="Namespace" value={node.namespace} />}
@@ -171,16 +186,63 @@ function NodeDetails({ node }: { node: GraphNode | null }) {
   );
 }
 
+// nodeLabels parses a node's labels property (stored as a JSON string by the
+// backend) into a flat string map.
+function nodeLabels(node: GraphNode): Record<string, string> {
+  const raw = node.properties?.labels;
+  let obj: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      obj = JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+    out[k] = typeof v === "string" ? v : JSON.stringify(v);
+  }
+  return out;
+}
+
+// matchesLabelFilters returns true when a node satisfies the active label
+// filters. A filter with an empty value matches any value for the key. Rows
+// with an empty key are ignored. Mode "all" requires every filter to match
+// (AND); "any" requires at least one (OR).
+function matchesLabelFilters(
+  node: GraphNode,
+  filters: LabelFilter[],
+  mode: LabelMatchMode,
+): boolean {
+  const active = filters.filter((f) => f.key.trim() !== "");
+  if (active.length === 0) return true;
+  const labels = nodeLabels(node);
+  const test = (f: LabelFilter) => {
+    const key = f.key.trim();
+    if (!(key in labels)) return false;
+    const value = f.value.trim();
+    return value === "" ? true : labels[key] === value;
+  };
+  return mode === "all" ? active.every(test) : active.some(test);
+}
+
 function GraphPanel({ projection }: { projection: Projection }) {
+  const { settings } = useSettings();
   const [selected, setSelected] = useState<GraphNode | null>(null);
   // Node whose YAML manifest is shown in the modal (null = closed).
   const [yamlNode, setYamlNode] = useState<GraphNode | null>(null);
   // Kinds the user has hidden. Empty = show everything (the default).
   const [hiddenKinds, setHiddenKinds] = useState<Set<string>>(new Set());
+  // Namespaces the user has hidden ("" = cluster-scoped). Empty = show all.
+  const [hiddenNamespaces, setHiddenNamespaces] = useState<Set<string>>(new Set());
   // Max hops from the selected node to keep visible; null = all (no fading).
   const [maxDistance, setMaxDistance] = useState<number | null>(null);
   // Whether to group resources into compound nodes by namespace.
   const [groupByNamespace, setGroupByNamespace] = useState(true);
+  // Label filters and the AND/OR mode used to combine them.
+  const [labelFilters, setLabelFilters] = useState<LabelFilter[]>([]);
+  const [labelMode, setLabelMode] = useState<LabelMatchMode>("any");
   const { data, isLoading, error } = useQuery({
     queryKey: ["graph", projection.uid],
     queryFn: () => getGraph(projection.namespace, projection.name),
@@ -188,17 +250,24 @@ function GraphPanel({ projection }: { projection: Projection }) {
   });
 
   const kinds = useMemo(() => (data ? kindCounts(data) : []), [data]);
+  const namespaces = useMemo(() => (data ? namespaceCounts(data) : []), [data]);
 
   const filteredGraph = useMemo<Graph | undefined>(() => {
     if (!data) return undefined;
-    if (hiddenKinds.size === 0) return data;
-    const nodes = data.nodes.filter((n) => !hiddenKinds.has(n.kind));
+    const hasLabelFilter = labelFilters.some((f) => f.key.trim() !== "");
+    if (hiddenKinds.size === 0 && hiddenNamespaces.size === 0 && !hasLabelFilter) return data;
+    const nodes = data.nodes.filter(
+      (n) =>
+        !hiddenKinds.has(n.kind) &&
+        !hiddenNamespaces.has(n.namespace ?? "") &&
+        matchesLabelFilters(n, labelFilters, labelMode),
+    );
     const visibleIds = new Set(nodes.map((n) => n.id));
     const edges = data.edges.filter(
       (e) => visibleIds.has(e.source) && visibleIds.has(e.target),
     );
     return { nodes, edges };
-  }, [data, hiddenKinds]);
+  }, [data, hiddenKinds, hiddenNamespaces, labelFilters, labelMode]);
 
   const toggleKind = (kind: string) =>
     setHiddenKinds((prev) => {
@@ -210,6 +279,24 @@ function GraphPanel({ projection }: { projection: Projection }) {
   const showAll = () => setHiddenKinds(new Set());
   const hideAll = () => setHiddenKinds(new Set(kinds.map((k) => k.kind)));
 
+  const toggleNamespace = (ns: string) =>
+    setHiddenNamespaces((prev) => {
+      const next = new Set(prev);
+      if (next.has(ns)) next.delete(ns);
+      else next.add(ns);
+      return next;
+    });
+  const showAllNamespaces = () => setHiddenNamespaces(new Set());
+  const hideAllNamespaces = () =>
+    setHiddenNamespaces(new Set(namespaces.map((n) => n.namespace)));
+
+  const addLabel = () =>
+    setLabelFilters((prev) => [...prev, { id: crypto.randomUUID(), key: "", value: "" }]);
+  const updateLabel = (id: string, patch: Partial<Pick<LabelFilter, "key" | "value">>) =>
+    setLabelFilters((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
+  const removeLabel = (id: string) =>
+    setLabelFilters((prev) => prev.filter((f) => f.id !== id));
+
   return (
     <div className="graph-panel">
       <FilterPanel
@@ -218,13 +305,36 @@ function GraphPanel({ projection }: { projection: Projection }) {
         onToggleKind={toggleKind}
         onShowAll={showAll}
         onHideAll={hideAll}
+        namespaces={namespaces}
+        hiddenNamespaces={hiddenNamespaces}
+        onToggleNamespace={toggleNamespace}
+        onShowAllNamespaces={showAllNamespaces}
+        onHideAllNamespaces={hideAllNamespaces}
         hasSelection={selected !== null}
         maxDistance={maxDistance}
         onChangeDistance={setMaxDistance}
         groupByNamespace={groupByNamespace}
         onToggleGroupByNamespace={setGroupByNamespace}
+        labelFilters={labelFilters}
+        labelMode={labelMode}
+        onAddLabel={addLabel}
+        onUpdateLabel={updateLabel}
+        onRemoveLabel={removeLabel}
+        onChangeLabelMode={setLabelMode}
       />
-      <div className="graph-area">
+      <div
+        className="graph-area"
+        style={
+          settings.wallpaper
+            ? {
+                backgroundImage: `url(${settings.wallpaper})`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+                backgroundRepeat: "no-repeat",
+              }
+            : undefined
+        }
+      >
         {isLoading && (
           <Group gap="xs" p="md">
             <Loader size="sm" />
@@ -257,18 +367,33 @@ function GraphPanel({ projection }: { projection: Projection }) {
 
 export default function App() {
   const [selected, setSelected] = useState<Projection>();
+  // Whether the settings modal is open.
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <AppShell header={{ height: 52 }} navbar={{ width: 260, breakpoint: "sm" }} padding={0}>
       <AppShell.Header>
-        <Group h="100%" px="md" gap="sm" align="center" wrap="nowrap">
-          <IconTopologyStar3 size={22} stroke={1.5} color="var(--mantine-color-brand-6)" />
-          <Title order={1} size="h4" c="white">
-            Project Gamera
-          </Title>
-          <Text size="xs" c="dimmed">
-            Kubernetes Cluster Graph
-          </Text>
+        <Group h="100%" px="md" gap="sm" align="center" justify="space-between" wrap="nowrap">
+          <Group gap="sm" align="center" wrap="nowrap">
+            <IconTopologyStar3 size={22} stroke={1.5} color="var(--mantine-color-brand-6)" />
+            <Title order={1} size="h4" c="white">
+              Project Gamera
+            </Title>
+            <Text size="xs" c="dimmed">
+              Kubernetes Cluster Graph
+            </Text>
+          </Group>
+          <Tooltip label="Settings" position="bottom" withArrow>
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size="lg"
+              aria-label="Settings"
+              onClick={() => setSettingsOpen(true)}
+            >
+              <IconSettings size={20} stroke={1.5} />
+            </ActionIcon>
+          </Tooltip>
         </Group>
       </AppShell.Header>
 
@@ -290,6 +415,8 @@ export default function App() {
           </Text>
         )}
       </AppShell.Main>
+
+      <SettingsModal opened={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </AppShell>
   );
 }

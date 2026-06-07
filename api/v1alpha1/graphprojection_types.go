@@ -122,10 +122,35 @@ type ProjectionScope struct {
 	// +optional
 	Resources []ResourceSelector `json:"resources,omitempty"`
 
+	// crds controls whether CustomResourceDefinitions are captured as graph
+	// nodes. When CRDs are captured, the projection additionally creates a
+	// DEFINES edge from each captured CRD to every captured resource that is an
+	// instance of that CRD. When omitted, CRDs are not captured.
+	// +optional
+	CRDs *CRDSelection `json:"crds,omitempty"`
+
 	// labelSelector further restricts captured resources to those matching the
 	// given label selector.
 	// +optional
 	LabelSelector *metav1.LabelSelector `json:"labelSelector,omitempty"`
+}
+
+// CRDSelection controls capturing CustomResourceDefinitions (CRDs) as graph
+// nodes.
+type CRDSelection struct {
+	// include, when true, captures CustomResourceDefinitions as graph nodes. When
+	// true and names is empty, all CRDs in the cluster are captured. Capturing is
+	// also implied when names is non-empty.
+	// +optional
+	Include bool `json:"include,omitempty"`
+
+	// names optionally restricts the captured CRDs to the named
+	// CustomResourceDefinitions, identified by their metadata.name
+	// (e.g. "widgets.example.com"). When non-empty, only these CRDs are captured
+	// regardless of the include flag; when empty, the include flag governs
+	// whether all CRDs are captured.
+	// +optional
+	Names []string `json:"names,omitempty"`
 }
 
 // ResourceSelector identifies a Kubernetes resource type to capture as graph

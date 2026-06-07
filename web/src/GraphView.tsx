@@ -5,7 +5,7 @@ import cytoscape, { type Core, type ElementDefinition } from "cytoscape";
 import dagre from "cytoscape-dagre";
 import fcose from "cytoscape-fcose";
 import type { Graph, GraphNode } from "./api";
-import { colorForKind } from "./kinds";
+import { colorForKind, iconForKind } from "./kinds";
 
 cytoscape.use(dagre);
 cytoscape.use(fcose);
@@ -76,6 +76,9 @@ function toElements(graph: Graph, groupByNamespace: boolean): ElementDefinition[
     // `status` (e.g. CrashLoopBackOff) over the coarse `phase`.
     const statusColor = phaseColor(n.properties?.status ?? n.properties?.phase);
     if (statusColor) data.statusColor = statusColor;
+    const icon = iconForKind(n.kind);
+    if (icon) data.icon = icon;
+
     if (groupByNamespace) {
       data.parent = n.namespace ? GROUP_PREFIX + n.namespace : CLUSTER_GROUP_ID;
     }
@@ -133,6 +136,10 @@ export function GraphView({
       container: containerRef.current,
       // Cap zoom so fitting a tiny subgraph (or a single node) doesn't zoom in absurdly.
       maxZoom: 2.5,
+      // Shift+drag on the background draws a selection box (panning is the
+      // unmodified drag). Selecting multiple nodes lets them be moved together.
+      boxSelectionEnabled: true,
+      selectionType: "single",
       elements: toElements(graph, groupByNamespace),
       style: [
         {
@@ -145,8 +152,21 @@ export function GraphView({
             "text-margin-y": 4,
             "font-size": 9,
             color: "#d0d0d0",
-            width: 26,
-            height: 26,
+            width: 28,
+            height: 28,
+          },
+        },
+        // Nodes with an official Kubernetes icon render the icon instead of the
+        // solid color circle.
+        {
+          selector: "node[icon]",
+          style: {
+            shape: "round-rectangle",
+            "background-image": "data(icon)",
+            "background-fit": "contain",
+            "background-opacity": 0,
+            width: 32,
+            height: 32,
           },
         },
         {
@@ -177,6 +197,11 @@ export function GraphView({
           selector: `.${GROUP_CLASS}`,
           style: {
             shape: "round-rectangle",
+            // Let presses fall through to the background so the canvas can be
+            // panned / box-selected from over a namespace box (its empty
+            // interior would otherwise swallow the drag). Child nodes, drawn
+            // on top, still receive their own events.
+            events: "no",
             "background-color": "#2c313a",
             "background-opacity": 0.35,
             "border-color": "#444b57",
@@ -244,6 +269,44 @@ export function GraphView({
     });
     cy.on("viewport", () => setMenu(null));
 
+    // Cursor feedback: a "grabbing" cursor while dragging the canvas (pan) or a
+    // node, and a "pointer" cursor when hovering a selectable node.
+    const el = containerRef.current;
+    let dragging = false;
+    cy.on("mouseover", "node", (evt) => {
+      if (dragging || evt.target.hasClass(GROUP_CLASS)) return;
+      el.style.cursor = "pointer";
+    });
+    cy.on("mouseout", "node", (evt) => {
+      if (dragging || evt.target.hasClass(GROUP_CLASS)) return;
+      el.style.cursor = "";
+    });
+    cy.on("grab", "node", () => {
+      dragging = true;
+      el.style.cursor = "grabbing";
+    });
+    cy.on("free", "node", (evt) => {
+      dragging = false;
+      // The cursor ends up over the just-dropped node, which is selectable.
+      el.style.cursor = evt.target.hasClass(GROUP_CLASS) ? "" : "pointer";
+    });
+    cy.on("mousedown", (evt) => {
+      const oe = evt.originalEvent as MouseEvent | undefined;
+      if (evt.target === cy && !(oe && oe.shiftKey)) {
+        // Background press without shift begins a pan (shift+drag box-selects).
+        dragging = true;
+        el.style.cursor = "grabbing";
+      }
+    });
+    const endDrag = () => {
+      if (!dragging) return;
+      dragging = false;
+      el.style.cursor = "";
+    };
+    cy.on("mouseup", endDrag);
+    // Catch releases that happen outside the canvas during a pan/drag.
+    window.addEventListener("mouseup", endDrag);
+
     // Suppress the browser's native context menu over the canvas.
     const handleContextMenu = (e: MouseEvent) => e.preventDefault();
     containerRef.current.addEventListener("contextmenu", handleContextMenu);
@@ -271,6 +334,7 @@ export function GraphView({
     cyRef.current = cy;
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("mouseup", endDrag);
       container.removeEventListener("contextmenu", handleContextMenu);
       cy.destroy();
       cyRef.current = null;
