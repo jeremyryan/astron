@@ -195,6 +195,30 @@ spec:
                   scope selects the portion of the cluster that this projection watches and
                   captures. When omitted, the projection watches the entire cluster.
                 properties:
+                  crds:
+                    description: |-
+                      crds controls whether CustomResourceDefinitions are captured as graph
+                      nodes. When CRDs are captured, the projection additionally creates a
+                      DEFINES edge from each captured CRD to every captured resource that is an
+                      instance of that CRD. When omitted, CRDs are not captured.
+                    properties:
+                      include:
+                        description: |-
+                          include, when true, captures CustomResourceDefinitions as graph nodes. When
+                          true and names is empty, all CRDs in the cluster are captured. Capturing is
+                          also implied when names is non-empty.
+                        type: boolean
+                      names:
+                        description: |-
+                          names optionally restricts the captured CRDs to the named
+                          CustomResourceDefinitions, identified by their metadata.name
+                          (e.g. "widgets.example.com"). When non-empty, only these CRDs are captured
+                          regardless of the include flag; when empty, the include flag governs
+                          whether all CRDs are captured.
+                        items:
+                          type: string
+                        type: array
+                    type: object
                   labelSelector:
                     description: |-
                       labelSelector further restricts captured resources to those matching the
