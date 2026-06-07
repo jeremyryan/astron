@@ -93,3 +93,87 @@ func graphToDTO(data graph.GraphData) graphDTO {
 	}
 	return out
 }
+
+// projectionRefDTO references a GraphProjection a view applies to.
+type projectionRefDTO struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace,omitempty"`
+}
+
+// labelFilterDTO is a single label key/value constraint for a view.
+type labelFilterDTO struct {
+	Key   string `json:"key"`
+	Value string `json:"value,omitempty"`
+}
+
+// viewFiltersDTO mirrors GraphViewFilters in the API representation.
+type viewFiltersDTO struct {
+	HiddenKinds      []string         `json:"hiddenKinds,omitempty"`
+	HiddenNamespaces []string         `json:"hiddenNamespaces,omitempty"`
+	LabelFilters     []labelFilterDTO `json:"labelFilters,omitempty"`
+	LabelMode        string           `json:"labelMode,omitempty"`
+	MaxDistance      *int32           `json:"maxDistance,omitempty"`
+	GroupByNamespace *bool            `json:"groupByNamespace,omitempty"`
+}
+
+// viewDTO is the API representation of a GraphView (a saved set of filters).
+type viewDTO struct {
+	Namespace     string           `json:"namespace"`
+	Name          string           `json:"name"`
+	UID           string           `json:"uid,omitempty"`
+	DisplayName   string           `json:"displayName,omitempty"`
+	Description   string           `json:"description,omitempty"`
+	ProjectionRef projectionRefDTO `json:"projectionRef"`
+	Filters       viewFiltersDTO   `json:"filters"`
+}
+
+func viewToDTO(v *gamerav1alpha1.GraphView) viewDTO {
+	f := v.Spec.Filters
+	labels := make([]labelFilterDTO, 0, len(f.LabelFilters))
+	for _, lf := range f.LabelFilters {
+		labels = append(labels, labelFilterDTO{Key: lf.Key, Value: lf.Value})
+	}
+	return viewDTO{
+		Namespace:   v.Namespace,
+		Name:        v.Name,
+		UID:         string(v.UID),
+		DisplayName: v.Spec.DisplayName,
+		Description: v.Spec.Description,
+		ProjectionRef: projectionRefDTO{
+			Name:      v.Spec.ProjectionRef.Name,
+			Namespace: v.Spec.ProjectionRef.Namespace,
+		},
+		Filters: viewFiltersDTO{
+			HiddenKinds:      f.HiddenKinds,
+			HiddenNamespaces: f.HiddenNamespaces,
+			LabelFilters:     labels,
+			LabelMode:        f.LabelMode,
+			MaxDistance:      f.MaxDistance,
+			GroupByNamespace: f.GroupByNamespace,
+		},
+	}
+}
+
+// dtoToViewSpec builds a GraphViewSpec from the API request representation.
+func dtoToViewSpec(in viewDTO) gamerav1alpha1.GraphViewSpec {
+	labels := make([]gamerav1alpha1.LabelFilter, 0, len(in.Filters.LabelFilters))
+	for _, lf := range in.Filters.LabelFilters {
+		labels = append(labels, gamerav1alpha1.LabelFilter{Key: lf.Key, Value: lf.Value})
+	}
+	return gamerav1alpha1.GraphViewSpec{
+		ProjectionRef: gamerav1alpha1.ProjectionReference{
+			Name:      in.ProjectionRef.Name,
+			Namespace: in.ProjectionRef.Namespace,
+		},
+		DisplayName: in.DisplayName,
+		Description: in.Description,
+		Filters: gamerav1alpha1.GraphViewFilters{
+			HiddenKinds:      in.Filters.HiddenKinds,
+			HiddenNamespaces: in.Filters.HiddenNamespaces,
+			LabelFilters:     labels,
+			LabelMode:        in.Filters.LabelMode,
+			MaxDistance:      in.Filters.MaxDistance,
+			GroupByNamespace: in.Filters.GroupByNamespace,
+		},
+	}
+}

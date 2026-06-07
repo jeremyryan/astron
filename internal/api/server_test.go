@@ -186,6 +186,118 @@ func TestResourceYAMLMissingParams(t *testing.T) {
 	}
 }
 
+func doJSON(t *testing.T, srv *Server, method, target string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	var rdr *strings.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rdr = strings.NewReader(string(b))
+	} else {
+		rdr = strings.NewReader("")
+	}
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(method, target, rdr))
+	return rec
+}
+
+func TestViewsCRUD(t *testing.T) {
+	srv := newTestServer(t)
+
+	// Create.
+	create := map[string]any{
+		"name":          "team-a",
+		"displayName":   "Team A",
+		"projectionRef": map[string]any{"name": "demo", "namespace": "default"},
+		"filters": map[string]any{
+			"hiddenKinds": []string{"Secret"},
+			"labelMode":   "all",
+		},
+	}
+	rec := doJSON(t, srv, http.MethodPost, "/api/views", create)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
+	}
+	var created viewDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Name != "team-a" || created.Namespace != "default" || created.DisplayName != "Team A" {
+		t.Fatalf("unexpected created view: %+v", created)
+	}
+
+	// List (no filter).
+	rec = doJSON(t, srv, http.MethodGet, "/api/views", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want 200", rec.Code)
+	}
+	var list []viewDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].Name != "team-a" {
+		t.Fatalf("unexpected list: %+v", list)
+	}
+
+	// List filtered by a different projection -> empty.
+	rec = doJSON(t, srv, http.MethodGet, "/api/views?projectionName=other", nil)
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("expected no views for projection 'other', got %+v", list)
+	}
+
+	// Update.
+	update := map[string]any{
+		"name":          "team-a",
+		"displayName":   "Team A (edited)",
+		"projectionRef": map[string]any{"name": "demo", "namespace": "default"},
+		"filters":       map[string]any{"groupByNamespace": false},
+	}
+	rec = doJSON(t, srv, http.MethodPut, "/api/views/default/team-a", update)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
+	}
+	var updated viewDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.DisplayName != "Team A (edited)" || updated.Filters.GroupByNamespace == nil || *updated.Filters.GroupByNamespace {
+		t.Fatalf("update not applied: %+v", updated)
+	}
+
+	// Delete.
+	rec = doJSON(t, srv, http.MethodDelete, "/api/views/default/team-a", nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, want 204", rec.Code)
+	}
+	rec = doJSON(t, srv, http.MethodGet, "/api/views", nil)
+	_ = json.Unmarshal(rec.Body.Bytes(), &list)
+	if len(list) != 0 {
+		t.Fatalf("expected no views after delete, got %+v", list)
+	}
+}
+
+func TestCreateViewValidation(t *testing.T) {
+	srv := newTestServer(t)
+	rec := doJSON(t, srv, http.MethodPost, "/api/views", map[string]any{"name": "x"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestUpdateViewNotFound(t *testing.T) {
+	srv := newTestServer(t)
+	body := map[string]any{"projectionRef": map[string]any{"name": "demo"}}
+	rec := doJSON(t, srv, http.MethodPut, "/api/views/default/missing", body)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
 func TestGraphNotRunningReturnsEmpty(t *testing.T) {
 	proj := &gamerav1alpha1.GraphProjection{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default", UID: types.UID("uid-1")},
