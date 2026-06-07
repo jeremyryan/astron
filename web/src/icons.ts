@@ -13,4 +13,6 @@ export {
   IconPlus,
   IconX,
   IconChevronRight,
+  IconDeviceFloppy,
+  IconTrash,
 } from "@tabler/icons-react";

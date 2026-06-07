@@ -13,8 +13,16 @@ import {
   Title,
   Tooltip,
 } from "@mantine/core";
-import { getGraph, listProjections, type Graph, type GraphNode, type Projection } from "./api";
+import {
+  getGraph,
+  listProjections,
+  type Graph,
+  type GraphNode,
+  type Projection,
+  type ViewFilters,
+} from "./api";
 import { GraphView } from "./GraphView";
+import { ViewsPanel } from "./ViewsPanel";
 import {
   FilterPanel,
   kindCounts,
@@ -297,6 +305,37 @@ function GraphPanel({ projection }: { projection: Projection }) {
   const removeLabel = (id: string) =>
     setLabelFilters((prev) => prev.filter((f) => f.id !== id));
 
+  // Current filter state serialized into the View DTO shape, for saving.
+  const currentFilters = useMemo<ViewFilters>(
+    () => ({
+      hiddenKinds: [...hiddenKinds],
+      hiddenNamespaces: [...hiddenNamespaces],
+      labelFilters: labelFilters
+        .filter((f) => f.key.trim() !== "")
+        .map((f) => ({ key: f.key, value: f.value || undefined })),
+      labelMode,
+      maxDistance: maxDistance ?? undefined,
+      groupByNamespace,
+    }),
+    [hiddenKinds, hiddenNamespaces, labelFilters, labelMode, maxDistance, groupByNamespace],
+  );
+
+  // Apply a saved view's filters to the panel state.
+  const applyFilters = (f: ViewFilters) => {
+    setHiddenKinds(new Set(f.hiddenKinds ?? []));
+    setHiddenNamespaces(new Set(f.hiddenNamespaces ?? []));
+    setLabelFilters(
+      (f.labelFilters ?? []).map((lf) => ({
+        id: crypto.randomUUID(),
+        key: lf.key,
+        value: lf.value ?? "",
+      })),
+    );
+    setLabelMode((f.labelMode as LabelMatchMode) ?? "any");
+    setMaxDistance(f.maxDistance ?? null);
+    setGroupByNamespace(f.groupByNamespace ?? true);
+  };
+
   return (
     <div className="graph-panel">
       <FilterPanel
@@ -335,6 +374,11 @@ function GraphPanel({ projection }: { projection: Projection }) {
             : undefined
         }
       >
+        <ViewsPanel
+          projection={projection}
+          currentFilters={currentFilters}
+          onApply={applyFilters}
+        />
         {isLoading && (
           <Group gap="xs" p="md">
             <Loader size="sm" />

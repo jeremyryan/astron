@@ -40,6 +40,20 @@ async function getJSON<T>(url: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function sendJSON<T>(method: string, url: string, body?: unknown): Promise<T | undefined> {
+  const res = await fetch(url, {
+    method,
+    headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    throw new Error((errBody as { error?: string }).error ?? `request failed: ${res.status}`);
+  }
+  if (res.status === 204) return undefined;
+  return res.json() as Promise<T>;
+}
+
 export function listProjections(): Promise<Projection[]> {
   return getJSON<Projection[]>("/api/projections");
 }
@@ -67,4 +81,58 @@ export async function getResourceYaml(node: {
     throw new Error((body as { error?: string }).error ?? `request failed: ${res.status}`);
   }
   return res.text();
+}
+
+// ----- Views (saved filter sets) -----
+
+export interface ViewLabelFilter {
+  key: string;
+  value?: string;
+}
+
+export interface ViewFilters {
+  hiddenKinds?: string[];
+  hiddenNamespaces?: string[];
+  labelFilters?: ViewLabelFilter[];
+  labelMode?: string;
+  // Omitted/undefined means "all connections".
+  maxDistance?: number;
+  groupByNamespace?: boolean;
+}
+
+export interface View {
+  namespace: string;
+  name: string;
+  uid?: string;
+  displayName?: string;
+  description?: string;
+  projectionRef: { name: string; namespace?: string };
+  filters: ViewFilters;
+}
+
+export function listViews(projectionNamespace: string, projectionName: string): Promise<View[]> {
+  const params = new URLSearchParams({
+    projectionNamespace,
+    projectionName,
+  });
+  return getJSON<View[]>(`/api/views?${params.toString()}`);
+}
+
+export function createView(view: Omit<View, "uid">): Promise<View> {
+  return sendJSON<View>("POST", "/api/views", view) as Promise<View>;
+}
+
+export function updateView(namespace: string, name: string, view: Omit<View, "uid">): Promise<View> {
+  return sendJSON<View>(
+    "PUT",
+    `/api/views/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
+    view,
+  ) as Promise<View>;
+}
+
+export async function deleteView(namespace: string, name: string): Promise<void> {
+  await sendJSON<void>(
+    "DELETE",
+    `/api/views/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
+  );
 }
