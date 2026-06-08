@@ -27,11 +27,12 @@ import (
 	"github.com/project-gamera/gamera/internal/graph"
 )
 
-// kindConfigMap and kindSecret are the resource kinds understood by the
-// volume-mount strategy.
+// kindConfigMap, kindSecret and kindPersistentVolumeClaim are the resource kinds
+// understood by the volume-mount strategy.
 const (
-	kindConfigMap = "ConfigMap"
-	kindSecret    = "Secret"
+	kindConfigMap             = "ConfigMap"
+	kindSecret                = "Secret"
+	kindPersistentVolumeClaim = "PersistentVolumeClaim"
 )
 
 // ownerReferenceStrategy derives edges from Kubernetes ownerReferences. For
@@ -152,7 +153,7 @@ type volumeMountStrategy struct{}
 func (volumeMountStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
 	var edges []graph.Relationship
 	pods := index.ByKind(selectorGVK(rule.To))
-	// rule.From.Kind is "ConfigMap" or "Secret".
+	// rule.From.Kind is "ConfigMap", "Secret" or "PersistentVolumeClaim".
 	wantKind := rule.From.Kind
 
 	for _, pod := range pods {
@@ -178,8 +179,8 @@ func (volumeMountStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index In
 	return edges, nil
 }
 
-// referencedConfigNames returns the names of ConfigMaps or Secrets referenced
-// by a pod spec, depending on wantKind.
+// referencedConfigNames returns the names of ConfigMaps, Secrets or
+// PersistentVolumeClaims referenced by a pod spec, depending on wantKind.
 func referencedConfigNames(pod *unstructured.Unstructured, wantKind string) []string {
 	var names []string
 
@@ -201,7 +202,17 @@ func referencedConfigNames(pod *unstructured.Unstructured, wantKind string) []st
 				names = append(names, n)
 			}
 			names = append(names, projectedNames(vol, "secret")...)
+		case kindPersistentVolumeClaim:
+			if n, ok, _ := unstructured.NestedString(vol, "persistentVolumeClaim", "claimName"); ok && n != "" {
+				names = append(names, n)
+			}
 		}
+	}
+
+	// PVCs are only referenced via pod volumes, not container env, so skip the
+	// container scan for that kind.
+	if wantKind == kindPersistentVolumeClaim {
+		return names
 	}
 
 	for _, path := range [][]string{{"spec", "containers"}, {"spec", "initContainers"}, {"spec", "ephemeralContainers"}} {

@@ -1,0 +1,32 @@
+{{- if and .Values.defaultProjection.enabled .Values.defaultViews.enabled }}
+{{- range $view := .Values.defaultViews.views }}
+---
+apiVersion: gamera.gamera.io/v1alpha1
+kind: GraphView
+metadata:
+  name: {{ $view.name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "gamera.labels" $ | nindent 4 }}
+  {{- if $.Values.neo4j.enabled }}
+  annotations:
+    # Apply after the CRD/operator and the default projection are in place.
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "6"
+  {{- end }}
+spec:
+  projectionRef:
+    name: {{ $.Values.defaultProjection.name }}
+    namespace: {{ $.Release.Namespace }}
+  {{- with $view.displayName }}
+  displayName: {{ . | quote }}
+  {{- end }}
+  {{- with $view.description }}
+  description: {{ . | quote }}
+  {{- end }}
+  {{- with $view.filters }}
+  filters:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end }}

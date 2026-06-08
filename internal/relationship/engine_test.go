@@ -211,6 +211,37 @@ func TestVolumeMountStrategy_ConfigMap(t *testing.T) {
 	}
 }
 
+func TestVolumeMountStrategy_PersistentVolumeClaim(t *testing.T) {
+	pvc := obj("v1", "PersistentVolumeClaim", "default", "data", "pvc-uid")
+	pod := obj("v1", "Pod", "default", "web-1", "p1")
+	_ = unstructured.SetNestedSlice(pod.Object, []any{
+		map[string]any{"name": "vol", "persistentVolumeClaim": map[string]any{"claimName": "data"}},
+		// A configMap volume must be ignored when deriving PVC edges.
+		map[string]any{"name": "cfg", "configMap": map[string]any{"name": "app-config"}},
+	}, "spec", "volumes")
+
+	index := NewMapIndex(pvc, pod)
+	rule := gamerav1alpha1.RelationshipRule{
+		Name: "pvc-mounts-pod", Type: "MOUNTS", Strategy: gamerav1alpha1.VolumeMountStrategy,
+		From: sel("", "v1", "PersistentVolumeClaim"), To: sel("", "v1", "Pod"),
+	}
+
+	edges, err := (volumeMountStrategy{}).Derive(rule, index)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d: %+v", len(edges), edges)
+	}
+	e := findEdge(edges, "MOUNTS", "data", "web-1")
+	if e == nil {
+		t.Fatalf("expected MOUNTS data->web-1")
+	}
+	if e.From.Kind != "PersistentVolumeClaim" || e.From.UID != "pvc-uid" {
+		t.Errorf("unexpected from ref: %+v", e.From)
+	}
+}
+
 func TestVolumeMountStrategy_SecretAndDedup(t *testing.T) {
 	pod := obj("v1", "Pod", "default", "web-1", "p1")
 	_ = unstructured.SetNestedSlice(pod.Object, []any{

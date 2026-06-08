@@ -172,6 +172,62 @@ defaultProjection:
       strategy: VolumeMount
       from: { version: v1, kind: Secret }
       to: { version: v1, kind: Pod }
+    - name: pvc-mounts-pod
+      type: MOUNTS
+      strategy: VolumeMount
+      from: { version: v1, kind: PersistentVolumeClaim }
+      to: { version: v1, kind: Pod }
+
+# Default Views (saved filter sets) created on deploy for the default
+# projection. Each view hides the resource kinds not relevant to it (the filter
+# model is a hide-list). Set defaultViews.enabled=false to skip creating them.
+defaultViews:
+  # -- Create the built-in GraphViews (Compute / Persistence / Networking).
+  enabled: true
+  # -- The views to create. projectionRef is set to defaultProjection.name.
+  views:
+    - name: compute
+      displayName: Compute
+      description: Pods and the workload controllers (Deployments, ReplicaSets, StatefulSets, DaemonSets) that manage them.
+      filters:
+        groupByNamespace: true
+        hiddenKinds:
+          - Service
+          - ConfigMap
+          - Secret
+          - PersistentVolumeClaim
+          - PersistentVolume
+          - Ingress
+          - HTTPRoute
+    - name: persistence
+      displayName: Persistence
+      description: Pods together with the PersistentVolumeClaims and PersistentVolumes attached to them.
+      filters:
+        groupByNamespace: true
+        hiddenKinds:
+          - Deployment
+          - ReplicaSet
+          - StatefulSet
+          - DaemonSet
+          - Service
+          - ConfigMap
+          - Secret
+          - Ingress
+          - HTTPRoute
+    - name: networking
+      displayName: Networking
+      description: Pods together with the Services, Ingresses and HTTPRoutes that expose them to network traffic.
+      filters:
+        groupByNamespace: true
+        hiddenKinds:
+          - Deployment
+          - ReplicaSet
+          - StatefulSet
+          - DaemonSet
+          - ConfigMap
+          - Secret
+          - PersistentVolumeClaim
+          - PersistentVolume
 
 # Bundled Neo4J subchart (https://helm.neo4j.com/neo4j).
 # Set neo4j.enabled to false to use an existing/external Neo4J instead; then
