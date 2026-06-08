@@ -196,7 +196,7 @@ type RelationshipRule struct {
 	// strategy selects how the relationship between source and target resources
 	// is determined.
 	// +required
-	// +kubebuilder:validation:Enum=OwnerReference;LabelSelector;VolumeMount;Custom
+	// +kubebuilder:validation:Enum=OwnerReference;LabelSelector;VolumeMount;ClaimRef;ServiceBackend;Custom
 	Strategy RelationshipStrategy `json:"strategy"`
 }
 
@@ -210,8 +210,14 @@ const (
 	// against labels on the target (e.g. Service -> Pod).
 	LabelSelectorStrategy RelationshipStrategy = "LabelSelector"
 	// VolumeMountStrategy derives edges from volume/mount references
-	// (e.g. ConfigMap/Secret -> Pod).
+	// (e.g. ConfigMap/Secret/PersistentVolumeClaim -> Pod).
 	VolumeMountStrategy RelationshipStrategy = "VolumeMount"
+	// ClaimRefStrategy derives edges between a PersistentVolume and the
+	// PersistentVolumeClaim it is bound to (via spec.claimRef / spec.volumeName).
+	ClaimRefStrategy RelationshipStrategy = "ClaimRef"
+	// ServiceBackendStrategy derives edges from a traffic-routing resource
+	// (Ingress or HTTPRoute) to the Services it forwards traffic to.
+	ServiceBackendStrategy RelationshipStrategy = "ServiceBackend"
 	// CustomStrategy is reserved for projection-specific relationship logic.
 	CustomStrategy RelationshipStrategy = "Custom"
 )

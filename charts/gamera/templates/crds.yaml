@@ -145,6 +145,8 @@ spec:
                       - OwnerReference
                       - LabelSelector
                       - VolumeMount
+                      - ClaimRef
+                      - ServiceBackend
                       - Custom
                       type: string
                     to:

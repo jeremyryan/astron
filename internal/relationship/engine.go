@@ -58,6 +58,8 @@ func NewEngine() *Engine {
 			gamerav1alpha1.OwnerReferenceStrategy: ownerReferenceStrategy{},
 			gamerav1alpha1.LabelSelectorStrategy:  labelSelectorStrategy{},
 			gamerav1alpha1.VolumeMountStrategy:    volumeMountStrategy{},
+			gamerav1alpha1.ClaimRefStrategy:       claimRefStrategy{},
+			gamerav1alpha1.ServiceBackendStrategy: serviceBackendStrategy{},
 		},
 	}
 }

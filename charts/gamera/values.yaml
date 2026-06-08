@@ -177,6 +177,21 @@ defaultProjection:
       strategy: VolumeMount
       from: { version: v1, kind: PersistentVolumeClaim }
       to: { version: v1, kind: Pod }
+    - name: pv-binds-pvc
+      type: BINDS
+      strategy: ClaimRef
+      from: { version: v1, kind: PersistentVolume }
+      to: { version: v1, kind: PersistentVolumeClaim }
+    - name: ingress-routes-service
+      type: ROUTES
+      strategy: ServiceBackend
+      from: { group: networking.k8s.io, version: v1, kind: Ingress }
+      to: { version: v1, kind: Service }
+    - name: httproute-routes-service
+      type: ROUTES
+      strategy: ServiceBackend
+      from: { group: gateway.networking.k8s.io, version: v1, kind: HTTPRoute }
+      to: { version: v1, kind: Service }
 
 # Default Views (saved filter sets) created on deploy for the default
 # projection. Each view hides the resource kinds not relevant to it (the filter

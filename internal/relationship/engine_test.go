@@ -211,8 +211,105 @@ func TestVolumeMountStrategy_ConfigMap(t *testing.T) {
 	}
 }
 
+func TestClaimRefStrategy(t *testing.T) {
+	pvc := obj("v1", kindPersistentVolumeClaim, "default", "data-web", "pvc-uid")
+	pv := obj("v1", "PersistentVolume", "", "pv-abc", "pv-uid")
+	_ = unstructured.SetNestedField(pv.Object, "default", "spec", "claimRef", "namespace")
+	_ = unstructured.SetNestedField(pv.Object, "data-web", "spec", "claimRef", "name")
+
+	index := NewMapIndex(pvc, pv)
+	rule := gamerav1alpha1.RelationshipRule{
+		Name: "pv-binds-pvc", Type: "BINDS", Strategy: gamerav1alpha1.ClaimRefStrategy,
+		From: sel("", "v1", "PersistentVolume"), To: sel("", "v1", kindPersistentVolumeClaim),
+	}
+	edges, err := (claimRefStrategy{}).Derive(rule, index)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d: %+v", len(edges), edges)
+	}
+	e := edges[0]
+	if e.From.Kind != "PersistentVolume" || e.From.Name != "pv-abc" {
+		t.Errorf("unexpected from: %+v", e.From)
+	}
+	if e.To.Kind != kindPersistentVolumeClaim || e.To.Name != "data-web" || e.To.UID != "pvc-uid" {
+		t.Errorf("unexpected to (PVC UID should resolve): %+v", e.To)
+	}
+
+	// Reversed orientation: PVC -> PV.
+	rule.From, rule.To = sel("", "v1", kindPersistentVolumeClaim), sel("", "v1", "PersistentVolume")
+	edges, _ = (claimRefStrategy{}).Derive(rule, index)
+	if len(edges) != 1 || edges[0].From.Kind != kindPersistentVolumeClaim || edges[0].To.Kind != "PersistentVolume" {
+		t.Fatalf("expected reversed PVC->PV edge, got %+v", edges)
+	}
+}
+
+func TestServiceBackendStrategy_Ingress(t *testing.T) {
+	svc := obj("v1", "Service", "default", "web", "svc-uid")
+	ing := obj("networking.k8s.io/v1", "Ingress", "default", "web-ing", "ing-uid")
+	_ = unstructured.SetNestedField(ing.Object, "web", "spec", "defaultBackend", "service", "name")
+	_ = unstructured.SetNestedSlice(ing.Object, []any{
+		map[string]any{"http": map[string]any{"paths": []any{
+			map[string]any{"backend": map[string]any{"service": map[string]any{"name": "web"}}},
+			map[string]any{"backend": map[string]any{"service": map[string]any{"name": "api"}}},
+		}}},
+	}, "spec", "rules")
+
+	index := NewMapIndex(svc, ing)
+	rule := gamerav1alpha1.RelationshipRule{
+		Name: "ingress-routes-service", Type: "ROUTES", Strategy: gamerav1alpha1.ServiceBackendStrategy,
+		From: sel("networking.k8s.io", "v1", "Ingress"), To: sel("", "v1", "Service"),
+	}
+	edges, err := (serviceBackendStrategy{}).Derive(rule, index)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// "web" appears in defaultBackend and a path but must be de-duplicated; "api" is the second.
+	if len(edges) != 2 {
+		t.Fatalf("expected 2 edges (web, api), got %d: %+v", len(edges), edges)
+	}
+	web := findEdge(edges, "ROUTES", "web-ing", "web")
+	if web == nil || web.To.UID != "svc-uid" {
+		t.Fatalf("expected ROUTES web-ing->web with resolved svc UID, got %+v", edges)
+	}
+	if findEdge(edges, "ROUTES", "web-ing", "api") == nil {
+		t.Errorf("expected ROUTES web-ing->api")
+	}
+}
+
+func TestServiceBackendStrategy_HTTPRoute(t *testing.T) {
+	route := obj("gateway.networking.k8s.io/v1", "HTTPRoute", "default", "rt", "rt-uid")
+	_ = unstructured.SetNestedSlice(route.Object, []any{
+		map[string]any{"backendRefs": []any{
+			map[string]any{"name": "web"},                                  // implicit Service
+			map[string]any{"name": "api", "kind": "Service"},               // explicit Service
+			map[string]any{"name": "bucket", "kind": "S3", "group": "aws"}, // non-Service, ignored
+		}},
+	}, "spec", "rules")
+
+	index := NewMapIndex(route)
+	rule := gamerav1alpha1.RelationshipRule{
+		Name: "httproute-routes-service", Type: "ROUTES", Strategy: gamerav1alpha1.ServiceBackendStrategy,
+		From: sel("gateway.networking.k8s.io", "v1", "HTTPRoute"), To: sel("", "v1", "Service"),
+	}
+	edges, err := (serviceBackendStrategy{}).Derive(rule, index)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(edges) != 2 {
+		t.Fatalf("expected 2 Service edges (web, api), got %d: %+v", len(edges), edges)
+	}
+	if findEdge(edges, "ROUTES", "rt", "web") == nil || findEdge(edges, "ROUTES", "rt", "api") == nil {
+		t.Errorf("expected ROUTES rt->web and rt->api, got %+v", edges)
+	}
+	if findEdge(edges, "ROUTES", "rt", "bucket") != nil {
+		t.Errorf("non-Service backendRef should be ignored")
+	}
+}
+
 func TestVolumeMountStrategy_PersistentVolumeClaim(t *testing.T) {
-	pvc := obj("v1", "PersistentVolumeClaim", "default", "data", "pvc-uid")
+	pvc := obj("v1", kindPersistentVolumeClaim, "default", "data", "pvc-uid")
 	pod := obj("v1", "Pod", "default", "web-1", "p1")
 	_ = unstructured.SetNestedSlice(pod.Object, []any{
 		map[string]any{"name": "vol", "persistentVolumeClaim": map[string]any{"claimName": "data"}},
@@ -223,7 +320,7 @@ func TestVolumeMountStrategy_PersistentVolumeClaim(t *testing.T) {
 	index := NewMapIndex(pvc, pod)
 	rule := gamerav1alpha1.RelationshipRule{
 		Name: "pvc-mounts-pod", Type: "MOUNTS", Strategy: gamerav1alpha1.VolumeMountStrategy,
-		From: sel("", "v1", "PersistentVolumeClaim"), To: sel("", "v1", "Pod"),
+		From: sel("", "v1", kindPersistentVolumeClaim), To: sel("", "v1", "Pod"),
 	}
 
 	edges, err := (volumeMountStrategy{}).Derive(rule, index)
@@ -237,7 +334,7 @@ func TestVolumeMountStrategy_PersistentVolumeClaim(t *testing.T) {
 	if e == nil {
 		t.Fatalf("expected MOUNTS data->web-1")
 	}
-	if e.From.Kind != "PersistentVolumeClaim" || e.From.UID != "pvc-uid" {
+	if e.From.Kind != kindPersistentVolumeClaim || e.From.UID != "pvc-uid" {
 		t.Errorf("unexpected from ref: %+v", e.From)
 	}
 }

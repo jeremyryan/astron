@@ -33,6 +33,10 @@ const (
 	kindConfigMap             = "ConfigMap"
 	kindSecret                = "Secret"
 	kindPersistentVolumeClaim = "PersistentVolumeClaim"
+	kindPersistentVolume      = "PersistentVolume"
+	kindIngress               = "Ingress"
+	kindHTTPRoute             = "HTTPRoute"
+	kindService               = "Service"
 )
 
 // ownerReferenceStrategy derives edges from Kubernetes ownerReferences. For
@@ -286,4 +290,155 @@ func containerConfigNames(container map[string]any, wantKind string) []string {
 		}
 	}
 	return names
+}
+
+// claimRefStrategy derives edges between a PersistentVolume and the
+// PersistentVolumeClaim it is bound to. The binding is discovered from the
+// PersistentVolume's spec.claimRef (a namespaced reference to the PVC). The edge
+// is oriented according to the rule's From/To kinds, so a projection can model
+// either PV -> PVC or PVC -> PV.
+type claimRefStrategy struct{}
+
+func (claimRefStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
+	pvs := index.ByKind(schema.GroupVersionKind{Version: "v1", Kind: kindPersistentVolume})
+	fromIsPV := rule.From.Kind == kindPersistentVolume
+
+	var edges []graph.Relationship
+	for _, pv := range pvs {
+		ns, _, _ := unstructured.NestedString(pv.Object, "spec", "claimRef", "namespace")
+		name, _, _ := unstructured.NestedString(pv.Object, "spec", "claimRef", "name")
+		if name == "" {
+			continue
+		}
+
+		pvcRef := graph.Ref{APIVersion: "v1", Kind: kindPersistentVolumeClaim, Namespace: ns, Name: name}
+		if pvc, ok := index.Lookup("v1", kindPersistentVolumeClaim, ns, name); ok {
+			pvcRef = refOf(pvc)
+		}
+		pvRef := refOf(pv)
+
+		from, to := pvRef, pvcRef
+		if !fromIsPV {
+			from, to = pvcRef, pvRef
+		}
+		edges = append(edges, graph.Relationship{Type: rule.Type, From: from, To: to})
+	}
+	return edges, nil
+}
+
+// serviceBackendStrategy derives edges from a traffic-routing resource
+// (rule.From: Ingress or HTTPRoute) to the Services (rule.To) it forwards
+// traffic to. References are read from the routing object's spec and resolved to
+// Services in the same namespace (unless the backendRef names another).
+type serviceBackendStrategy struct{}
+
+func (serviceBackendStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
+	sources := index.ByKind(selectorGVK(rule.From))
+
+	var edges []graph.Relationship
+	for _, src := range sources {
+		seen := map[string]bool{}
+		for _, b := range backendServices(src, rule.From.Kind) {
+			key := b.namespace + "/" + b.name
+			if b.name == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+
+			ref := graph.Ref{APIVersion: "v1", Kind: kindService, Namespace: b.namespace, Name: b.name}
+			if svc, ok := index.Lookup("v1", kindService, b.namespace, b.name); ok {
+				ref = refOf(svc)
+			}
+			edges = append(edges, graph.Relationship{Type: rule.Type, From: refOf(src), To: ref})
+		}
+	}
+	return edges, nil
+}
+
+// serviceBackend is a resolved Service reference (namespace + name).
+type serviceBackend struct {
+	namespace string
+	name      string
+}
+
+// backendServices extracts the Service backends referenced by an Ingress or
+// HTTPRoute object.
+func backendServices(obj *unstructured.Unstructured, kind string) []serviceBackend {
+	switch kind {
+	case kindIngress:
+		return ingressBackendServices(obj)
+	case kindHTTPRoute:
+		return httpRouteBackendServices(obj)
+	default:
+		return nil
+	}
+}
+
+// ingressBackendServices reads spec.defaultBackend and
+// spec.rules[].http.paths[].backend from a networking.k8s.io Ingress.
+func ingressBackendServices(obj *unstructured.Unstructured) []serviceBackend {
+	ns := obj.GetNamespace()
+	var out []serviceBackend
+
+	if n, ok, _ := unstructured.NestedString(obj.Object, "spec", "defaultBackend", "service", "name"); ok && n != "" {
+		out = append(out, serviceBackend{namespace: ns, name: n})
+	}
+
+	rules, _, _ := unstructured.NestedSlice(obj.Object, "spec", "rules")
+	for _, r := range rules {
+		rule, ok := r.(map[string]any)
+		if !ok {
+			continue
+		}
+		paths, _, _ := unstructured.NestedSlice(rule, "http", "paths")
+		for _, p := range paths {
+			path, ok := p.(map[string]any)
+			if !ok {
+				continue
+			}
+			if n, ok, _ := unstructured.NestedString(path, "backend", "service", "name"); ok && n != "" {
+				out = append(out, serviceBackend{namespace: ns, name: n})
+			}
+		}
+	}
+	return out
+}
+
+// httpRouteBackendServices reads spec.rules[].backendRefs[] from a Gateway API
+// HTTPRoute, keeping only Service backends (the default kind).
+func httpRouteBackendServices(obj *unstructured.Unstructured) []serviceBackend {
+	routeNS := obj.GetNamespace()
+	var out []serviceBackend
+
+	rules, _, _ := unstructured.NestedSlice(obj.Object, "spec", "rules")
+	for _, r := range rules {
+		rule, ok := r.(map[string]any)
+		if !ok {
+			continue
+		}
+		refs, _, _ := unstructured.NestedSlice(rule, "backendRefs")
+		for _, br := range refs {
+			ref, ok := br.(map[string]any)
+			if !ok {
+				continue
+			}
+			// backendRef kind defaults to Service; group defaults to core ("").
+			if k, ok, _ := unstructured.NestedString(ref, "kind"); ok && k != "" && k != kindService {
+				continue
+			}
+			if g, ok, _ := unstructured.NestedString(ref, "group"); ok && g != "" {
+				continue
+			}
+			name, _, _ := unstructured.NestedString(ref, "name")
+			if name == "" {
+				continue
+			}
+			ns := routeNS
+			if n, ok, _ := unstructured.NestedString(ref, "namespace"); ok && n != "" {
+				ns = n
+			}
+			out = append(out, serviceBackend{namespace: ns, name: name})
+		}
+	}
+	return out
 }
