@@ -17,6 +17,11 @@ limitations under the License.
 package relationship
 
 import (
+	"encoding/json"
+	"maps"
+	"sort"
+	"strconv"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -26,6 +31,32 @@ import (
 	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
 	"github.com/project-gamera/gamera/internal/graph"
 )
+
+// jsonString marshals a value to a compact JSON string, returning "" on error.
+// Used to store map-shaped relationship data (e.g. a selector) as an edge
+// property, since graph stores only accept primitive/array property values.
+func jsonString(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// sortedUniqueStrings returns the distinct non-empty values of in, sorted.
+func sortedUniqueStrings(in []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range in {
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
+}
 
 // kindConfigMap, kindSecret and kindPersistentVolumeClaim are the resource kinds
 // understood by the volume-mount strategy.
@@ -86,7 +117,7 @@ func (labelSelectorStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index 
 	targets := index.ByKind(selectorGVK(rule.To))
 
 	for _, source := range sources {
-		selector, ok, err := extractSelector(source)
+		selector, raw, ok, err := extractSelector(source)
 		if err != nil {
 			return nil, err
 		}
@@ -95,15 +126,23 @@ func (labelSelectorStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index 
 			// every pod in the namespace).
 			continue
 		}
+		// The selector that forms the relationship is recorded on each edge. The
+		// raw .spec.selector is stored as JSON (e.g. {"app":"web"} for a Service,
+		// or {"matchLabels":{...}} for a workload), plus its canonical string form.
+		props := map[string]any{"selector": selector.String()}
+		if js := jsonString(raw); js != "" {
+			props["selectorLabels"] = js
+		}
 		for _, target := range targets {
 			if target.GetNamespace() != source.GetNamespace() {
 				continue
 			}
 			if selector.Matches(labels.Set(target.GetLabels())) {
 				edges = append(edges, graph.Relationship{
-					Type: rule.Type,
-					From: refOf(source),
-					To:   refOf(target),
+					Type:       rule.Type,
+					From:       refOf(source),
+					To:         refOf(target),
+					Properties: cloneProps(props),
 				})
 			}
 		}
@@ -111,20 +150,32 @@ func (labelSelectorStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index 
 	return edges, nil
 }
 
+// cloneProps returns a shallow copy of a property map so each edge owns its own
+// map (the graph store may mutate per-edge property maps).
+func cloneProps(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in))
+	maps.Copy(out, in)
+	return out
+}
+
 // extractSelector reads .spec.selector from an object and converts it to a
-// labels.Selector. It returns ok=false when no selector is present.
-func extractSelector(obj *unstructured.Unstructured) (labels.Selector, bool, error) {
+// labels.Selector. It also returns the raw selector map so callers can record
+// the selecting data on the edge. It returns ok=false when no selector is
+// present.
+func extractSelector(obj *unstructured.Unstructured) (labels.Selector, map[string]any, bool, error) {
 	raw, found, err := unstructured.NestedMap(obj.Object, "spec", "selector")
 	if err != nil || !found || len(raw) == 0 {
-		return nil, false, err
+		return nil, nil, false, err
 	}
 
 	// Workload-style: spec.selector is a metav1.LabelSelector.
 	if _, hasMatchLabels := raw["matchLabels"]; hasMatchLabels {
-		return labelSelectorFromMap(raw)
+		sel, ok, err := labelSelectorFromMap(raw)
+		return sel, raw, ok, err
 	}
 	if _, hasMatchExpr := raw["matchExpressions"]; hasMatchExpr {
-		return labelSelectorFromMap(raw)
+		sel, ok, err := labelSelectorFromMap(raw)
+		return sel, raw, ok, err
 	}
 
 	// Service-style: spec.selector is a plain map[string]string.
@@ -134,7 +185,7 @@ func extractSelector(obj *unstructured.Unstructured) (labels.Selector, bool, err
 			set[k] = s
 		}
 	}
-	return set.AsSelector(), len(set) > 0, nil
+	return set.AsSelector(), raw, len(set) > 0, nil
 }
 
 func labelSelectorFromMap(raw map[string]any) (labels.Selector, bool, error) {
@@ -155,38 +206,52 @@ func labelSelectorFromMap(raw map[string]any) (labels.Selector, bool, error) {
 type volumeMountStrategy struct{}
 
 func (volumeMountStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
-	var edges []graph.Relationship
 	pods := index.ByKind(selectorGVK(rule.To))
+	edges := make([]graph.Relationship, 0, len(pods))
 	// rule.From.Kind is "ConfigMap", "Secret" or "PersistentVolumeClaim".
 	wantKind := rule.From.Kind
 
 	for _, pod := range pods {
-		seen := map[string]bool{}
-		for _, name := range referencedConfigNames(pod, wantKind) {
-			if seen[name] {
-				continue
+		// Group references by source name, collecting the mechanisms ("via") each
+		// name is referenced through so a single edge records all of them.
+		via := map[string][]string{}
+		var order []string
+		for _, r := range referencedConfigRefs(pod, wantKind) {
+			if _, seen := via[r.name]; !seen {
+				order = append(order, r.name)
 			}
-			seen[name] = true
+			via[r.name] = append(via[r.name], r.via)
+		}
 
+		for _, name := range order {
 			ref := graph.Ref{APIVersion: "v1", Kind: wantKind, Namespace: pod.GetNamespace(), Name: name}
 			// Enrich with the real UID when the source object is in the index.
 			if src, ok := index.Lookup("v1", wantKind, pod.GetNamespace(), name); ok {
 				ref = refOf(src)
 			}
 			edges = append(edges, graph.Relationship{
-				Type: rule.Type,
-				From: ref,
-				To:   refOf(pod),
+				Type:       rule.Type,
+				From:       ref,
+				To:         refOf(pod),
+				Properties: map[string]any{"via": sortedUniqueStrings(via[name])},
 			})
 		}
 	}
 	return edges, nil
 }
 
-// referencedConfigNames returns the names of ConfigMaps, Secrets or
-// PersistentVolumeClaims referenced by a pod spec, depending on wantKind.
-func referencedConfigNames(pod *unstructured.Unstructured, wantKind string) []string {
-	var names []string
+// configRef is a single reference from a pod to a ConfigMap/Secret/PVC, together
+// with the mechanism ("via") it is referenced through.
+type configRef struct {
+	name string
+	via  string
+}
+
+// referencedConfigRefs returns the ConfigMaps, Secrets or PersistentVolumeClaims
+// referenced by a pod spec (depending on wantKind), each tagged with how it is
+// referenced: "volume", "projected", "envFrom" or "env".
+func referencedConfigRefs(pod *unstructured.Unstructured, wantKind string) []configRef {
+	var refs []configRef
 
 	volumes, _, _ := unstructured.NestedSlice(pod.Object, "spec", "volumes")
 	for _, v := range volumes {
@@ -197,18 +262,21 @@ func referencedConfigNames(pod *unstructured.Unstructured, wantKind string) []st
 		switch wantKind {
 		case kindConfigMap:
 			if n, ok, _ := unstructured.NestedString(vol, "configMap", "name"); ok && n != "" {
-				names = append(names, n)
+				refs = append(refs, configRef{n, "volume"})
 			}
-			// projected volumes
-			names = append(names, projectedNames(vol, "configMap")...)
+			for _, n := range projectedNames(vol, "configMap") {
+				refs = append(refs, configRef{n, "projected"})
+			}
 		case kindSecret:
 			if n, ok, _ := unstructured.NestedString(vol, "secret", "secretName"); ok && n != "" {
-				names = append(names, n)
+				refs = append(refs, configRef{n, "volume"})
 			}
-			names = append(names, projectedNames(vol, "secret")...)
+			for _, n := range projectedNames(vol, "secret") {
+				refs = append(refs, configRef{n, "projected"})
+			}
 		case kindPersistentVolumeClaim:
 			if n, ok, _ := unstructured.NestedString(vol, "persistentVolumeClaim", "claimName"); ok && n != "" {
-				names = append(names, n)
+				refs = append(refs, configRef{n, "volume"})
 			}
 		}
 	}
@@ -216,7 +284,7 @@ func referencedConfigNames(pod *unstructured.Unstructured, wantKind string) []st
 	// PVCs are only referenced via pod volumes, not container env, so skip the
 	// container scan for that kind.
 	if wantKind == kindPersistentVolumeClaim {
-		return names
+		return refs
 	}
 
 	for _, path := range [][]string{{"spec", "containers"}, {"spec", "initContainers"}, {"spec", "ephemeralContainers"}} {
@@ -226,10 +294,10 @@ func referencedConfigNames(pod *unstructured.Unstructured, wantKind string) []st
 			if !ok {
 				continue
 			}
-			names = append(names, containerConfigNames(container, wantKind)...)
+			refs = append(refs, containerConfigRefs(container, wantKind)...)
 		}
 	}
-	return names
+	return refs
 }
 
 // projectedNames extracts names from a projected volume's sources.
@@ -248,9 +316,10 @@ func projectedNames(vol map[string]any, sourceKey string) []string {
 	return names
 }
 
-// containerConfigNames extracts config references from a single container.
-func containerConfigNames(container map[string]any, wantKind string) []string {
-	var names []string
+// containerConfigRefs extracts config references from a single container,
+// tagged with the mechanism ("envFrom" or "env").
+func containerConfigRefs(container map[string]any, wantKind string) []configRef {
+	var refs []configRef
 
 	// envFrom[].configMapRef / .secretRef
 	envFrom, _, _ := unstructured.NestedSlice(container, "envFrom")
@@ -262,11 +331,11 @@ func containerConfigNames(container map[string]any, wantKind string) []string {
 		switch wantKind {
 		case kindConfigMap:
 			if n, ok, _ := unstructured.NestedString(ef, "configMapRef", "name"); ok && n != "" {
-				names = append(names, n)
+				refs = append(refs, configRef{n, "envFrom"})
 			}
 		case kindSecret:
 			if n, ok, _ := unstructured.NestedString(ef, "secretRef", "name"); ok && n != "" {
-				names = append(names, n)
+				refs = append(refs, configRef{n, "envFrom"})
 			}
 		}
 	}
@@ -281,15 +350,15 @@ func containerConfigNames(container map[string]any, wantKind string) []string {
 		switch wantKind {
 		case kindConfigMap:
 			if n, ok, _ := unstructured.NestedString(ev, "valueFrom", "configMapKeyRef", "name"); ok && n != "" {
-				names = append(names, n)
+				refs = append(refs, configRef{n, "env"})
 			}
 		case kindSecret:
 			if n, ok, _ := unstructured.NestedString(ev, "valueFrom", "secretKeyRef", "name"); ok && n != "" {
-				names = append(names, n)
+				refs = append(refs, configRef{n, "env"})
 			}
 		}
 	}
-	return names
+	return refs
 }
 
 // claimRefStrategy derives edges between a PersistentVolume and the
@@ -334,31 +403,66 @@ type serviceBackendStrategy struct{}
 
 func (serviceBackendStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
 	sources := index.ByKind(selectorGVK(rule.From))
-
-	var edges []graph.Relationship
+	edges := make([]graph.Relationship, 0, len(sources))
 	for _, src := range sources {
-		seen := map[string]bool{}
+		// Aggregate all backends targeting the same Service into a single edge,
+		// recording the routing data (hosts/paths/ports) that forms it.
+		aggs := map[string]*backendAgg{}
+		var order []string
 		for _, b := range backendServices(src, rule.From.Kind) {
-			key := b.namespace + "/" + b.name
-			if b.name == "" || seen[key] {
+			if b.name == "" {
 				continue
 			}
-			seen[key] = true
-
-			ref := graph.Ref{APIVersion: "v1", Kind: kindService, Namespace: b.namespace, Name: b.name}
-			if svc, ok := index.Lookup("v1", kindService, b.namespace, b.name); ok {
-				ref = refOf(svc)
+			key := b.namespace + "/" + b.name
+			a := aggs[key]
+			if a == nil {
+				ref := graph.Ref{APIVersion: "v1", Kind: kindService, Namespace: b.namespace, Name: b.name}
+				if svc, ok := index.Lookup("v1", kindService, b.namespace, b.name); ok {
+					ref = refOf(svc)
+				}
+				a = &backendAgg{ref: ref}
+				aggs[key] = a
+				order = append(order, key)
 			}
-			edges = append(edges, graph.Relationship{Type: rule.Type, From: refOf(src), To: ref})
+			a.hosts = append(a.hosts, b.host)
+			a.paths = append(a.paths, b.path)
+			a.ports = append(a.ports, b.port)
+		}
+
+		for _, key := range order {
+			a := aggs[key]
+			props := map[string]any{}
+			if hosts := sortedUniqueStrings(a.hosts); len(hosts) > 0 {
+				props["hosts"] = hosts
+			}
+			if paths := sortedUniqueStrings(a.paths); len(paths) > 0 {
+				props["paths"] = paths
+			}
+			if ports := sortedUniqueStrings(a.ports); len(ports) > 0 {
+				props["ports"] = ports
+			}
+			edges = append(edges, graph.Relationship{Type: rule.Type, From: refOf(src), To: a.ref, Properties: props})
 		}
 	}
 	return edges, nil
 }
 
-// serviceBackend is a resolved Service reference (namespace + name).
+// backendAgg accumulates the routing data for all backends pointing at one
+// Service from a single routing object.
+type backendAgg struct {
+	ref          graph.Ref
+	hosts, paths []string
+	ports        []string
+}
+
+// serviceBackend is a resolved Service reference plus the routing data that
+// targets it (host/path/port; host and path are empty for HTTPRoute backends).
 type serviceBackend struct {
 	namespace string
 	name      string
+	host      string
+	path      string
+	port      string
 }
 
 // backendServices extracts the Service backends referenced by an Ingress or
@@ -380,8 +484,10 @@ func ingressBackendServices(obj *unstructured.Unstructured) []serviceBackend {
 	ns := obj.GetNamespace()
 	var out []serviceBackend
 
-	if n, ok, _ := unstructured.NestedString(obj.Object, "spec", "defaultBackend", "service", "name"); ok && n != "" {
-		out = append(out, serviceBackend{namespace: ns, name: n})
+	if svc, ok, _ := unstructured.NestedMap(obj.Object, "spec", "defaultBackend", "service"); ok {
+		if n, _, _ := unstructured.NestedString(svc, "name"); n != "" {
+			out = append(out, serviceBackend{namespace: ns, name: n, port: servicePortString(svc)})
+		}
 	}
 
 	rules, _, _ := unstructured.NestedSlice(obj.Object, "spec", "rules")
@@ -390,18 +496,49 @@ func ingressBackendServices(obj *unstructured.Unstructured) []serviceBackend {
 		if !ok {
 			continue
 		}
+		host, _, _ := unstructured.NestedString(rule, "host")
 		paths, _, _ := unstructured.NestedSlice(rule, "http", "paths")
 		for _, p := range paths {
 			path, ok := p.(map[string]any)
 			if !ok {
 				continue
 			}
-			if n, ok, _ := unstructured.NestedString(path, "backend", "service", "name"); ok && n != "" {
-				out = append(out, serviceBackend{namespace: ns, name: n})
+			svc, ok, _ := unstructured.NestedMap(path, "backend", "service")
+			if !ok {
+				continue
 			}
+			n, _, _ := unstructured.NestedString(svc, "name")
+			if n == "" {
+				continue
+			}
+			httpPath, _, _ := unstructured.NestedString(path, "path")
+			out = append(out, serviceBackend{
+				namespace: ns, name: n, host: host, path: httpPath, port: servicePortString(svc),
+			})
 		}
 	}
 	return out
+}
+
+// servicePortString renders an Ingress backend service port (a name or a
+// number) as a string, or "" when absent.
+func servicePortString(svc map[string]any) string {
+	if name, _, _ := unstructured.NestedString(svc, "port", "name"); name != "" {
+		return name
+	}
+	return numberString(svc, "port", "number")
+}
+
+// numberString reads a numeric field (stored as int64 or float64 in
+// unstructured data) and renders it as a string, or "" when absent/zero.
+func numberString(m map[string]any, fields ...string) string {
+	if i, ok, _ := unstructured.NestedInt64(m, fields...); ok && i != 0 {
+		return strconv.FormatInt(i, 10)
+	}
+	if f, ok, _ := unstructured.NestedFloat64(m, fields...); ok && f != 0 {
+		return strconv.FormatInt(int64(f), 10)
+	}
+	return ""
 }
 
 // httpRouteBackendServices reads spec.rules[].backendRefs[] from a Gateway API
@@ -437,7 +574,7 @@ func httpRouteBackendServices(obj *unstructured.Unstructured) []serviceBackend {
 			if n, ok, _ := unstructured.NestedString(ref, "namespace"); ok && n != "" {
 				ns = n
 			}
-			out = append(out, serviceBackend{namespace: ns, name: name})
+			out = append(out, serviceBackend{namespace: ns, name: name, port: numberString(ref, "port")})
 		}
 	}
 	return out

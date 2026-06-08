@@ -17,6 +17,7 @@ limitations under the License.
 package relationship
 
 import (
+	"reflect"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -123,8 +124,16 @@ func TestLabelSelectorStrategy_ServiceStyle(t *testing.T) {
 	if len(edges) != 1 {
 		t.Fatalf("expected 1 edge, got %d: %+v", len(edges), edges)
 	}
-	if e := findEdge(edges, "SELECTS", "web", "web-1"); e == nil {
-		t.Errorf("expected SELECTS web->web-1, got %+v", edges)
+	e := findEdge(edges, "SELECTS", "web", "web-1")
+	if e == nil {
+		t.Fatalf("expected SELECTS web->web-1, got %+v", edges)
+	}
+	// The SELECTS edge records the selector that forms the relationship.
+	if e.Properties["selector"] != "app=web" {
+		t.Errorf("expected selector 'app=web', got %v", e.Properties["selector"])
+	}
+	if e.Properties["selectorLabels"] != `{"app":"web"}` {
+		t.Errorf("expected selectorLabels JSON, got %v", e.Properties["selectorLabels"])
 	}
 }
 
@@ -206,8 +215,16 @@ func TestVolumeMountStrategy_ConfigMap(t *testing.T) {
 	if mounted.From.UID != "cm-uid" {
 		t.Errorf("expected indexed configmap UID to be resolved, got %q", mounted.From.UID)
 	}
-	if findEdge(edges, "MOUNTS", "env-config", "web-1") == nil {
-		t.Errorf("expected MOUNTS env-config->web-1")
+	// app-config is referenced through a volume; the edge records the mechanism.
+	if got := mounted.Properties["via"]; !reflect.DeepEqual(got, []string{"volume"}) {
+		t.Errorf("expected via [volume] for app-config, got %v", got)
+	}
+	envEdge := findEdge(edges, "MOUNTS", "env-config", "web-1")
+	if envEdge == nil {
+		t.Fatalf("expected MOUNTS env-config->web-1")
+	}
+	if got := envEdge.Properties["via"]; !reflect.DeepEqual(got, []string{"envFrom"}) {
+		t.Errorf("expected via [envFrom] for env-config, got %v", got)
 	}
 }
 
@@ -250,9 +267,13 @@ func TestServiceBackendStrategy_Ingress(t *testing.T) {
 	ing := obj("networking.k8s.io/v1", "Ingress", "default", "web-ing", "ing-uid")
 	_ = unstructured.SetNestedField(ing.Object, "web", "spec", "defaultBackend", "service", "name")
 	_ = unstructured.SetNestedSlice(ing.Object, []any{
-		map[string]any{"http": map[string]any{"paths": []any{
-			map[string]any{"backend": map[string]any{"service": map[string]any{"name": "web"}}},
-			map[string]any{"backend": map[string]any{"service": map[string]any{"name": "api"}}},
+		map[string]any{"host": "example.com", "http": map[string]any{"paths": []any{
+			map[string]any{"path": "/", "backend": map[string]any{"service": map[string]any{
+				"name": "web", "port": map[string]any{"number": int64(80)},
+			}}},
+			map[string]any{"path": "/api", "backend": map[string]any{"service": map[string]any{
+				"name": "api", "port": map[string]any{"name": "http"},
+			}}},
 		}}},
 	}, "spec", "rules")
 
@@ -273,8 +294,22 @@ func TestServiceBackendStrategy_Ingress(t *testing.T) {
 	if web == nil || web.To.UID != "svc-uid" {
 		t.Fatalf("expected ROUTES web-ing->web with resolved svc UID, got %+v", edges)
 	}
-	if findEdge(edges, "ROUTES", "web-ing", "api") == nil {
-		t.Errorf("expected ROUTES web-ing->api")
+	// The web edge aggregates the default backend and the "/" path backend.
+	if got := web.Properties["hosts"]; !reflect.DeepEqual(got, []string{"example.com"}) {
+		t.Errorf("expected hosts [example.com], got %v", got)
+	}
+	if got := web.Properties["paths"]; !reflect.DeepEqual(got, []string{"/"}) {
+		t.Errorf("expected paths [/], got %v", got)
+	}
+	if got := web.Properties["ports"]; !reflect.DeepEqual(got, []string{"80"}) {
+		t.Errorf("expected ports [80], got %v", got)
+	}
+	api := findEdge(edges, "ROUTES", "web-ing", "api")
+	if api == nil {
+		t.Fatalf("expected ROUTES web-ing->api")
+	}
+	if got := api.Properties["ports"]; !reflect.DeepEqual(got, []string{"http"}) {
+		t.Errorf("expected api ports [http], got %v", got)
 	}
 }
 
@@ -282,7 +317,7 @@ func TestServiceBackendStrategy_HTTPRoute(t *testing.T) {
 	route := obj("gateway.networking.k8s.io/v1", "HTTPRoute", "default", "rt", "rt-uid")
 	_ = unstructured.SetNestedSlice(route.Object, []any{
 		map[string]any{"backendRefs": []any{
-			map[string]any{"name": "web"},                                  // implicit Service
+			map[string]any{"name": "web", "port": int64(8080)},             // implicit Service
 			map[string]any{"name": "api", "kind": "Service"},               // explicit Service
 			map[string]any{"name": "bucket", "kind": "S3", "group": "aws"}, // non-Service, ignored
 		}},
@@ -300,8 +335,14 @@ func TestServiceBackendStrategy_HTTPRoute(t *testing.T) {
 	if len(edges) != 2 {
 		t.Fatalf("expected 2 Service edges (web, api), got %d: %+v", len(edges), edges)
 	}
-	if findEdge(edges, "ROUTES", "rt", "web") == nil || findEdge(edges, "ROUTES", "rt", "api") == nil {
+	webEdge := findEdge(edges, "ROUTES", "rt", "web")
+	if webEdge == nil || findEdge(edges, "ROUTES", "rt", "api") == nil {
 		t.Errorf("expected ROUTES rt->web and rt->api, got %+v", edges)
+	}
+	if webEdge != nil {
+		if got := webEdge.Properties["ports"]; !reflect.DeepEqual(got, []string{"8080"}) {
+			t.Errorf("expected web ports [8080], got %v", got)
+		}
 	}
 	if findEdge(edges, "ROUTES", "rt", "bucket") != nil {
 		t.Errorf("non-Service backendRef should be ignored")
