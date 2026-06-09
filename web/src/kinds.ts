@@ -42,6 +42,22 @@ export function colorForKind(kind: string): string {
   return KIND_COLORS[kind] ?? "#7f8c8d";
 }
 
+// A distinct color per relationship (edge) type, used to color the arrows so
+// the kind of relationship is visible at a glance. Unknown types fall back to a
+// neutral grey.
+export const RELATIONSHIP_COLORS: Record<string, string> = {
+  OWNS: "#5b8def", // ownership (controller -> managed)
+  SELECTS: "#e67e22", // Service / workload label selection
+  MOUNTS: "#9b59b6", // ConfigMap / Secret / PVC consumed by a Pod
+  BINDS: "#1abc9c", // PersistentVolume <-> PersistentVolumeClaim
+  ROUTES: "#f1c40f", // Ingress / HTTPRoute -> Service
+  DEFINES: "#e84393", // CRD -> its instances
+};
+
+export function colorForRelationship(type: string): string {
+  return RELATIONSHIP_COLORS[type] ?? "#8a909c";
+}
+
 // Official Kubernetes icon per kind. Unknown kinds have no icon and fall back to
 // the colored glyph.
 export const KIND_ICONS: Record<string, string> = {

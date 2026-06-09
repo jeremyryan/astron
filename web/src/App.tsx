@@ -34,7 +34,7 @@ import {
 import { YamlModal } from "./YamlModal";
 import { SettingsModal } from "./SettingsModal";
 import { useSettings } from "./settings";
-import { iconForKind } from "./kinds";
+import { colorForRelationship, iconForKind } from "./kinds";
 import { IconHierarchy2, IconSettings, IconTopologyStar3 } from "./icons";
 
 function ProjectionList({
@@ -274,6 +274,21 @@ function matchesLabelFilters(
   return mode === "all" ? active.every(test) : active.some(test);
 }
 
+// EdgeLegend is a small floating key mapping relationship types to their edge
+// colors, shown over the graph.
+function EdgeLegend({ types }: { types: string[] }) {
+  return (
+    <div className="edge-legend">
+      {types.map((t) => (
+        <div key={t} className="edge-legend-item">
+          <span className="edge-legend-swatch" style={{ background: colorForRelationship(t) }} />
+          <span>{t}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function GraphPanel({ projection }: { projection: Projection }) {
   const { settings } = useSettings();
   // The currently inspected element (node or edge), or null.
@@ -317,6 +332,13 @@ function GraphPanel({ projection }: { projection: Projection }) {
     );
     return { nodes, edges };
   }, [data, hiddenKinds, hiddenNamespaces, labelFilters, labelMode]);
+
+  // Distinct relationship types currently visible, for the color legend.
+  const edgeTypes = useMemo(() => {
+    const set = new Set<string>();
+    filteredGraph?.edges.forEach((e) => set.add(e.type));
+    return [...set].sort();
+  }, [filteredGraph]);
 
   const toggleKind = (kind: string) =>
     setHiddenKinds((prev) => {
@@ -441,6 +463,7 @@ function GraphPanel({ projection }: { projection: Projection }) {
             groupByNamespace={groupByNamespace}
           />
         )}
+        {edgeTypes.length > 0 && <EdgeLegend types={edgeTypes} />}
       </div>
       <YamlModal node={yamlNode} onClose={() => setYamlNode(null)} />
       <ScrollArea component="aside" className="inspector" type="scroll">

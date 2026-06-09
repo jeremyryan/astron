@@ -5,7 +5,7 @@ import cytoscape, { type Core, type ElementDefinition } from "cytoscape";
 import dagre from "cytoscape-dagre";
 import fcose from "cytoscape-fcose";
 import type { Graph, GraphNode, GraphSelection } from "./api";
-import { colorForKind, iconForKind } from "./kinds";
+import { colorForKind, colorForRelationship, iconForKind } from "./kinds";
 
 cytoscape.use(dagre);
 cytoscape.use(fcose);
@@ -88,7 +88,15 @@ function toElements(graph: Graph, groupByNamespace: boolean): ElementDefinition[
   // Drop edges whose endpoints are not present to avoid render errors.
   for (const e of graph.edges) {
     if (!ids.has(e.source) || !ids.has(e.target)) continue;
-    elements.push({ data: { id: e.id, source: e.source, target: e.target, label: e.type } });
+    elements.push({
+      data: {
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        label: e.type,
+        edgeColor: colorForRelationship(e.type),
+      },
+    });
   }
   return elements;
 }
@@ -174,13 +182,14 @@ export function GraphView({
           selector: "edge",
           style: {
             width: 1.5,
-            "line-color": "#555",
-            "target-arrow-color": "#555",
+            // Color each edge (line, arrow and label) by its relationship type.
+            "line-color": "data(edgeColor)",
+            "target-arrow-color": "data(edgeColor)",
             "target-arrow-shape": "triangle",
             "curve-style": "bezier",
             label: "data(label)",
             "font-size": 7,
-            color: "#888",
+            color: "data(edgeColor)",
             "text-rotation": "autorotate",
           },
         },

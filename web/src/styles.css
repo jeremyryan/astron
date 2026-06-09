@@ -58,6 +58,37 @@ body {
   inset: 0;
 }
 
+/* Floating relationship-type color legend over the graph (bottom-left). */
+.edge-legend {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  background: rgba(35, 39, 47, 0.9);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 11px;
+  color: var(--text);
+  pointer-events: none;
+}
+
+.edge-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.edge-legend-swatch {
+  width: 16px;
+  height: 3px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+
 /* Floating Views toolbar over the top of the graph area. */
 .views-bar {
   position: absolute;
