@@ -36,6 +36,7 @@ import (
 	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
 	"github.com/project-gamera/gamera/internal/graph"
 	"github.com/project-gamera/gamera/internal/projector"
+	"github.com/project-gamera/gamera/internal/rag"
 )
 
 const (
@@ -54,6 +55,11 @@ const (
 
 	conditionAvailable   = "Available"
 	conditionProgressing = "Progressing"
+	conditionRAGReady    = "RAGReady"
+
+	// defaultEmbeddingAPIKeyKey is the Secret data key holding an embedding
+	// provider API key when none is specified.
+	defaultEmbeddingAPIKeyKey = "apiKey"
 )
 
 // GraphProjectionReconciler reconciles a GraphProjection object. It translates
@@ -115,8 +121,15 @@ func (r *GraphProjectionReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return r.fail(ctx, &projection, "CredentialsUnavailable", err)
 	}
 
+	// Resolve the optional GraphRAG embedding configuration.
+	emb, err := r.resolveEmbeddingConfig(ctx, &projection)
+	if err != nil {
+		log.Error(err, "failed to resolve embedding configuration")
+		return r.fail(ctx, &projection, "EmbeddingConfigUnavailable", err)
+	}
+
 	// Ensure a projector is running for this projection with the current config.
-	p, err := r.Projectors.Ensure(ctx, id, projection.Namespace, projection.Spec, cfg)
+	p, err := r.Projectors.Ensure(ctx, id, projection.Namespace, projection.Spec, cfg, emb)
 	if err != nil {
 		log.Error(err, "failed to start projector")
 		return r.fail(ctx, &projection, "ProjectorStartFailed", err)
@@ -158,6 +171,7 @@ func (r *GraphProjectionReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	projection.Status.NodeCount = counts.Nodes
 	projection.Status.RelationshipCount = counts.Relationships
 	projection.Status.LastSyncTime = &now
+	r.applyEmbeddingStatus(&projection, p)
 
 	if err := r.Status().Update(ctx, &projection); err != nil {
 		if apierrors.IsConflict(err) {
@@ -230,6 +244,123 @@ func (r *GraphProjectionReconciler) resolveNeo4jConfig(ctx context.Context, proj
 		Password: string(password),
 		Database: projection.Spec.Neo4j.Database,
 	}, nil
+}
+
+// resolveEmbeddingConfig builds the projector embedding configuration from the
+// projection's graphRAG spec, reading the provider API key Secret when present.
+// It returns a disabled config when graphRAG is absent or turned off.
+func (r *GraphProjectionReconciler) resolveEmbeddingConfig(ctx context.Context, projection *gamerav1alpha1.GraphProjection) (projector.EmbeddingConfig, error) {
+	spec := projection.Spec.GraphRAG
+	if spec == nil || !spec.Enabled {
+		return projector.EmbeddingConfig{Enabled: false}, nil
+	}
+
+	apiKey, err := r.resolveEmbeddingAPIKey(ctx, projection.Namespace, spec.Embedding.AuthSecretRef)
+	if err != nil {
+		return projector.EmbeddingConfig{}, err
+	}
+
+	similarity := "cosine"
+	if spec.VectorIndex != nil && spec.VectorIndex.Similarity != "" {
+		similarity = spec.VectorIndex.Similarity
+	}
+
+	// Card options default to labels-in, annotations-out unless overridden.
+	cardOpts := rag.DefaultOptions
+	if inc := spec.Include; inc != nil {
+		if inc.Labels != nil {
+			cardOpts.IncludeLabels = *inc.Labels
+		}
+		cardOpts.IncludeAnnotations = inc.Annotations
+	}
+
+	cfg := projector.EmbeddingConfig{
+		Enabled: true,
+		Embedder: rag.EmbedderConfig{
+			Provider:   rag.Provider(spec.Embedding.Provider),
+			Model:      spec.Embedding.Model,
+			APIKey:     apiKey,
+			BaseURL:    spec.Embedding.BaseURL,
+			Dimensions: spec.Embedding.Dimensions,
+		},
+		CardOptions: cardOpts,
+		Similarity:  similarity,
+	}
+
+	// Resolve the optional chat model (for answering / text-to-Cypher).
+	if chat := spec.Chat; chat != nil && chat.Enabled {
+		chatKey, err := r.resolveEmbeddingAPIKey(ctx, projection.Namespace, chat.AuthSecretRef)
+		if err != nil {
+			return projector.EmbeddingConfig{}, err
+		}
+		cfg.ChatEnabled = true
+		cfg.Chat = rag.ChatConfig{
+			Provider: rag.Provider(chat.Provider),
+			Model:    chat.Model,
+			APIKey:   chatKey,
+			BaseURL:  chat.BaseURL,
+		}
+	}
+
+	return cfg, nil
+}
+
+// resolveEmbeddingAPIKey reads the embedding provider API key from its Secret.
+// A nil reference yields an empty key (valid for the fake/ollama providers).
+func (r *GraphProjectionReconciler) resolveEmbeddingAPIKey(ctx context.Context, projNamespace string, ref *gamerav1alpha1.EmbeddingSecretReference) (string, error) {
+	if ref == nil {
+		return "", nil
+	}
+	namespace := ref.Namespace
+	if namespace == "" {
+		namespace = projNamespace
+	}
+	key := ref.APIKeyKey
+	if key == "" {
+		key = defaultEmbeddingAPIKeyKey
+	}
+
+	var secret corev1.Secret
+	if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, &secret); err != nil {
+		return "", fmt.Errorf("reading embedding secret %s/%s: %w", namespace, ref.Name, err)
+	}
+	val, ok := secret.Data[key]
+	if !ok {
+		return "", fmt.Errorf("embedding secret %s/%s missing key %q", namespace, ref.Name, key)
+	}
+	return string(val), nil
+}
+
+// applyEmbeddingStatus records GraphRAG embedding state on the projection's
+// status, including the RAGReady condition.
+func (r *GraphProjectionReconciler) applyEmbeddingStatus(projection *gamerav1alpha1.GraphProjection, p *projector.Projector) {
+	enabled, indexReady, count, last := p.EmbeddingStatus()
+	if !enabled {
+		projection.Status.EmbeddedNodeCount = 0
+		projection.Status.LastEmbeddingTime = nil
+		meta.RemoveStatusCondition(&projection.Status.Conditions, conditionRAGReady)
+		return
+	}
+
+	projection.Status.EmbeddedNodeCount = int64(count)
+	if !last.IsZero() {
+		t := metav1.NewTime(last)
+		projection.Status.LastEmbeddingTime = &t
+	}
+
+	cond := metav1.Condition{
+		Type:               conditionRAGReady,
+		Status:             metav1.ConditionTrue,
+		ObservedGeneration: projection.Generation,
+		Reason:             "EmbeddingsReady",
+		Message:            fmt.Sprintf("%d nodes embedded", count),
+	}
+	if !indexReady {
+		cond.Status = metav1.ConditionFalse
+		cond.Reason = "AwaitingEmbeddings"
+		cond.Message = "Vector index not yet created"
+	}
+	meta.SetStatusCondition(&projection.Status.Conditions, cond)
 }
 
 // fail records an error condition and phase on the projection and returns a

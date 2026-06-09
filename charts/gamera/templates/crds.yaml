@@ -54,6 +54,151 @@ spec:
           spec:
             description: spec defines the desired state of GraphProjection
             properties:
+              graphRAG:
+                description: |-
+                  graphRAG optionally enables GraphRAG retrieval over this projection: each
+                  resource node is rendered into a natural-language "card", embedded into a
+                  vector, and stored on the node so the read API can serve semantic
+                  (vector + graph) retrieval. When omitted or disabled, no embeddings are
+                  produced and the projection behaves as a plain graph projection.
+                properties:
+                  chat:
+                    description: |-
+                      chat optionally configures a chat model used for natural-language question
+                      answering (the /rag/answer endpoint) and text-to-Cypher (the /rag/query
+                      endpoint and query_cluster MCP tool). When omitted, those features are
+                      disabled while semantic search remains available.
+                    properties:
+                      authSecretRef:
+                        description: |-
+                          authSecretRef references a Secret containing the provider API key (key
+                          defaults to "apiKey"). Not required for the fake and (typically) ollama
+                          providers.
+                        properties:
+                          apiKeyKey:
+                            default: apiKey
+                            description: apiKeyKey is the Secret data key holding
+                              the API key.
+                            type: string
+                          name:
+                            description: name is the name of the Secret.
+                            minLength: 1
+                            type: string
+                          namespace:
+                            description: |-
+                              namespace is the namespace of the Secret. When omitted, the namespace of
+                              the GraphProjection resource is used.
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      baseURL:
+                        description: baseURL overrides the provider API base, required
+                          for azure and ollama.
+                        type: string
+                      enabled:
+                        description: enabled turns on natural-language answering and
+                          text-to-Cypher.
+                        type: boolean
+                      model:
+                        description: model is the chat model name, e.g. "gpt-4o-mini".
+                        type: string
+                      provider:
+                        default: openai
+                        description: provider is the chat backend to use.
+                        enum:
+                        - fake
+                        - openai
+                        - azure
+                        - ollama
+                        type: string
+                    type: object
+                  embedding:
+                    description: embedding configures the embedding model used to
+                      vectorize resource cards.
+                    properties:
+                      authSecretRef:
+                        description: |-
+                          authSecretRef references a Secret containing the provider API key. The key
+                          defaults to "apiKey" unless overridden by apiKeyKey. Not required for the
+                          fake and (typically) ollama providers.
+                        properties:
+                          apiKeyKey:
+                            default: apiKey
+                            description: apiKeyKey is the Secret data key holding
+                              the API key.
+                            type: string
+                          name:
+                            description: name is the name of the Secret.
+                            minLength: 1
+                            type: string
+                          namespace:
+                            description: |-
+                              namespace is the namespace of the Secret. When omitted, the namespace of
+                              the GraphProjection resource is used.
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      baseURL:
+                        description: |-
+                          baseURL overrides the provider API base, required for azure and ollama and
+                          optional for openai-compatible servers.
+                        type: string
+                      dimensions:
+                        description: |-
+                          dimensions optionally pins the produced vector length for models that
+                          support dimension reduction. When zero, the model default is used.
+                        minimum: 0
+                        type: integer
+                      model:
+                        description: model is the embedding model name, e.g. "text-embedding-3-small".
+                        type: string
+                      provider:
+                        default: openai
+                        description: provider is the embedding backend to use.
+                        enum:
+                        - fake
+                        - openai
+                        - azure
+                        - ollama
+                        type: string
+                    type: object
+                  enabled:
+                    description: |-
+                      enabled turns on embedding generation and semantic retrieval for this
+                      projection.
+                    type: boolean
+                  include:
+                    description: |-
+                      include controls which node properties are folded into the textual card
+                      that is embedded. When omitted, labels are included and annotations are
+                      not.
+                    properties:
+                      annotations:
+                        description: annotations includes resource annotations in
+                          the card.
+                        type: boolean
+                      labels:
+                        default: true
+                        description: labels includes resource labels in the card.
+                        type: boolean
+                    type: object
+                  vectorIndex:
+                    description: vectorIndex tunes the vector index created for similarity
+                      search.
+                    properties:
+                      similarity:
+                        default: cosine
+                        description: similarity is the vector similarity function.
+                        enum:
+                        - cosine
+                        - euclidean
+                        type: string
+                    type: object
+                required:
+                - embedding
+                type: object
               neo4j:
                 description: |-
                   neo4j configures the connection to the target Neo4J database that this
@@ -391,6 +536,19 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              embeddedNodeCount:
+                description: |-
+                  embeddedNodeCount is the number of resource nodes that currently have an
+                  embedding materialized for GraphRAG retrieval. It is zero when GraphRAG is
+                  disabled.
+                format: int64
+                type: integer
+              lastEmbeddingTime:
+                description: |-
+                  lastEmbeddingTime is the timestamp of the last successful embedding
+                  refresh.
+                format: date-time
+                type: string
               lastSyncTime:
                 description: |-
                   lastSyncTime is the timestamp of the last successful full reconciliation
@@ -417,219 +575,6 @@ spec:
                 description: |-
                   relationshipCount is the number of relationships (edges) currently
                   materialized in the graph by this projection.
-                format: int64
-                type: integer
-            type: object
-        required:
-        - spec
-        type: object
-    served: true
-    storage: true
-    subresources:
-      status: {}
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  annotations:
-    controller-gen.kubebuilder.io/version: v0.20.1
-    helm.sh/resource-policy: keep
-  name: graphviews.gamera.gamera.io
-spec:
-  group: gamera.gamera.io
-  names:
-    kind: GraphView
-    listKind: GraphViewList
-    plural: graphviews
-    singular: graphview
-  scope: Namespaced
-  versions:
-  - additionalPrinterColumns:
-    - jsonPath: .spec.projectionRef.name
-      name: Projection
-      type: string
-    - jsonPath: .metadata.creationTimestamp
-      name: Age
-      type: date
-    name: v1alpha1
-    schema:
-      openAPIV3Schema:
-        description: GraphView is the Schema for the graphviews API.
-        properties:
-          apiVersion:
-            description: |-
-              APIVersion defines the versioned schema of this representation of an object.
-              Servers should convert recognized schemas to the latest internal value, and
-              may reject unrecognized values.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
-            type: string
-          kind:
-            description: |-
-              Kind is a string value representing the REST resource this object represents.
-              Servers may infer this from the endpoint the client submits requests to.
-              Cannot be updated.
-              In CamelCase.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
-            type: string
-          metadata:
-            type: object
-          spec:
-            description: spec defines the desired state of GraphView.
-            properties:
-              description:
-                description: description is an optional human-readable description
-                  of the view.
-                type: string
-              displayName:
-                description: |-
-                  displayName is a human-friendly name shown in the UI. When empty, the
-                  resource name is used.
-                type: string
-              filters:
-                description: |-
-                  filters defines the set of filters this view applies to the projected
-                  graph. All fields are optional; an empty filters block shows everything.
-                properties:
-                  groupByNamespace:
-                    description: |-
-                      groupByNamespace groups resources into compound nodes by namespace when
-                      true.
-                    type: boolean
-                  hiddenKinds:
-                    description: hiddenKinds lists resource kinds to hide (e.g. "ConfigMap",
-                      "Secret").
-                    items:
-                      type: string
-                    type: array
-                  hiddenNamespaces:
-                    description: hiddenNamespaces lists namespaces to hide.
-                    items:
-                      type: string
-                    type: array
-                  labelFilters:
-                    description: |-
-                      labelFilters restricts displayed nodes to those matching the given label
-                      key/value pairs, combined according to labelMode.
-                    items:
-                      description: |-
-                        LabelFilter is a single label key/value constraint. An empty value matches any
-                        value for the given key (a presence check).
-                      properties:
-                        key:
-                          description: key is the label key to match.
-                          minLength: 1
-                          type: string
-                        value:
-                          description: value is the label value to match. When empty,
-                            any value matches.
-                          type: string
-                      required:
-                      - key
-                      type: object
-                    type: array
-                  labelMode:
-                    default: any
-                    description: |-
-                      labelMode controls how labelFilters are combined: "any" (OR) or "all"
-                      (AND).
-                    enum:
-                    - any
-                    - all
-                    type: string
-                  maxDistance:
-                    description: |-
-                      maxDistance limits visible nodes to those within this many hops of the
-                      selected node. When omitted, all connections are shown.
-                    format: int32
-                    minimum: 1
-                    type: integer
-                type: object
-              projectionRef:
-                description: projectionRef selects the GraphProjection this view filters.
-                properties:
-                  name:
-                    description: name is the name of the GraphProjection.
-                    minLength: 1
-                    type: string
-                  namespace:
-                    description: |-
-                      namespace is the namespace of the GraphProjection. When omitted, the
-                      namespace of the GraphView resource is used.
-                    type: string
-                required:
-                - name
-                type: object
-            required:
-            - projectionRef
-            type: object
-          status:
-            description: status defines the observed state of GraphView.
-            properties:
-              conditions:
-                description: conditions represent the current state of the GraphView
-                  resource.
-                items:
-                  description: Condition contains details for one aspect of the current
-                    state of this API Resource.
-                  properties:
-                    lastTransitionTime:
-                      description: |-
-                        lastTransitionTime is the last time the condition transitioned from one status to another.
-                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
-                      format: date-time
-                      type: string
-                    message:
-                      description: |-
-                        message is a human readable message indicating details about the transition.
-                        This may be an empty string.
-                      maxLength: 32768
-                      type: string
-                    observedGeneration:
-                      description: |-
-                        observedGeneration represents the .metadata.generation that the condition was set based upon.
-                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
-                        with respect to the current state of the instance.
-                      format: int64
-                      minimum: 0
-                      type: integer
-                    reason:
-                      description: |-
-                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
-                        Producers of specific condition types may define expected values and meanings for this field,
-                        and whether the values are considered a guaranteed API.
-                        The value should be a CamelCase string.
-                        This field may not be empty.
-                      maxLength: 1024
-                      minLength: 1
-                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
-                      type: string
-                    status:
-                      description: status of the condition, one of True, False, Unknown.
-                      enum:
-                      - "True"
-                      - "False"
-                      - Unknown
-                      type: string
-                    type:
-                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
-                      maxLength: 316
-                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
-                      type: string
-                  required:
-                  - lastTransitionTime
-                  - message
-                  - reason
-                  - status
-                  - type
-                  type: object
-                type: array
-                x-kubernetes-list-map-keys:
-                - type
-                x-kubernetes-list-type: map
-              observedGeneration:
-                description: |-
-                  observedGeneration is the most recent generation observed for this view by
-                  the controller, if any.
                 format: int64
                 type: integer
             type: object

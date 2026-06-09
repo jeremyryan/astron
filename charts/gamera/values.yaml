@@ -192,6 +192,49 @@ defaultProjection:
       strategy: ServiceBackend
       from: { group: gateway.networking.k8s.io, version: v1, kind: HTTPRoute }
       to: { version: v1, kind: Service }
+  # -- GraphRAG (semantic retrieval) configuration for the default projection.
+  # When enabled, each resource node is rendered into a natural-language card,
+  # embedded, and stored on the node so the read API can serve vector + graph
+  # retrieval. Requires an embedding provider (and, for openai/azure, an API key
+  # Secret referenced by embedding.authSecretRef).
+  graphRAG:
+    # -- Enable embedding generation and semantic retrieval.
+    enabled: false
+    embedding:
+      # -- Embedding backend: fake | openai | azure | ollama.
+      provider: openai
+      # -- Embedding model name.
+      model: text-embedding-3-small
+      # -- Optional fixed vector length (model-dependent; 0 = model default).
+      dimensions: 1536
+      # -- API base override (required for azure/ollama).
+      baseURL: ""
+      # -- Secret holding the provider API key. Omit for fake/ollama.
+      authSecretRef:
+        name: gamera-embeddings
+        apiKeyKey: apiKey
+    include:
+      # -- Include resource labels in the embedded card.
+      labels: true
+      # -- Include resource annotations in the embedded card.
+      annotations: false
+    vectorIndex:
+      # -- Vector similarity function: cosine | euclidean.
+      similarity: cosine
+    chat:
+      # -- Enable natural-language answering (/rag/answer) and text-to-Cypher
+      # (/rag/query, query_cluster MCP tool). Requires a chat model.
+      enabled: false
+      # -- Chat backend: fake | openai | azure | ollama.
+      provider: openai
+      # -- Chat model name.
+      model: gpt-4o-mini
+      # -- API base override (required for azure/ollama).
+      baseURL: ""
+      # -- Secret holding the chat provider API key. Omit for fake/ollama.
+      authSecretRef:
+        name: gamera-chat
+        apiKeyKey: apiKey
 
 # Default Views (saved filter sets) created on deploy for the default
 # projection. Each view hides the resource kinds not relevant to it (the filter

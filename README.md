@@ -100,6 +100,17 @@ curl http://localhost:8082/api/projections
 curl http://localhost:8082/api/projections/gamera/default/graph
 ```
 
+### GraphRAG (semantic search, Q&A, text-to-Cypher, MCP)
+
+Gamera can expose the projected graph to LLM/agent applications: semantic
+search, graph-neighborhood retrieval, grounded question answering, and guarded
+text-to-Cypher — over HTTP and via the [Model Context Protocol](https://modelcontextprotocol.io/).
+It is opt-in per `GraphProjection`.
+
+- **[GraphRAG User Guide](./docs/graphrag-guide.md)** — enable it, configure a
+  provider, call the API, and wire up the `gamera mcp-server`.
+- **[GraphRAG Design](./docs/graphrag.md)** — architecture and rationale.
+
 ## Getting Started
 
 ### Prerequisites
