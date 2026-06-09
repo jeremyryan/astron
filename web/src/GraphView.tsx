@@ -188,8 +188,17 @@ export function GraphView({
             "target-arrow-shape": "triangle",
             "curve-style": "bezier",
             label: "data(label)",
-            "font-size": 7,
+            "font-size": 8,
             color: "data(edgeColor)",
+            // Sit the label on a dark rounded pill so colored text stays legible
+            // over the similarly-colored edge line/arrow.
+            "text-background-color": "#23272f",
+            "text-background-opacity": 0.9,
+            "text-background-padding": "2px",
+            "text-background-shape": "roundrectangle",
+            "text-border-color": "data(edgeColor)",
+            "text-border-width": 0.5,
+            "text-border-opacity": 0.6,
             "text-rotation": "autorotate",
           },
         },
