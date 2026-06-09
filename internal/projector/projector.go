@@ -35,8 +35,17 @@ import (
 
 	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
 	"github.com/project-gamera/gamera/internal/graph"
+	"github.com/project-gamera/gamera/internal/rag"
 	"github.com/project-gamera/gamera/internal/relationship"
 )
+
+// defaultEmbeddingBatchSize bounds how many cards are sent to the embedding
+// provider in a single request when refreshing embeddings.
+const defaultEmbeddingBatchSize = 64
+
+// defaultVectorSimilarity is the similarity function used for the vector index
+// when none is configured.
+const defaultVectorSimilarity = "cosine"
 
 // debounceWindow is how long the projector waits to coalesce a burst of change
 // events before performing a full re-sync.
@@ -62,6 +71,29 @@ type Options struct {
 	Engine *relationship.Engine
 	// ResyncInterval is the periodic full re-sync interval. Defaults to 5m.
 	ResyncInterval time.Duration
+
+	// Embedder, when set together with VectorStore, enables GraphRAG embedding
+	// refresh after each successful sync. When either is nil, embedding is
+	// disabled and the projector behaves exactly as before.
+	Embedder rag.Embedder
+	// VectorStore receives node embeddings; typically the same backend as Store.
+	VectorStore graph.VectorStore
+	// Chat, when set, enables natural-language question answering and
+	// text-to-Cypher (see Answer and Query). When nil, those features are
+	// disabled.
+	Chat rag.Chat
+	// QueryStore, when set, enables guarded read-only Cypher execution for
+	// text-to-Cypher. Typically the same backend as Store.
+	QueryStore graph.QueryStore
+	// CardOptions controls which node properties are folded into the textual
+	// cards that are embedded. Defaults to rag.DefaultOptions.
+	CardOptions rag.Options
+	// VectorSimilarity is the similarity function for the vector index
+	// ("cosine" or "euclidean"). Defaults to "cosine".
+	VectorSimilarity string
+	// EmbeddingBatchSize bounds how many cards are embedded per provider call.
+	// Defaults to 64; a non-positive value embeds all changed cards in one call.
+	EmbeddingBatchSize int
 }
 
 // Projector watches the resources in a projection's scope and keeps the graph
@@ -89,6 +121,13 @@ type Projector struct {
 	cancel      context.CancelFunc
 	lastCounts  graph.Counts
 	lastSyncErr error
+
+	// embedding state, guarded by embedMu so it never contends with the sync
+	// bookkeeping above.
+	embedMu          sync.Mutex
+	cardHashes       map[string]string // node ID -> hash of the last embedded card
+	vectorIndexReady bool
+	lastEmbedTime    time.Time
 }
 
 // New constructs a Projector from the given options.
@@ -102,6 +141,18 @@ func New(opts Options) *Projector {
 		resync = 5 * time.Minute
 	}
 	opts.ResyncInterval = resync
+
+	if opts.VectorSimilarity == "" {
+		opts.VectorSimilarity = defaultVectorSimilarity
+	}
+	if opts.EmbeddingBatchSize == 0 {
+		opts.EmbeddingBatchSize = defaultEmbeddingBatchSize
+	}
+	// A zero-value CardOptions means "unset"; fall back to the recommended
+	// defaults (labels in, annotations out).
+	if opts.CardOptions == (rag.Options{}) {
+		opts.CardOptions = rag.DefaultOptions
+	}
 
 	nsSet := map[string]bool{}
 	for _, ns := range opts.Spec.Scope.Namespaces {
@@ -135,5 +186,6 @@ func New(opts Options) *Projector {
 		crdNames:         crdNames,
 		trigger:          make(chan struct{}, 1),
 		informers:        map[schema.GroupVersionKind]informers.GenericInformer{},
+		cardHashes:       map[string]string{},
 	}
 }

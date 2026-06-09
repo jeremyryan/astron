@@ -52,6 +52,151 @@ spec:
           spec:
             description: spec defines the desired state of GraphProjection
             properties:
+              graphRAG:
+                description: |-
+                  graphRAG optionally enables GraphRAG retrieval over this projection: each
+                  resource node is rendered into a natural-language "card", embedded into a
+                  vector, and stored on the node so the read API can serve semantic
+                  (vector + graph) retrieval. When omitted or disabled, no embeddings are
+                  produced and the projection behaves as a plain graph projection.
+                properties:
+                  chat:
+                    description: |-
+                      chat optionally configures a chat model used for natural-language question
+                      answering (the /rag/answer endpoint) and text-to-Cypher (the /rag/query
+                      endpoint and query_cluster MCP tool). When omitted, those features are
+                      disabled while semantic search remains available.
+                    properties:
+                      authSecretRef:
+                        description: |-
+                          authSecretRef references a Secret containing the provider API key (key
+                          defaults to "apiKey"). Not required for the fake and (typically) ollama
+                          providers.
+                        properties:
+                          apiKeyKey:
+                            default: apiKey
+                            description: apiKeyKey is the Secret data key holding
+                              the API key.
+                            type: string
+                          name:
+                            description: name is the name of the Secret.
+                            minLength: 1
+                            type: string
+                          namespace:
+                            description: |-
+                              namespace is the namespace of the Secret. When omitted, the namespace of
+                              the GraphProjection resource is used.
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      baseURL:
+                        description: baseURL overrides the provider API base, required
+                          for azure and ollama.
+                        type: string
+                      enabled:
+                        description: enabled turns on natural-language answering and
+                          text-to-Cypher.
+                        type: boolean
+                      model:
+                        description: model is the chat model name, e.g. "gpt-4o-mini".
+                        type: string
+                      provider:
+                        default: openai
+                        description: provider is the chat backend to use.
+                        enum:
+                        - fake
+                        - openai
+                        - azure
+                        - ollama
+                        type: string
+                    type: object
+                  embedding:
+                    description: embedding configures the embedding model used to
+                      vectorize resource cards.
+                    properties:
+                      authSecretRef:
+                        description: |-
+                          authSecretRef references a Secret containing the provider API key. The key
+                          defaults to "apiKey" unless overridden by apiKeyKey. Not required for the
+                          fake and (typically) ollama providers.
+                        properties:
+                          apiKeyKey:
+                            default: apiKey
+                            description: apiKeyKey is the Secret data key holding
+                              the API key.
+                            type: string
+                          name:
+                            description: name is the name of the Secret.
+                            minLength: 1
+                            type: string
+                          namespace:
+                            description: |-
+                              namespace is the namespace of the Secret. When omitted, the namespace of
+                              the GraphProjection resource is used.
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      baseURL:
+                        description: |-
+                          baseURL overrides the provider API base, required for azure and ollama and
+                          optional for openai-compatible servers.
+                        type: string
+                      dimensions:
+                        description: |-
+                          dimensions optionally pins the produced vector length for models that
+                          support dimension reduction. When zero, the model default is used.
+                        minimum: 0
+                        type: integer
+                      model:
+                        description: model is the embedding model name, e.g. "text-embedding-3-small".
+                        type: string
+                      provider:
+                        default: openai
+                        description: provider is the embedding backend to use.
+                        enum:
+                        - fake
+                        - openai
+                        - azure
+                        - ollama
+                        type: string
+                    type: object
+                  enabled:
+                    description: |-
+                      enabled turns on embedding generation and semantic retrieval for this
+                      projection.
+                    type: boolean
+                  include:
+                    description: |-
+                      include controls which node properties are folded into the textual card
+                      that is embedded. When omitted, labels are included and annotations are
+                      not.
+                    properties:
+                      annotations:
+                        description: annotations includes resource annotations in
+                          the card.
+                        type: boolean
+                      labels:
+                        default: true
+                        description: labels includes resource labels in the card.
+                        type: boolean
+                    type: object
+                  vectorIndex:
+                    description: vectorIndex tunes the vector index created for similarity
+                      search.
+                    properties:
+                      similarity:
+                        default: cosine
+                        description: similarity is the vector similarity function.
+                        enum:
+                        - cosine
+                        - euclidean
+                        type: string
+                    type: object
+                required:
+                - embedding
+                type: object
               neo4j:
                 description: |-
                   neo4j configures the connection to the target Neo4J database that this
@@ -387,6 +532,19 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              embeddedNodeCount:
+                description: |-
+                  embeddedNodeCount is the number of resource nodes that currently have an
+                  embedding materialized for GraphRAG retrieval. It is zero when GraphRAG is
+                  disabled.
+                format: int64
+                type: integer
+              lastEmbeddingTime:
+                description: |-
+                  lastEmbeddingTime is the timestamp of the last successful embedding
+                  refresh.
+                format: date-time
+                type: string
               lastSyncTime:
                 description: |-
                   lastSyncTime is the timestamp of the last successful full reconciliation

@@ -55,3 +55,61 @@ type Store interface {
 	// Close releases any resources held by the store (connections, pools).
 	Close(ctx context.Context) error
 }
+
+// NodeEmbedding pairs a node's identity with the embedding vector derived from
+// its textual "resource card", plus the metadata needed to detect staleness.
+type NodeEmbedding struct {
+	// Ref identifies the node the embedding belongs to. It must match a node
+	// already materialized by Sync; the embedding is attached to that node.
+	Ref Ref
+	// Vector is the dense embedding of the node's card.
+	Vector []float32
+	// Card is the natural-language text that was embedded. It is stored on the
+	// node so retrieval can return it without re-rendering.
+	Card string
+	// CardHash is a content hash of Card, used to skip re-embedding unchanged
+	// nodes on subsequent syncs.
+	CardHash string
+	// Model identifies the embedding model, so vectors produced by a different
+	// model can be detected and refreshed.
+	Model string
+}
+
+// VectorFilter optionally narrows a vector search to certain kinds and/or
+// namespaces. Empty fields impose no constraint.
+type VectorFilter struct {
+	// Kinds restricts results to these resource kinds (e.g. "Pod").
+	Kinds []string
+	// Namespaces restricts results to these namespaces.
+	Namespaces []string
+}
+
+// VectorHit is a single node returned by a vector similarity search, with its
+// similarity score.
+type VectorHit struct {
+	// Node is the matched node.
+	Node Node
+	// Score is the similarity score (higher is more similar).
+	Score float64
+}
+
+// VectorStore is an optional capability, implemented by stores that support
+// vector (embedding) storage and similarity search for GraphRAG retrieval. It
+// is kept separate from Store so that GraphRAG remains an additive, optional
+// feature: code can type-assert a Store to VectorStore and degrade gracefully
+// when the backend does not support it.
+type VectorStore interface {
+	// EnsureVectorIndex creates (if absent) the vector index over node
+	// embeddings. dimensions is the embedding length; similarity is the metric,
+	// either "cosine" or "euclidean". It is idempotent.
+	EnsureVectorIndex(ctx context.Context, dimensions int, similarity string) error
+
+	// UpsertEmbeddings attaches the given embeddings to nodes already owned by
+	// the projection, keyed by Ref. Embeddings for refs with no matching node are
+	// ignored. It is incremental: only the supplied nodes are touched.
+	UpsertEmbeddings(ctx context.Context, projection ProjectionID, embeddings []NodeEmbedding) error
+
+	// VectorSearch returns up to topK nodes owned by the projection whose
+	// embeddings are most similar to query, optionally constrained by filter.
+	VectorSearch(ctx context.Context, projection ProjectionID, query []float32, topK int, filter VectorFilter) ([]VectorHit, error)
+}

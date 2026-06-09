@@ -321,7 +321,9 @@ func nodeFromProps(props map[string]any) Node {
 	userProps := map[string]any{}
 	for k, v := range props {
 		switch k {
-		case "apiVersion", "kind", "namespace", "name", "uid", "_key", projectionProperty, syncTokenProperty:
+		case "apiVersion", "kind", "namespace", "name", "uid", "_key", projectionProperty, syncTokenProperty,
+			// Vector/GraphRAG bookkeeping: large or internal, not for graph reads.
+			embeddingProperty, cardProperty, cardHashProperty, embeddingModelProperty:
 			continue
 		default:
 			userProps[k] = v

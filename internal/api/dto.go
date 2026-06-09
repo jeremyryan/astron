@@ -19,6 +19,7 @@ package api
 import (
 	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
 	"github.com/project-gamera/gamera/internal/graph"
+	"github.com/project-gamera/gamera/internal/projector"
 )
 
 // projectionDTO is the API representation of a GraphProjection summary.
@@ -65,6 +66,75 @@ type edgeDTO struct {
 type graphDTO struct {
 	Nodes []nodeDTO `json:"nodes"`
 	Edges []edgeDTO `json:"edges"`
+}
+
+// seedDTO is a retrieval entry point: a node and its selection score.
+type seedDTO struct {
+	ID    string  `json:"id"`
+	Kind  string  `json:"kind"`
+	Name  string  `json:"name"`
+	Score float64 `json:"score"`
+}
+
+// cardDTO is the natural-language description of a node in a retrieval result.
+type cardDTO struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Namespace string `json:"namespace,omitempty"`
+	Name      string `json:"name"`
+	Text      string `json:"text"`
+}
+
+// retrievalDTO is the API representation of an assembled GraphRAG context: the
+// seed nodes, their cards, and the connecting subgraph.
+type retrievalDTO struct {
+	Query    string    `json:"query"`
+	Seeds    []seedDTO `json:"seeds"`
+	Cards    []cardDTO `json:"cards"`
+	Subgraph graphDTO  `json:"subgraph"`
+}
+
+// answerDTO is the API representation of a RAG answer: the generated answer
+// plus the retrieval context that grounded it.
+type answerDTO struct {
+	Question  string       `json:"question"`
+	Answer    string       `json:"answer"`
+	Retrieval retrievalDTO `json:"retrieval"`
+}
+
+func answerToDTO(a projector.AnswerResult) answerDTO {
+	return answerDTO{
+		Question:  a.Question,
+		Answer:    a.Answer,
+		Retrieval: retrievalToDTO(a.Retrieval),
+	}
+}
+
+func retrievalToDTO(r projector.Retrieval) retrievalDTO {
+	out := retrievalDTO{
+		Query:    r.Query,
+		Seeds:    make([]seedDTO, 0, len(r.Seeds)),
+		Cards:    make([]cardDTO, 0, len(r.Cards)),
+		Subgraph: graphToDTO(r.Subgraph),
+	}
+	for _, s := range r.Seeds {
+		out.Seeds = append(out.Seeds, seedDTO{
+			ID:    s.Ref.ID(),
+			Kind:  s.Ref.Kind,
+			Name:  s.Ref.Name,
+			Score: s.Score,
+		})
+	}
+	for _, c := range r.Cards {
+		out.Cards = append(out.Cards, cardDTO{
+			ID:        c.Ref.ID(),
+			Kind:      c.Ref.Kind,
+			Namespace: c.Ref.Namespace,
+			Name:      c.Ref.Name,
+			Text:      c.Text,
+		})
+	}
+	return out
 }
 
 func graphToDTO(data graph.GraphData) graphDTO {

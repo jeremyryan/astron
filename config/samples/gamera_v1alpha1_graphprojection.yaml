@@ -76,3 +76,37 @@ spec:
       to:
         version: v1
         kind: Pod
+  # Optionally enable GraphRAG: render each resource (and its relationships) into
+  # a natural-language card, embed it, and store the vector on the node so the
+  # read API can serve semantic (vector + graph) retrieval.
+  graphRAG:
+    enabled: false
+    embedding:
+      # provider: fake | openai | azure | ollama
+      provider: openai
+      model: text-embedding-3-small
+      # dimensions optionally pins the vector length (model-dependent).
+      dimensions: 1536
+      # baseURL is required for azure/ollama and optional for openai.
+      # baseURL: https://my-resource.openai.azure.com
+      authSecretRef:
+        name: gamera-embeddings
+        # apiKeyKey defaults to "apiKey".
+        # apiKeyKey: apiKey
+    # include controls which node properties feed the embedded card.
+    include:
+      labels: true
+      annotations: false
+    vectorIndex:
+      # similarity: cosine | euclidean
+      similarity: cosine
+    # chat optionally enables natural-language answering (/rag/answer) and
+    # text-to-Cypher (/rag/query, and the query_cluster MCP tool).
+    chat:
+      enabled: false
+      provider: openai
+      model: gpt-4o-mini
+      # baseURL: https://my-resource.openai.azure.com
+      authSecretRef:
+        name: gamera-chat
+        # apiKeyKey: apiKey

@@ -207,6 +207,14 @@ func (p *Projector) Sync(ctx context.Context) (graph.Counts, error) {
 	if err != nil {
 		return graph.Counts{}, err
 	}
+
+	// Refresh GraphRAG embeddings for any changed nodes. This is best-effort: a
+	// failure is logged but does not fail the sync, so the projected graph stays
+	// correct even if embeddings momentarily lag.
+	if err := p.refreshEmbeddings(ctx, nodes, edges); err != nil {
+		logf.FromContext(ctx).Error(err, "refreshing embeddings failed")
+	}
+
 	// Surface a derive error after the (partial) write succeeds, so good edges
 	// are still persisted.
 	return counts, deriveErr

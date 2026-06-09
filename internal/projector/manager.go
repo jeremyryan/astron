@@ -30,8 +30,26 @@ import (
 
 	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
 	"github.com/project-gamera/gamera/internal/graph"
+	"github.com/project-gamera/gamera/internal/rag"
 	"github.com/project-gamera/gamera/internal/relationship"
 )
+
+// EmbeddingConfig is the resolved GraphRAG embedding configuration for a
+// projection (the CRD's graphRAG block with any referenced Secret already
+// read). When Enabled is false it is a no-op and the projector runs without
+// embeddings.
+type EmbeddingConfig struct {
+	Enabled     bool
+	Embedder    rag.EmbedderConfig
+	CardOptions rag.Options
+	Similarity  string
+	BatchSize   int
+
+	// ChatEnabled turns on natural-language answering and text-to-Cypher.
+	ChatEnabled bool
+	// Chat is the resolved chat-model configuration, used when ChatEnabled.
+	Chat rag.ChatConfig
+}
 
 // ErrNotRunning indicates no projector is currently serving a projection.
 var ErrNotRunning = errors.New("no projector running for projection")
@@ -71,8 +89,8 @@ func NewManager(dynamicClient dynamic.Interface, mapper meta.RESTMapper, newStor
 // Ensure makes the running state match the desired projection: it starts a new
 // projector, restarts one whose spec changed, or leaves an unchanged one alone.
 // It returns the projector currently serving the projection.
-func (m *Manager) Ensure(ctx context.Context, id graph.ProjectionID, namespace string, spec gamerav1alpha1.GraphProjectionSpec, cfg graph.Neo4jConfig) (*Projector, error) {
-	hash, err := specHash(spec, cfg)
+func (m *Manager) Ensure(ctx context.Context, id graph.ProjectionID, namespace string, spec gamerav1alpha1.GraphProjectionSpec, cfg graph.Neo4jConfig, emb EmbeddingConfig) (*Projector, error) {
+	hash, err := specHash(spec, cfg, emb)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +120,7 @@ func (m *Manager) Ensure(ctx context.Context, id graph.ProjectionID, namespace s
 		return nil, fmt.Errorf("verifying store: %w", err)
 	}
 
-	p := New(Options{
+	opts := Options{
 		ID:             id,
 		Namespace:      namespace,
 		Spec:           spec,
@@ -111,7 +129,41 @@ func (m *Manager) Ensure(ctx context.Context, id graph.ProjectionID, namespace s
 		Store:          store,
 		Engine:         m.engine,
 		ResyncInterval: resyncInterval(spec),
-	})
+	}
+
+	// Enable GraphRAG embedding when configured and the store supports vectors.
+	if emb.Enabled {
+		vs, ok := store.(graph.VectorStore)
+		if !ok {
+			_ = store.Close(ctx)
+			return nil, fmt.Errorf("graphRAG is enabled but the store does not support vector search")
+		}
+		embedder, err := rag.NewEmbedder(emb.Embedder)
+		if err != nil {
+			_ = store.Close(ctx)
+			return nil, fmt.Errorf("building embedder: %w", err)
+		}
+		opts.Embedder = embedder
+		opts.VectorStore = vs
+		opts.CardOptions = emb.CardOptions
+		opts.VectorSimilarity = emb.Similarity
+		opts.EmbeddingBatchSize = emb.BatchSize
+	}
+
+	// Enable natural-language answering / text-to-Cypher when configured.
+	if emb.ChatEnabled {
+		chat, err := rag.NewChat(emb.Chat)
+		if err != nil {
+			_ = store.Close(ctx)
+			return nil, fmt.Errorf("building chat model: %w", err)
+		}
+		opts.Chat = chat
+		if qs, ok := store.(graph.QueryStore); ok {
+			opts.QueryStore = qs
+		}
+	}
+
+	p := New(opts)
 	if err := p.Start(ctx); err != nil {
 		_ = store.Close(ctx)
 		return nil, fmt.Errorf("starting projector: %w", err)
@@ -158,13 +210,59 @@ func (m *Manager) ReadGraph(ctx context.Context, id graph.ProjectionID) (graph.G
 	return p.ReadGraph(ctx)
 }
 
+// Search runs hybrid (vector + graph) retrieval against a running projection.
+// It returns ErrNotRunning when no projector is serving the projection, or
+// ErrRAGNotEnabled when the projection has no embedding configured.
+func (m *Manager) Search(ctx context.Context, id graph.ProjectionID, query string, opts SearchOptions) (Retrieval, error) {
+	p, ok := m.Get(id)
+	if !ok {
+		return Retrieval{}, ErrNotRunning
+	}
+	return p.Search(ctx, query, opts)
+}
+
+// Neighborhood runs structural retrieval (no embeddings) around a single
+// resource in a running projection. It returns ErrNotRunning when no projector
+// is serving the projection.
+func (m *Manager) Neighborhood(ctx context.Context, id graph.ProjectionID, ref graph.Ref, hops int, edgeTypes []string) (Retrieval, error) {
+	p, ok := m.Get(id)
+	if !ok {
+		return Retrieval{}, ErrNotRunning
+	}
+	return p.Neighborhood(ctx, ref, hops, edgeTypes)
+}
+
+// Query runs guarded text-to-Cypher against a running projection. It returns
+// ErrNotRunning when no projector is serving the projection, or
+// ErrChatNotEnabled when no chat model is configured.
+func (m *Manager) Query(ctx context.Context, id graph.ProjectionID, question string) (QueryResult, error) {
+	p, ok := m.Get(id)
+	if !ok {
+		return QueryResult{}, ErrNotRunning
+	}
+	return p.Query(ctx, question)
+}
+
+// Answer runs retrieval-augmented question answering against a running
+// projection. It returns ErrNotRunning when no projector is serving the
+// projection, ErrChatNotEnabled when no chat model is configured, or
+// ErrRAGNotEnabled when embeddings are not configured.
+func (m *Manager) Answer(ctx context.Context, id graph.ProjectionID, question string, opts SearchOptions) (AnswerResult, error) {
+	p, ok := m.Get(id)
+	if !ok {
+		return AnswerResult{}, ErrNotRunning
+	}
+	return p.Answer(ctx, question, opts)
+}
+
 // specHash produces a stable fingerprint of the inputs that affect a
 // projector's behaviour, so the manager can detect meaningful changes.
-func specHash(spec gamerav1alpha1.GraphProjectionSpec, cfg graph.Neo4jConfig) (string, error) {
+func specHash(spec gamerav1alpha1.GraphProjectionSpec, cfg graph.Neo4jConfig, emb EmbeddingConfig) (string, error) {
 	payload := struct {
 		Spec gamerav1alpha1.GraphProjectionSpec
 		Cfg  graph.Neo4jConfig
-	}{spec, cfg}
+		Emb  EmbeddingConfig
+	}{spec, cfg, emb}
 	b, err := json.Marshal(payload)
 	if err != nil {
 		return "", err

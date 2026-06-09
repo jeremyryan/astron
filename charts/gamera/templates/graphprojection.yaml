@@ -37,4 +37,10 @@ spec:
   relationships:
     {{- toYaml . | nindent 4 }}
   {{- end }}
+  {{- with .Values.defaultProjection.graphRAG }}
+  {{- if .enabled }}
+  graphRAG:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
 {{- end }}

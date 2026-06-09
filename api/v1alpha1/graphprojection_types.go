@@ -53,6 +53,142 @@ type GraphProjectionSpec struct {
 	// as a safety net against missed events and drift.
 	// +optional
 	ResyncInterval *metav1.Duration `json:"resyncInterval,omitempty"`
+
+	// graphRAG optionally enables GraphRAG retrieval over this projection: each
+	// resource node is rendered into a natural-language "card", embedded into a
+	// vector, and stored on the node so the read API can serve semantic
+	// (vector + graph) retrieval. When omitted or disabled, no embeddings are
+	// produced and the projection behaves as a plain graph projection.
+	// +optional
+	GraphRAG *GraphRAGSpec `json:"graphRAG,omitempty"`
+}
+
+// GraphRAGSpec configures GraphRAG (retrieval-augmented generation) support for
+// a projection.
+type GraphRAGSpec struct {
+	// enabled turns on embedding generation and semantic retrieval for this
+	// projection.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// embedding configures the embedding model used to vectorize resource cards.
+	// +required
+	Embedding EmbeddingConfig `json:"embedding"`
+
+	// include controls which node properties are folded into the textual card
+	// that is embedded. When omitted, labels are included and annotations are
+	// not.
+	// +optional
+	Include *CardInclude `json:"include,omitempty"`
+
+	// vectorIndex tunes the vector index created for similarity search.
+	// +optional
+	VectorIndex *VectorIndexConfig `json:"vectorIndex,omitempty"`
+
+	// chat optionally configures a chat model used for natural-language question
+	// answering (the /rag/answer endpoint) and text-to-Cypher (the /rag/query
+	// endpoint and query_cluster MCP tool). When omitted, those features are
+	// disabled while semantic search remains available.
+	// +optional
+	Chat *ChatModelConfig `json:"chat,omitempty"`
+}
+
+// ChatModelConfig selects and configures the chat-completion model used for
+// answering and text-to-Cypher.
+type ChatModelConfig struct {
+	// enabled turns on natural-language answering and text-to-Cypher.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// provider is the chat backend to use.
+	// +optional
+	// +kubebuilder:validation:Enum=fake;openai;azure;ollama
+	// +kubebuilder:default=openai
+	Provider string `json:"provider,omitempty"`
+
+	// model is the chat model name, e.g. "gpt-4o-mini".
+	// +optional
+	Model string `json:"model,omitempty"`
+
+	// baseURL overrides the provider API base, required for azure and ollama.
+	// +optional
+	BaseURL string `json:"baseURL,omitempty"`
+
+	// authSecretRef references a Secret containing the provider API key (key
+	// defaults to "apiKey"). Not required for the fake and (typically) ollama
+	// providers.
+	// +optional
+	AuthSecretRef *EmbeddingSecretReference `json:"authSecretRef,omitempty"`
+}
+
+// EmbeddingConfig selects and configures the embedding provider.
+type EmbeddingConfig struct {
+	// provider is the embedding backend to use.
+	// +optional
+	// +kubebuilder:validation:Enum=fake;openai;azure;ollama
+	// +kubebuilder:default=openai
+	Provider string `json:"provider,omitempty"`
+
+	// model is the embedding model name, e.g. "text-embedding-3-small".
+	// +optional
+	Model string `json:"model,omitempty"`
+
+	// baseURL overrides the provider API base, required for azure and ollama and
+	// optional for openai-compatible servers.
+	// +optional
+	BaseURL string `json:"baseURL,omitempty"`
+
+	// dimensions optionally pins the produced vector length for models that
+	// support dimension reduction. When zero, the model default is used.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Dimensions int `json:"dimensions,omitempty"`
+
+	// authSecretRef references a Secret containing the provider API key. The key
+	// defaults to "apiKey" unless overridden by apiKeyKey. Not required for the
+	// fake and (typically) ollama providers.
+	// +optional
+	AuthSecretRef *EmbeddingSecretReference `json:"authSecretRef,omitempty"`
+}
+
+// EmbeddingSecretReference references the Secret key holding an embedding
+// provider API key.
+type EmbeddingSecretReference struct {
+	// name is the name of the Secret.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+
+	// namespace is the namespace of the Secret. When omitted, the namespace of
+	// the GraphProjection resource is used.
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+
+	// apiKeyKey is the Secret data key holding the API key.
+	// +optional
+	// +kubebuilder:default=apiKey
+	APIKeyKey string `json:"apiKeyKey,omitempty"`
+}
+
+// CardInclude controls which node properties are included in embedded cards.
+type CardInclude struct {
+	// labels includes resource labels in the card.
+	// +optional
+	// +kubebuilder:default=true
+	Labels *bool `json:"labels,omitempty"`
+
+	// annotations includes resource annotations in the card.
+	// +optional
+	Annotations bool `json:"annotations,omitempty"`
+}
+
+// VectorIndexConfig tunes the vector similarity index.
+type VectorIndexConfig struct {
+	// similarity is the vector similarity function.
+	// +optional
+	// +kubebuilder:validation:Enum=cosine;euclidean
+	// +kubebuilder:default=cosine
+	Similarity string `json:"similarity,omitempty"`
 }
 
 // Neo4jConnection describes how to reach and authenticate against a Neo4J
@@ -261,6 +397,17 @@ type GraphProjectionStatus struct {
 	// against the graph database.
 	// +optional
 	LastSyncTime *metav1.Time `json:"lastSyncTime,omitempty"`
+
+	// embeddedNodeCount is the number of resource nodes that currently have an
+	// embedding materialized for GraphRAG retrieval. It is zero when GraphRAG is
+	// disabled.
+	// +optional
+	EmbeddedNodeCount int64 `json:"embeddedNodeCount,omitempty"`
+
+	// lastEmbeddingTime is the timestamp of the last successful embedding
+	// refresh.
+	// +optional
+	LastEmbeddingTime *metav1.Time `json:"lastEmbeddingTime,omitempty"`
 }
 
 // +kubebuilder:object:root=true

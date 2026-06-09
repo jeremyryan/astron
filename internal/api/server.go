@@ -40,6 +40,10 @@ import (
 	"github.com/project-gamera/gamera/internal/projector"
 )
 
+// defaultRAGHops is the graph-expansion radius used for retrieval requests that
+// do not specify one.
+const defaultRAGHops = 1
+
 // Server serves the Gamera read API and (optionally) the embedded web UI.
 type Server struct {
 	client     client.Client
@@ -65,6 +69,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/healthz", s.handleHealth)
 	mux.HandleFunc("GET /api/projections", s.handleListProjections)
 	mux.HandleFunc("GET /api/projections/{namespace}/{name}/graph", s.handleGraph)
+	mux.HandleFunc("POST /api/projections/{namespace}/{name}/rag/search", s.handleRAGSearch)
+	mux.HandleFunc("POST /api/projections/{namespace}/{name}/rag/neighborhood", s.handleRAGNeighborhood)
+	mux.HandleFunc("POST /api/projections/{namespace}/{name}/rag/query", s.handleRAGQuery)
+	mux.HandleFunc("POST /api/projections/{namespace}/{name}/rag/answer", s.handleRAGAnswer)
 	mux.HandleFunc("GET /api/resource", s.handleResourceYAML)
 
 	if s.assets != nil {
@@ -91,21 +99,12 @@ func (s *Server) handleListProjections(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
-	namespace := r.PathValue("namespace")
-	name := r.PathValue("name")
-
-	var projection gamerav1alpha1.GraphProjection
-	key := client.ObjectKey{Namespace: namespace, Name: name}
-	if err := s.client.Get(r.Context(), key, &projection); err != nil {
-		if apierrors.IsNotFound(err) {
-			writeError(w, http.StatusNotFound, err)
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err)
+	id, ok := s.projectionID(w, r)
+	if !ok {
 		return
 	}
 
-	data, err := s.projectors.ReadGraph(r.Context(), graph.ProjectionID(projection.UID))
+	data, err := s.projectors.ReadGraph(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, projector.ErrNotRunning) {
 			// The projection exists but its projector is not (yet) running.
@@ -116,6 +115,202 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, graphToDTO(data))
+}
+
+// projectionID resolves a projection's namespace/name to its UID, writing an
+// appropriate error response and returning ok=false when it cannot be found.
+func (s *Server) projectionID(w http.ResponseWriter, r *http.Request) (graph.ProjectionID, bool) {
+	var projection gamerav1alpha1.GraphProjection
+	key := client.ObjectKey{Namespace: r.PathValue("namespace"), Name: r.PathValue("name")}
+	if err := s.client.Get(r.Context(), key, &projection); err != nil {
+		if apierrors.IsNotFound(err) {
+			writeError(w, http.StatusNotFound, err)
+		} else {
+			writeError(w, http.StatusInternalServerError, err)
+		}
+		return "", false
+	}
+	return graph.ProjectionID(projection.UID), true
+}
+
+// ragSearchRequest is the body of a hybrid retrieval request.
+type ragSearchRequest struct {
+	Query      string   `json:"query"`
+	TopK       int      `json:"topK"`
+	Hops       *int     `json:"hops"`
+	EdgeTypes  []string `json:"edgeTypes"`
+	Kinds      []string `json:"kinds"`
+	Namespaces []string `json:"namespaces"`
+}
+
+// handleRAGSearch embeds the query, finds similar seed nodes, expands the graph
+// around them, and returns the assembled context.
+func (s *Server) handleRAGSearch(w http.ResponseWriter, r *http.Request) {
+	var req ragSearchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if strings.TrimSpace(req.Query) == "" {
+		writeError(w, http.StatusBadRequest, errors.New("query must not be empty"))
+		return
+	}
+
+	id, ok := s.projectionID(w, r)
+	if !ok {
+		return
+	}
+
+	hops := defaultRAGHops
+	if req.Hops != nil {
+		hops = *req.Hops
+	}
+	opts := projector.SearchOptions{
+		TopK:      req.TopK,
+		Hops:      hops,
+		EdgeTypes: req.EdgeTypes,
+		Filter:    graph.VectorFilter{Kinds: req.Kinds, Namespaces: req.Namespaces},
+	}
+
+	result, err := s.projectors.Search(r.Context(), id, req.Query, opts)
+	if err != nil {
+		s.writeRetrievalError(w, req.Query, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, retrievalToDTO(result))
+}
+
+// ragNeighborhoodRequest is the body of a structural retrieval request.
+type ragNeighborhoodRequest struct {
+	APIVersion string   `json:"apiVersion"`
+	Kind       string   `json:"kind"`
+	Namespace  string   `json:"namespace"`
+	Name       string   `json:"name"`
+	Hops       *int     `json:"hops"`
+	EdgeTypes  []string `json:"edgeTypes"`
+}
+
+// handleRAGNeighborhood returns the subgraph within a number of hops of a named
+// resource. It requires no embeddings.
+func (s *Server) handleRAGNeighborhood(w http.ResponseWriter, r *http.Request) {
+	var req ragNeighborhoodRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if req.Kind == "" || req.Name == "" {
+		writeError(w, http.StatusBadRequest, errors.New("kind and name are required"))
+		return
+	}
+
+	id, ok := s.projectionID(w, r)
+	if !ok {
+		return
+	}
+
+	hops := defaultRAGHops
+	if req.Hops != nil {
+		hops = *req.Hops
+	}
+	ref := graph.Ref{APIVersion: req.APIVersion, Kind: req.Kind, Namespace: req.Namespace, Name: req.Name}
+
+	result, err := s.projectors.Neighborhood(r.Context(), id, ref, hops, req.EdgeTypes)
+	if err != nil {
+		s.writeRetrievalError(w, ref.String(), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, retrievalToDTO(result))
+}
+
+// ragQuestionRequest is the body of a text-to-Cypher or answer request.
+type ragQuestionRequest struct {
+	Question  string   `json:"question"`
+	TopK      int      `json:"topK"`
+	Hops      *int     `json:"hops"`
+	EdgeTypes []string `json:"edgeTypes"`
+}
+
+// handleRAGQuery answers a question by generating and executing a guarded,
+// read-only Cypher query (text-to-Cypher).
+func (s *Server) handleRAGQuery(w http.ResponseWriter, r *http.Request) {
+	var req ragQuestionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if strings.TrimSpace(req.Question) == "" {
+		writeError(w, http.StatusBadRequest, errors.New("question must not be empty"))
+		return
+	}
+	id, ok := s.projectionID(w, r)
+	if !ok {
+		return
+	}
+
+	result, err := s.projectors.Query(r.Context(), id, req.Question)
+	if err != nil {
+		s.writeQAError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleRAGAnswer answers a question using retrieval-augmented generation.
+func (s *Server) handleRAGAnswer(w http.ResponseWriter, r *http.Request) {
+	var req ragQuestionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if strings.TrimSpace(req.Question) == "" {
+		writeError(w, http.StatusBadRequest, errors.New("question must not be empty"))
+		return
+	}
+	id, ok := s.projectionID(w, r)
+	if !ok {
+		return
+	}
+
+	hops := defaultRAGHops
+	if req.Hops != nil {
+		hops = *req.Hops
+	}
+	opts := projector.SearchOptions{TopK: req.TopK, Hops: hops, EdgeTypes: req.EdgeTypes}
+
+	result, err := s.projectors.Answer(r.Context(), id, req.Question, opts)
+	if err != nil {
+		s.writeQAError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, answerToDTO(result))
+}
+
+// writeQAError maps answering/text-to-Cypher errors to responses. A not-running
+// projector or unconfigured chat/embedding capability yields 503; bad generated
+// queries surface as 422; anything else is 500.
+func (s *Server) writeQAError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, projector.ErrNotRunning),
+		errors.Is(err, projector.ErrChatNotEnabled),
+		errors.Is(err, projector.ErrRAGNotEnabled):
+		writeError(w, http.StatusServiceUnavailable, err)
+	default:
+		writeError(w, http.StatusInternalServerError, err)
+	}
+}
+
+// writeRetrievalError maps retrieval errors to responses: a not-yet-running
+// projector yields an empty 200 (as the graph endpoint does), an unconfigured
+// GraphRAG yields 503, and anything else is a 500.
+func (s *Server) writeRetrievalError(w http.ResponseWriter, query string, err error) {
+	switch {
+	case errors.Is(err, projector.ErrNotRunning):
+		writeJSON(w, http.StatusOK, retrievalToDTO(projector.Retrieval{Query: query}))
+	case errors.Is(err, projector.ErrRAGNotEnabled):
+		writeError(w, http.StatusServiceUnavailable, err)
+	default:
+		writeError(w, http.StatusInternalServerError, err)
+	}
 }
 
 // handleResourceYAML fetches a single live resource from the cluster and returns
