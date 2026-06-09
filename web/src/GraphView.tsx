@@ -4,7 +4,7 @@ import { IconCode, IconPencil } from "./icons";
 import cytoscape, { type Core, type ElementDefinition } from "cytoscape";
 import dagre from "cytoscape-dagre";
 import fcose from "cytoscape-fcose";
-import type { Graph, GraphNode } from "./api";
+import type { Graph, GraphNode, GraphSelection } from "./api";
 import { colorForKind, iconForKind } from "./kinds";
 
 cytoscape.use(dagre);
@@ -95,7 +95,8 @@ function toElements(graph: Graph, groupByNamespace: boolean): ElementDefinition[
 
 interface Props {
   graph: Graph;
-  onSelect: (node: GraphNode | null) => void;
+  // Called when the selection changes: a node, an edge, or null (cleared).
+  onSelect: (selection: GraphSelection | null) => void;
   // Id of the currently selected node, used as the root for distance fading.
   selectedId: string | null;
   // Max number of hops from the selected node to keep fully visible. null means
@@ -192,6 +193,16 @@ export function GraphView({
           selector: "node:selected",
           style: { "border-width": 3, "border-color": "#fff" },
         },
+        // A selected edge is highlighted (brighter, thicker).
+        {
+          selector: "edge:selected",
+          style: {
+            "line-color": "#fff",
+            "target-arrow-color": "#fff",
+            color: "#fff",
+            width: 3,
+          },
+        },
         // Compound parent nodes used to group resources by namespace.
         {
           selector: `.${GROUP_CLASS}`,
@@ -247,7 +258,15 @@ export function GraphView({
       if (evt.target.hasClass(GROUP_CLASS)) return;
       setMenu(null);
       const found = graph.nodes.find((n) => n.id === evt.target.id());
-      onSelect(found ?? null);
+      onSelect(found ? { type: "node", node: found } : null);
+    });
+    cy.on("tap", "edge", (evt) => {
+      setMenu(null);
+      const edge = graph.edges.find((e) => e.id === evt.target.id());
+      if (!edge) return;
+      const source = graph.nodes.find((n) => n.id === edge.source);
+      const target = graph.nodes.find((n) => n.id === edge.target);
+      onSelect({ type: "edge", edge, source, target });
     });
     cy.on("tap", (evt) => {
       if (evt.target === cy) {

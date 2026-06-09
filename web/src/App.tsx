@@ -18,6 +18,7 @@ import {
   listProjections,
   type Graph,
   type GraphNode,
+  type GraphSelection,
   type Projection,
   type ViewFilters,
 } from "./api";
@@ -194,6 +195,44 @@ function NodeDetails({ node }: { node: GraphNode | null }) {
   );
 }
 
+// renderEdgeProp renders a single edge property: a JSON-encoded map (e.g.
+// selectorLabels) as a key/value section, an array (e.g. via/hosts/paths) as a
+// comma-separated value, and anything else as a scalar field.
+function renderEdgeProp(k: string, v: unknown) {
+  if (asKeyValues(v)) return <KeyValueSection key={k} title={k} value={v} />;
+  if (Array.isArray(v))
+    return <Field key={k} label={k} value={v.map((x) => String(x)).join(", ")} />;
+  return <Field key={k} label={k} value={typeof v === "string" ? v : JSON.stringify(v)} />;
+}
+
+function EdgeDetails({ selection }: { selection: Extract<GraphSelection, { type: "edge" }> }) {
+  const { edge, source, target } = selection;
+  const props = Object.entries(edge.properties ?? {});
+  const refLabel = (node: GraphNode | undefined, fallback: string) =>
+    node ? `${node.kind} ${node.namespace ? `${node.namespace}/` : ""}${node.name}` : fallback;
+  return (
+    <Stack gap="md">
+      <Title order={3} size="h4">
+        {edge.type}{" "}
+        <Text span c="dimmed" size="sm" fw={400}>
+          relationship
+        </Text>
+      </Title>
+      <Stack gap="xs">
+        <Field label="From" value={refLabel(source, edge.source)} />
+        <Field label="To" value={refLabel(target, edge.target)} />
+      </Stack>
+      {props.length === 0 ? (
+        <Text size="sm" c="dimmed">
+          No relationship data.
+        </Text>
+      ) : (
+        <Stack gap="md">{props.map(([k, v]) => renderEdgeProp(k, v))}</Stack>
+      )}
+    </Stack>
+  );
+}
+
 // nodeLabels parses a node's labels property (stored as a JSON string by the
 // backend) into a flat string map.
 function nodeLabels(node: GraphNode): Record<string, string> {
@@ -237,7 +276,9 @@ function matchesLabelFilters(
 
 function GraphPanel({ projection }: { projection: Projection }) {
   const { settings } = useSettings();
-  const [selected, setSelected] = useState<GraphNode | null>(null);
+  // The currently inspected element (node or edge), or null.
+  const [selection, setSelection] = useState<GraphSelection | null>(null);
+  const selectedNode = selection?.type === "node" ? selection.node : null;
   // Node whose YAML manifest is shown in the modal (null = closed).
   const [yamlNode, setYamlNode] = useState<GraphNode | null>(null);
   // Kinds the user has hidden. Empty = show everything (the default).
@@ -349,7 +390,7 @@ function GraphPanel({ projection }: { projection: Projection }) {
         onToggleNamespace={toggleNamespace}
         onShowAllNamespaces={showAllNamespaces}
         onHideAllNamespaces={hideAllNamespaces}
-        hasSelection={selected !== null}
+        hasSelection={selectedNode !== null}
         maxDistance={maxDistance}
         onChangeDistance={setMaxDistance}
         groupByNamespace={groupByNamespace}
@@ -393,8 +434,8 @@ function GraphPanel({ projection }: { projection: Projection }) {
         {filteredGraph && (
           <GraphView
             graph={filteredGraph}
-            onSelect={setSelected}
-            selectedId={selected?.id ?? null}
+            onSelect={setSelection}
+            selectedId={selectedNode?.id ?? null}
             maxDistance={maxDistance}
             onShowYaml={setYamlNode}
             groupByNamespace={groupByNamespace}
@@ -403,7 +444,11 @@ function GraphPanel({ projection }: { projection: Projection }) {
       </div>
       <YamlModal node={yamlNode} onClose={() => setYamlNode(null)} />
       <ScrollArea component="aside" className="inspector" type="scroll">
-        <NodeDetails node={selected} />
+        {selection?.type === "edge" ? (
+          <EdgeDetails selection={selection} />
+        ) : (
+          <NodeDetails node={selectedNode} />
+        )}
       </ScrollArea>
     </div>
   );

@@ -31,6 +31,12 @@ export interface Graph {
   edges: GraphEdge[];
 }
 
+// GraphSelection is the currently inspected element: either a node or an edge
+// (with its resolved endpoint nodes, when available).
+export type GraphSelection =
+  | { type: "node"; node: GraphNode }
+  | { type: "edge"; edge: GraphEdge; source?: GraphNode; target?: GraphNode };
+
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
