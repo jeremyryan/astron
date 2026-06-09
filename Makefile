@@ -116,6 +116,10 @@ web: ## Build the web UI into web/dist (requires npm).
 build: manifests generate fmt vet ## Build manager binary (embeds web/dist).
 	go build -o bin/manager cmd/main.go
 
+.PHONY: build-cli
+build-cli: fmt vet ## Build the gamera CLI client binary.
+	go build -o bin/gamera ./cmd/cli
+
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/main.go
