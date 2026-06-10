@@ -15,4 +15,5 @@ export {
   IconChevronRight,
   IconDeviceFloppy,
   IconTrash,
+  IconBookmark,
 } from "@tabler/icons-react";

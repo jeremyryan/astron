@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ActionIcon,
@@ -16,14 +16,16 @@ import {
 import {
   getGraph,
   listProjections,
+  listViews,
   type Graph,
   type GraphNode,
   type GraphSelection,
   type Projection,
+  type View,
   type ViewFilters,
 } from "./api";
 import { GraphView } from "./GraphView";
-import { ViewsPanel } from "./ViewsPanel";
+import { ViewControls } from "./ViewControls";
 import {
   FilterPanel,
   kindCounts,
@@ -35,14 +37,68 @@ import { YamlModal } from "./YamlModal";
 import { SettingsModal } from "./SettingsModal";
 import { useSettings } from "./settings";
 import { colorForRelationship, iconForKind } from "./kinds";
-import { IconHierarchy2, IconSettings, IconTopologyStar3 } from "./icons";
+import { IconBookmark, IconHierarchy2, IconSettings, IconTopologyStar3 } from "./icons";
+
+// ProjectionNavItem renders one projection in the navbar with its saved Views
+// nested beneath it. Clicking the projection selects it (custom filters);
+// clicking a view selects the projection and applies that view's filters.
+function ProjectionNavItem({
+  projection,
+  selected,
+  activeView,
+  onSelectProjection,
+  onSelectView,
+}: {
+  projection: Projection;
+  selected?: Projection;
+  activeView: View | null;
+  onSelectProjection: (p: Projection) => void;
+  onSelectView: (p: Projection, v: View) => void;
+}) {
+  const { data: views } = useQuery({
+    queryKey: ["views", projection.namespace, projection.name],
+    queryFn: () => listViews(projection.namespace, projection.name),
+  });
+  const isSelected = selected?.uid === projection.uid;
+  const items = views ?? [];
+  return (
+    <Box>
+      <NavLink
+        active={isSelected && !activeView}
+        onClick={() => onSelectProjection(projection)}
+        leftSection={<IconHierarchy2 size={16} stroke={1.5} />}
+        label={<Text fw={600}>{projection.name}</Text>}
+        description={`${projection.namespace} · ${projection.phase ?? "—"} · ${projection.nodeCount}n / ${projection.relationshipCount}e`}
+      />
+      {/* Views associated with this projection, always shown indented below it. */}
+      {items.map((v) => (
+        <NavLink
+          key={v.uid ?? `${v.namespace}/${v.name}`}
+          pl={28}
+          active={
+            isSelected &&
+            activeView?.namespace === v.namespace &&
+            activeView?.name === v.name
+          }
+          onClick={() => onSelectView(projection, v)}
+          leftSection={<IconBookmark size={14} stroke={1.5} />}
+          label={v.displayName || v.name}
+        />
+      ))}
+    </Box>
+  );
+}
 
 function ProjectionList({
   selected,
-  onSelect,
+  activeView,
+  onSelectProjection,
+  onSelectView,
 }: {
   selected?: Projection;
-  onSelect: (p: Projection) => void;
+  activeView: View | null;
+  onSelectProjection: (p: Projection) => void;
+  onSelectView: (p: Projection, v: View) => void;
 }) {
   const { data, isLoading, error } = useQuery({
     queryKey: ["projections"],
@@ -75,13 +131,13 @@ function ProjectionList({
   return (
     <Stack gap={4}>
       {data.map((p) => (
-        <NavLink
+        <ProjectionNavItem
           key={p.uid}
-          active={selected?.uid === p.uid}
-          onClick={() => onSelect(p)}
-          leftSection={<IconHierarchy2 size={16} stroke={1.5} />}
-          label={<Text fw={600}>{p.name}</Text>}
-          description={`${p.namespace} · ${p.phase ?? "—"} · ${p.nodeCount}n / ${p.relationshipCount}e`}
+          projection={p}
+          selected={selected}
+          activeView={activeView}
+          onSelectProjection={onSelectProjection}
+          onSelectView={onSelectView}
         />
       ))}
     </Stack>
@@ -289,7 +345,15 @@ function EdgeLegend({ types }: { types: string[] }) {
   );
 }
 
-function GraphPanel({ projection }: { projection: Projection }) {
+function GraphPanel({
+  projection,
+  activeView,
+  onActiveViewChange,
+}: {
+  projection: Projection;
+  activeView: View | null;
+  onActiveViewChange: (v: View | null) => void;
+}) {
   const { settings } = useSettings();
   // The currently inspected element (node or edge), or null.
   const [selection, setSelection] = useState<GraphSelection | null>(null);
@@ -399,6 +463,17 @@ function GraphPanel({ projection }: { projection: Projection }) {
     setGroupByNamespace(f.groupByNamespace ?? true);
   };
 
+  // When a saved view is selected in the navbar, apply its filters once.
+  const appliedRef = useRef<View | null>(null);
+  useEffect(() => {
+    if (activeView && appliedRef.current !== activeView) {
+      appliedRef.current = activeView;
+      applyFilters(activeView.filters);
+    }
+    // applyFilters is stable for our purposes; only re-run when the view changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeView]);
+
   return (
     <div className="graph-panel">
       <FilterPanel
@@ -423,6 +498,14 @@ function GraphPanel({ projection }: { projection: Projection }) {
         onUpdateLabel={updateLabel}
         onRemoveLabel={removeLabel}
         onChangeLabelMode={setLabelMode}
+        viewControls={
+          <ViewControls
+            projection={projection}
+            currentFilters={currentFilters}
+            activeView={activeView}
+            onActiveViewChange={onActiveViewChange}
+          />
+        }
       />
       <div
         className="graph-area"
@@ -437,11 +520,6 @@ function GraphPanel({ projection }: { projection: Projection }) {
             : undefined
         }
       >
-        <ViewsPanel
-          projection={projection}
-          currentFilters={currentFilters}
-          onApply={applyFilters}
-        />
         {isLoading && (
           <Group gap="xs" p="md">
             <Loader size="sm" />
@@ -479,8 +557,19 @@ function GraphPanel({ projection }: { projection: Projection }) {
 
 export default function App() {
   const [selected, setSelected] = useState<Projection>();
+  // The saved view currently applied (null = custom/unsaved filters).
+  const [activeView, setActiveView] = useState<View | null>(null);
   // Whether the settings modal is open.
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const selectProjection = (p: Projection) => {
+    setSelected(p);
+    setActiveView(null);
+  };
+  const selectView = (p: Projection, v: View) => {
+    setSelected(p);
+    setActiveView(v);
+  };
 
   return (
     <AppShell header={{ height: 52 }} navbar={{ width: 260, breakpoint: "sm" }} padding={0}>
@@ -514,13 +603,22 @@ export default function App() {
           Projections
         </Text>
         <AppShell.Section grow component={ScrollArea}>
-          <ProjectionList selected={selected} onSelect={setSelected} />
+          <ProjectionList
+            selected={selected}
+            activeView={activeView}
+            onSelectProjection={selectProjection}
+            onSelectView={selectView}
+          />
         </AppShell.Section>
       </AppShell.Navbar>
 
       <AppShell.Main className="app-main">
         {selected ? (
-          <GraphPanel projection={selected} />
+          <GraphPanel
+            projection={selected}
+            activeView={activeView}
+            onActiveViewChange={setActiveView}
+          />
         ) : (
           <Text c="dimmed" p="md">
             Choose a projection to view its graph.

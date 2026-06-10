@@ -1,54 +1,35 @@
-import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  ActionIcon,
-  Button,
-  Group,
-  Modal,
-  Select,
-  Text,
-  TextInput,
-  Tooltip,
-} from "@mantine/core";
+import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Button, Group, Modal, Stack, Text, TextInput } from "@mantine/core";
 import {
   createView,
   deleteView,
-  listViews,
   updateView,
   type Projection,
   type View,
   type ViewFilters,
 } from "./api";
-import { IconDeviceFloppy, IconTrash } from "./icons";
+import { IconDeviceFloppy, IconPlus, IconTrash } from "./icons";
 
 interface Props {
   projection: Projection;
   // The current (possibly unsaved) filter state, in View DTO shape.
   currentFilters: ViewFilters;
-  // Apply a saved view's filters to the graph panel.
-  onApply: (filters: ViewFilters) => void;
+  // The saved view currently applied (null = unsaved/custom filters).
+  activeView: View | null;
+  // Notify the parent when the active view changes (created / updated / deleted).
+  onActiveViewChange: (view: View | null) => void;
 }
 
-// ViewsPanel is a floating toolbar over the graph that lets the user apply,
-// save, update and delete named Views (saved filter sets) for the projection.
-export function ViewsPanel({ projection, currentFilters, onApply }: Props) {
+// ViewControls renders the Save / Delete / Save as… actions for the active
+// projection's Views (saved filter sets). It lives in the filters panel; view
+// selection happens in the left navbar.
+export function ViewControls({ projection, currentFilters, activeView, onActiveViewChange }: Props) {
   const qc = useQueryClient();
   const viewsKey = ["views", projection.namespace, projection.name];
-  const { data: views } = useQuery({
-    queryKey: viewsKey,
-    queryFn: () => listViews(projection.namespace, projection.name),
-  });
-
-  // Name of the currently applied view (null = unsaved/custom filters).
-  const [activeName, setActiveName] = useState<string | null>(null);
   const [saveOpen, setSaveOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [error, setError] = useState<string | null>(null);
-
-  const activeView = useMemo(
-    () => views?.find((v) => v.name === activeName) ?? null,
-    [views, activeName],
-  );
 
   const invalidate = () => qc.invalidateQueries({ queryKey: viewsKey });
 
@@ -71,7 +52,7 @@ export function ViewsPanel({ projection, currentFilters, onApply }: Props) {
   const createMut = useMutation({
     mutationFn: (displayName: string) => createView(baseView(slugify(displayName), displayName)),
     onSuccess: (v) => {
-      setActiveName(v.name);
+      onActiveViewChange(v);
       setSaveOpen(false);
       setNewName("");
       setError(null);
@@ -88,7 +69,11 @@ export function ViewsPanel({ projection, currentFilters, onApply }: Props) {
         description: activeView.description,
       });
     },
-    onSuccess: () => invalidate(),
+    onSuccess: (v) => {
+      onActiveViewChange(v);
+      setError(null);
+      invalidate();
+    },
     onError: (e) => setError((e as Error).message),
   });
 
@@ -98,88 +83,61 @@ export function ViewsPanel({ projection, currentFilters, onApply }: Props) {
       return deleteView(activeView.namespace, activeView.name);
     },
     onSuccess: () => {
-      setActiveName(null);
+      onActiveViewChange(null);
       invalidate();
     },
     onError: (e) => setError((e as Error).message),
   });
 
-  const options = (views ?? []).map((v) => ({
-    value: v.name,
-    label: v.displayName || v.name,
-  }));
-
   return (
-    <div className="views-bar">
-      <Text size="xs" fw={600} c="dimmed">
-        View
-      </Text>
-      <Select
-        size="xs"
-        w={200}
-        placeholder="Custom (unsaved)"
-        data={options}
-        value={activeName}
-        onChange={(name) => {
-          setActiveName(name);
-          const v = views?.find((x) => x.name === name);
-          if (v) onApply(v.filters);
-        }}
-        clearable
-        comboboxProps={{ withinPortal: true }}
-      />
-
-      <Tooltip label="Update selected view" position="bottom" withArrow disabled={!activeView}>
-        <ActionIcon
-          variant="subtle"
-          color="gray"
-          size="lg"
-          aria-label="Update view"
+    <Stack gap="xs">
+      <Group gap={6} grow wrap="nowrap">
+        <Button
+          size="compact-xs"
+          variant="light"
+          leftSection={<IconDeviceFloppy size={14} stroke={1.5} />}
           disabled={!activeView}
           loading={updateMut.isPending}
           onClick={() => updateMut.mutate()}
         >
-          <IconDeviceFloppy size={18} stroke={1.5} />
-        </ActionIcon>
-      </Tooltip>
-
-      <Tooltip label="Delete selected view" position="bottom" withArrow disabled={!activeView}>
-        <ActionIcon
-          variant="subtle"
+          Save
+        </Button>
+        <Button
+          size="compact-xs"
+          variant="light"
           color="red"
-          size="lg"
-          aria-label="Delete view"
+          leftSection={<IconTrash size={14} stroke={1.5} />}
           disabled={!activeView}
           loading={deleteMut.isPending}
           onClick={() => deleteMut.mutate()}
         >
-          <IconTrash size={18} stroke={1.5} />
-        </ActionIcon>
-      </Tooltip>
-
+          Delete
+        </Button>
+      </Group>
       <Button
         size="compact-xs"
-        variant="light"
+        variant="default"
+        leftSection={<IconPlus size={13} stroke={1.5} />}
         onClick={() => {
           setError(null);
           setSaveOpen(true);
         }}
+        style={{ alignSelf: "flex-start" }}
       >
         Save as…
       </Button>
-
+      {!activeView && (
+        <Text size="xs" c="dimmed">
+          Custom (unsaved) filters.
+        </Text>
+      )}
       {error && (
-        <Text size="xs" c="red" maw={220} lineClamp={1} title={error}>
+        <Text size="xs" c="red" title={error} lineClamp={2}>
           {error}
         </Text>
       )}
 
-      <Modal
-        opened={saveOpen}
-        onClose={() => setSaveOpen(false)}
-        title="Save view"
-        size="sm"
-      >
+      <Modal opened={saveOpen} onClose={() => setSaveOpen(false)} title="Save view" size="sm">
         <TextInput
           label="Name"
           placeholder="e.g. Team A workloads"
@@ -209,6 +167,6 @@ export function ViewsPanel({ projection, currentFilters, onApply }: Props) {
           </Button>
         </Group>
       </Modal>
-    </div>
+    </Stack>
   );
 }
