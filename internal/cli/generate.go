@@ -57,6 +57,9 @@ type generateOptions struct {
 	resyncInterval    string
 	withRelationships bool
 	exclude           []string
+	// allResources includes every namespaced kind that has instances, rather
+	// than just the standard common set.
+	allResources bool
 
 	// outputFile, when set (and not "-"), writes the manifest to a file instead
 	// of stdout.
@@ -88,9 +91,12 @@ func newGenerateCmd(opts *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "generate <namespace>",
 		Short: "Generate a GraphProjection for the resource types in a namespace",
-		Long: "generate inspects a namespace in the cluster, discovers every resource\n" +
-			"type that currently has at least one instance in it, and produces a\n" +
-			"GraphProjection manifest scoped to that namespace and those kinds.\n\n" +
+		Long: "generate inspects a namespace in the cluster and produces a\n" +
+			"GraphProjection manifest scoped to that namespace.\n\n" +
+			"By default it includes only the standard set of common resource kinds\n" +
+			"(workloads, Services, ConfigMaps/Secrets, PVCs, Ingress, ...) that\n" +
+			"currently have at least one instance in the namespace. Pass\n" +
+			"--all-resources to include every namespaced kind that has instances.\n\n" +
 			"By default the manifest is written to stdout. Use --output-file to write\n" +
 			"it to a file, or --apply to create/update the GraphProjection in the\n" +
 			"cluster instead of emitting YAML.\n\n" +
@@ -122,6 +128,8 @@ func newGenerateCmd(opts *options) *cobra.Command {
 		"Include well-known relationship rules (OWNS/SELECTS/MOUNTS) for the discovered kinds")
 	cmd.Flags().StringSliceVar(&gopts.exclude, "exclude", nil,
 		"Resource Kinds to exclude from the projection (e.g. Event,EndpointSlice)")
+	cmd.Flags().BoolVar(&gopts.allResources, "all-resources", false,
+		"Include every namespaced kind that has instances, instead of the standard common set")
 	cmd.Flags().StringVarP(&gopts.outputFile, "output-file", "f", "",
 		"Write the generated manifest to this file instead of stdout (\"-\" means stdout)")
 	cmd.Flags().BoolVar(&gopts.apply, "apply", false,
@@ -148,11 +156,14 @@ func runGenerate(cmd *cobra.Command, gopts *generateOptions, namespace string) e
 		return fmt.Errorf("creating dynamic client: %w", err)
 	}
 
-	selectors, err := discoverKinds(cmd.Context(), disco, dyn, namespace, gopts.exclude)
+	selectors, err := discoverKinds(cmd.Context(), disco, dyn, namespace, gopts.exclude, !gopts.allResources)
 	if err != nil {
 		return err
 	}
 	if len(selectors) == 0 {
+		if !gopts.allResources {
+			return fmt.Errorf("no standard resource kinds with instances found in namespace %q (try --all-resources)", namespace)
+		}
 		return fmt.Errorf("no resource types with instances found in namespace %q", namespace)
 	}
 
@@ -222,21 +233,26 @@ func applyProjection(cmd *cobra.Command, dyn dynamic.Interface, manifest project
 // discoverKinds enumerates the namespaced, listable resource types in the
 // cluster and returns selectors for those that currently have at least one
 // instance in the given namespace. Subresources and excluded kinds are skipped.
-func discoverKinds(ctx context.Context, disco discovery.DiscoveryInterface, dyn dynamic.Interface, namespace string, exclude []string) ([]gamerav1alpha1.ResourceSelector, error) {
+func discoverKinds(ctx context.Context, disco discovery.DiscoveryInterface, dyn dynamic.Interface, namespace string, exclude []string, standardOnly bool) ([]gamerav1alpha1.ResourceSelector, error) {
 	lists, err := disco.ServerPreferredNamespacedResources()
 	if err != nil && len(lists) == 0 {
 		return nil, fmt.Errorf("discovering namespaced resources: %w", err)
 	}
-	return selectNamespacedKinds(ctx, lists, dyn, namespace, exclude)
+	return selectNamespacedKinds(ctx, lists, dyn, namespace, exclude, standardOnly)
 }
 
 // selectNamespacedKinds filters discovered resource lists to the namespaced,
 // listable kinds that have at least one instance in the namespace. It is split
 // out from discovery so it can be unit-tested with a fake dynamic client.
-func selectNamespacedKinds(ctx context.Context, lists []*metav1.APIResourceList, dyn dynamic.Interface, namespace string, exclude []string) ([]gamerav1alpha1.ResourceSelector, error) {
+func selectNamespacedKinds(ctx context.Context, lists []*metav1.APIResourceList, dyn dynamic.Interface, namespace string, exclude []string, standardOnly bool) ([]gamerav1alpha1.ResourceSelector, error) {
 	excluded := map[string]bool{}
 	for _, k := range exclude {
 		excluded[strings.ToLower(k)] = true
+	}
+
+	var standard map[string]bool
+	if standardOnly {
+		standard = standardKindSet()
 	}
 
 	seen := map[string]bool{}
@@ -255,6 +271,9 @@ func selectNamespacedKinds(ctx context.Context, lists []*metav1.APIResourceList,
 				continue
 			}
 			if excluded[strings.ToLower(res.Kind)] || seen[res.Kind] {
+				continue
+			}
+			if standard != nil && !standard[kindKey(gv.Group, res.Kind)] {
 				continue
 			}
 
@@ -295,6 +314,41 @@ func hasInstances(ctx context.Context, dyn dynamic.Interface, gvr schema.GroupVe
 // canList reports whether a resource's verbs include "list".
 func canList(verbs metav1.Verbs) bool {
 	return slices.Contains(verbs, "list")
+}
+
+// kindKey is the lookup key used for the standard-kind set, "<group>/<kind>"
+// lowercased (group empty for the core API group).
+func kindKey(group, kind string) string {
+	return strings.ToLower(group + "/" + kind)
+}
+
+// standardKindSet is the default set of common resource kinds included by
+// "projections generate" unless --all-resources is given. It mirrors the
+// operator's built-in defaults (workloads, config, storage, networking) and
+// deliberately excludes noisy/low-signal kinds like Events, EndpointSlices,
+// Leases and ControllerRevisions.
+func standardKindSet() map[string]bool {
+	kinds := []schema.GroupKind{
+		{Group: "apps", Kind: "Deployment"},
+		{Group: "apps", Kind: "StatefulSet"},
+		{Group: "apps", Kind: "DaemonSet"},
+		{Group: "apps", Kind: "ReplicaSet"},
+		{Group: "batch", Kind: "Job"},
+		{Group: "batch", Kind: "CronJob"},
+		{Group: "", Kind: "Pod"},
+		{Group: "", Kind: "Service"},
+		{Group: "", Kind: "ConfigMap"},
+		{Group: "", Kind: "Secret"},
+		{Group: "", Kind: "PersistentVolumeClaim"},
+		{Group: "", Kind: "ServiceAccount"},
+		{Group: "networking.k8s.io", Kind: "Ingress"},
+		{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute"},
+	}
+	set := make(map[string]bool, len(kinds))
+	for _, gk := range kinds {
+		set[kindKey(gk.Group, gk.Kind)] = true
+	}
+	return set
 }
 
 // buildManifest assembles the GraphProjection manifest from discovered kinds.

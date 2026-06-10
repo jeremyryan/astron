@@ -52,6 +52,7 @@ func TestSelectNamespacedKinds(t *testing.T) {
 		{Group: "", Version: "v1", Resource: "pods"}:            "PodList",
 		{Group: "", Version: "v1", Resource: "configmaps"}:      "ConfigMapList",
 		{Group: "", Version: "v1", Resource: "secrets"}:         "SecretList",
+		{Group: "", Version: "v1", Resource: "events"}:          "EventList",
 		{Group: "apps", Version: "v1", Resource: "deployments"}: "DeploymentList",
 	}
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind,
@@ -59,6 +60,8 @@ func TestSelectNamespacedKinds(t *testing.T) {
 		obj("v1", "ConfigMap", ns, "c1"),
 		// A Secret exists, but in a different namespace, so it must be excluded.
 		obj("v1", "Secret", "other", "s1"),
+		// An Event exists in the namespace, but is not a standard kind.
+		obj("v1", "Event", ns, "e1"),
 		obj("apps/v1", "Deployment", ns, "d1"),
 	)
 
@@ -69,6 +72,7 @@ func TestSelectNamespacedKinds(t *testing.T) {
 				{Name: "pods", Kind: "Pod", Namespaced: true, Verbs: metav1.Verbs{"list"}},
 				{Name: "configmaps", Kind: "ConfigMap", Namespaced: true, Verbs: metav1.Verbs{"list"}},
 				{Name: "secrets", Kind: "Secret", Namespaced: true, Verbs: metav1.Verbs{"list"}},
+				{Name: "events", Kind: "Event", Namespaced: true, Verbs: metav1.Verbs{"list"}},
 				{Name: "pods/log", Kind: "Pod", Namespaced: true, Verbs: metav1.Verbs{"get"}}, // subresource
 			},
 		},
@@ -80,7 +84,8 @@ func TestSelectNamespacedKinds(t *testing.T) {
 		},
 	}
 
-	got, err := selectNamespacedKinds(context.Background(), lists, dyn, ns, []string{"ConfigMap"})
+	// Standard-only mode: Event has an instance but is not a standard kind.
+	got, err := selectNamespacedKinds(context.Background(), lists, dyn, ns, []string{"ConfigMap"}, true)
 	if err != nil {
 		t.Fatalf("selectNamespacedKinds failed: %v", err)
 	}
@@ -100,6 +105,22 @@ func TestSelectNamespacedKinds(t *testing.T) {
 	}
 	if kinds["Secret"] {
 		t.Errorf("Secret has no instance in %q but was selected", ns)
+	}
+	if kinds["Event"] {
+		t.Errorf("Event is not a standard kind but was selected in standard-only mode")
+	}
+
+	// With --all-resources, the non-standard Event kind is included.
+	gotAll, err := selectNamespacedKinds(context.Background(), lists, dyn, ns, []string{"ConfigMap"}, false)
+	if err != nil {
+		t.Fatalf("selectNamespacedKinds (all) failed: %v", err)
+	}
+	allKinds := map[string]bool{}
+	for _, s := range gotAll {
+		allKinds[s.Kind] = true
+	}
+	if !allKinds["Event"] {
+		t.Errorf("expected Event to be selected with --all-resources: %+v", gotAll)
 	}
 }
 
