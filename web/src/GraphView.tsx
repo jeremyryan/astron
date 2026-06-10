@@ -170,9 +170,13 @@ export function GraphView({
         {
           selector: "node[icon]",
           style: {
-            shape: "round-rectangle",
+            // Circular node so the status / selection outline is a ring around
+            // it. background-clip:none keeps the square icon glyph from being
+            // clipped to the circle.
+            shape: "ellipse",
             "background-image": "data(icon)",
             "background-fit": "contain",
+            "background-clip": "none",
             "background-opacity": 0,
             width: 32,
             height: 32,
