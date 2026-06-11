@@ -354,10 +354,44 @@ export function GraphView({
     const handleContextMenu = (e: MouseEvent) => e.preventDefault();
     containerRef.current.addEventListener("contextmenu", handleContextMenu);
 
-    // Keyboard shortcuts acting on the currently selected node:
+    // Keyboard shortcuts acting on the currently selected node(s):
+    //   Arrow keys  nudge the selection (hold Shift for a larger step)
     //   Ctrl/Cmd-C  centers it in the view
     //   Ctrl/Cmd-Y  opens its YAML manifest modal
+    const ARROW_DELTAS: Record<string, [number, number]> = {
+      ArrowUp: [0, -1],
+      ArrowDown: [0, 1],
+      ArrowLeft: [-1, 0],
+      ArrowRight: [1, 0],
+    };
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't hijack keys while the user is typing in a form field.
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      // Arrow keys move the selected node(s) in model space. Plain arrows only
+      // (modifiers are reserved for other shortcuts / browser behavior).
+      const delta = ARROW_DELTAS[e.key];
+      if (delta && !(e.ctrlKey || e.metaKey || e.altKey)) {
+        const selected = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
+        if (selected.empty()) return;
+        e.preventDefault();
+        const step = e.shiftKey ? 50 : 10;
+        const [dx, dy] = delta;
+        selected.forEach((n) => {
+          const p = n.position();
+          n.position({ x: p.x + dx * step, y: p.y + dy * step });
+        });
+        return;
+      }
+
       if (!(e.ctrlKey || e.metaKey)) return;
       const key = e.key.toLowerCase();
       if (key !== "c" && key !== "y") return;
