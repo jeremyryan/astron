@@ -339,12 +339,17 @@ export function GraphView({
     const el = containerRef.current;
     let dragging = false;
     cy.on("mouseover", "node", (evt) => {
-      if (dragging || evt.target.hasClass(GROUP_CLASS)) return;
-      el.style.cursor = "pointer";
+      if (evt.target.hasClass(GROUP_CLASS)) return;
+      // Disable box-select while hovering a node so Shift+drag moves (and
+      // 45°-constrains) the node rather than starting a selection box. Shift+drag
+      // on the background still box-selects.
+      cy.boxSelectionEnabled(false);
+      if (!dragging) el.style.cursor = "pointer";
     });
     cy.on("mouseout", "node", (evt) => {
-      if (dragging || evt.target.hasClass(GROUP_CLASS)) return;
-      el.style.cursor = "";
+      if (evt.target.hasClass(GROUP_CLASS)) return;
+      cy.boxSelectionEnabled(true);
+      if (!dragging) el.style.cursor = "";
     });
     cy.on("grab", "node", () => {
       dragging = true;
@@ -371,6 +376,65 @@ export function GraphView({
     cy.on("mouseup", endDrag);
     // Catch releases that happen outside the canvas during a pan/drag.
     window.addEventListener("mouseup", endDrag);
+
+    // Shift-constrained dragging: while Shift is held, the drag is locked to the
+    // nearest 45° axis (horizontal, vertical or diagonal) measured from each
+    // node's position when the drag began. The grabbed node's constrained delta
+    // is applied to every node moving with it so the group stays rigid.
+    let shiftDown = false;
+    const trackShift = (e: KeyboardEvent) => {
+      shiftDown = e.shiftKey;
+    };
+    window.addEventListener("keydown", trackShift);
+    window.addEventListener("keyup", trackShift);
+
+    let dragState:
+      | { grabbedId: string; start: { x: number; y: number }; ids: string[] }
+      | null = null;
+
+    cy.on("grab", "node", (evt) => {
+      const grabbed = evt.target as NodeSingular;
+      if (grabbed.hasClass(GROUP_CLASS)) {
+        dragState = null;
+        return;
+      }
+      // Nodes that move together: the selection if the grabbed node belongs to
+      // it, otherwise just the grabbed node.
+      const selected = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
+      const moving = grabbed.selected() && selected.nonempty() ? selected : grabbed;
+      const ids = (moving.toArray() as NodeSingular[]).map((n) => n.id());
+      dragState = { grabbedId: grabbed.id(), start: { ...grabbed.position() }, ids };
+    });
+
+    cy.on("drag", "node", (evt) => {
+      if (!shiftDown || !dragState) return;
+      // Cytoscape fires "drag" per moving node; act once, off the grabbed node.
+      if ((evt.target as NodeSingular).id() !== dragState.grabbedId) return;
+      const grabbed = cy.getElementById(dragState.grabbedId);
+      const free = grabbed.position();
+      const dx = free.x - dragState.start.x;
+      const dy = free.y - dragState.start.y;
+      if (dx === 0 && dy === 0) return;
+      // Lock to the nearest 45° axis and project the drag onto it.
+      const STEP = Math.PI / 4;
+      const axis = Math.round(Math.atan2(dy, dx) / STEP) * STEP;
+      const proj = dx * Math.cos(axis) + dy * Math.sin(axis);
+      const cx = dragState.start.x + proj * Math.cos(axis);
+      const cy2 = dragState.start.y + proj * Math.sin(axis);
+      const corrX = cx - free.x;
+      const corrY = cy2 - free.y;
+      if (corrX === 0 && corrY === 0) return;
+      // Same correction for every moving node keeps the group rigid.
+      for (const id of dragState.ids) {
+        const n = cy.getElementById(id);
+        const p = n.position();
+        n.position({ x: p.x + corrX, y: p.y + corrY });
+      }
+    });
+
+    cy.on("free", "node", () => {
+      dragState = null;
+    });
 
     // Suppress the browser's native context menu over the canvas.
     const handleContextMenu = (e: MouseEvent) => e.preventDefault();
@@ -433,6 +497,8 @@ export function GraphView({
     cyRef.current = cy;
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keydown", trackShift);
+      window.removeEventListener("keyup", trackShift);
       window.removeEventListener("mouseup", endDrag);
       container.removeEventListener("contextmenu", handleContextMenu);
       cy.destroy();
