@@ -16,4 +16,5 @@ export {
   IconDeviceFloppy,
   IconTrash,
   IconGrid3x3,
+  IconDownload,
 } from "@tabler/icons-react";

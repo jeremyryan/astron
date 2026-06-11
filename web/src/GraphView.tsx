@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { ActionIcon, Menu, Text, Tooltip } from "@mantine/core";
-import { IconCode, IconGrid3x3, IconPencil } from "./icons";
+import { ActionIcon, Group, Menu, Text, Tooltip } from "@mantine/core";
+import { IconCode, IconDownload, IconGrid3x3, IconPencil } from "./icons";
 import cytoscape, { type Core, type ElementDefinition } from "cytoscape";
 import dagre from "cytoscape-dagre";
 import fcose from "cytoscape-fcose";
@@ -114,6 +114,8 @@ interface Props {
   onShowYaml: (node: GraphNode) => void;
   // When true, resources are grouped into compound nodes by namespace.
   groupByNamespace: boolean;
+  // Base file name (without extension) used when exporting the graph image.
+  exportName?: string;
 }
 
 // Context menu anchored at a viewport position for a right-clicked node.
@@ -130,6 +132,7 @@ export function GraphView({
   maxDistance,
   onShowYaml,
   groupByNamespace,
+  exportName,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
@@ -474,22 +477,49 @@ export function GraphView({
     fittedSubgraphRef.current = true;
   }, [graph, selectedId, maxDistance]);
 
+  // Export the current graph as a PNG and trigger a download. Uses Cytoscape's
+  // built-in raster export (full graph, 2x scale, on the app background).
+  const exportPng = () => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    const blob = cy.png({ output: "blob", full: true, scale: 2, bg: "#1a1d23" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${exportName || "gamera-graph"}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <>
       <div ref={containerRef} className="graph-canvas" />
       {showGrid && <div className="graph-grid-overlay" aria-hidden />}
-      <Tooltip label={showGrid ? "Hide grid" : "Show grid"} position="left" withArrow>
-        <ActionIcon
-          className="graph-grid-toggle"
-          variant={showGrid ? "filled" : "default"}
-          size="lg"
-          aria-label="Toggle grid overlay"
-          aria-pressed={showGrid}
-          onClick={() => setShowGrid((v) => !v)}
-        >
-          <IconGrid3x3 size={18} stroke={1.5} />
-        </ActionIcon>
-      </Tooltip>
+      <Group gap={6} className="graph-controls">
+        <Tooltip label="Export as PNG" position="bottom" withArrow>
+          <ActionIcon
+            variant="default"
+            size="lg"
+            aria-label="Export graph as PNG"
+            onClick={exportPng}
+          >
+            <IconDownload size={18} stroke={1.5} />
+          </ActionIcon>
+        </Tooltip>
+        <Tooltip label={showGrid ? "Hide grid" : "Show grid"} position="bottom" withArrow>
+          <ActionIcon
+            variant={showGrid ? "filled" : "default"}
+            size="lg"
+            aria-label="Toggle grid overlay"
+            aria-pressed={showGrid}
+            onClick={() => setShowGrid((v) => !v)}
+          >
+            <IconGrid3x3 size={18} stroke={1.5} />
+          </ActionIcon>
+        </Tooltip>
+      </Group>
       {menu && (
         <Menu
           opened
