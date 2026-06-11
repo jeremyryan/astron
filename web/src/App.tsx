@@ -539,6 +539,7 @@ function GraphPanel({
             maxDistance={maxDistance}
             onShowYaml={setYamlNode}
             groupByNamespace={groupByNamespace}
+            exportName={`${projection.namespace}-${projection.name}`}
           />
         )}
         {edgeTypes.length > 0 && <EdgeLegend types={edgeTypes} />}

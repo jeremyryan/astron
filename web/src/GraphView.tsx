@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { Menu, Text } from "@mantine/core";
-import { IconCode, IconPencil } from "./icons";
-import cytoscape, { type Core, type ElementDefinition } from "cytoscape";
+import { ActionIcon, Divider, Group, Menu, Text, Tooltip } from "@mantine/core";
+import {
+  IconCode,
+  IconDownload,
+  IconGrid3x3,
+  IconLayoutAlignCenter,
+  IconLayoutAlignMiddle,
+  IconLayoutDistributeHorizontal,
+  IconLayoutDistributeVertical,
+  IconPencil,
+} from "./icons";
+import cytoscape, { type Core, type ElementDefinition, type NodeSingular } from "cytoscape";
 import dagre from "cytoscape-dagre";
 import fcose from "cytoscape-fcose";
 import type { Graph, GraphNode, GraphSelection } from "./api";
@@ -114,6 +123,8 @@ interface Props {
   onShowYaml: (node: GraphNode) => void;
   // When true, resources are grouped into compound nodes by namespace.
   groupByNamespace: boolean;
+  // Base file name (without extension) used when exporting the graph image.
+  exportName?: string;
 }
 
 // Context menu anchored at a viewport position for a right-clicked node.
@@ -130,11 +141,17 @@ export function GraphView({
   maxDistance,
   onShowYaml,
   groupByNamespace,
+  exportName,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
   // Right-click context menu state (null = closed).
   const [menu, setMenu] = useState<NodeMenu | null>(null);
+  // Whether a reference grid is overlaid on the display.
+  const [showGrid, setShowGrid] = useState(false);
+  // Number of (non-group) nodes currently selected; alignment tools appear when
+  // two or more are selected.
+  const [selectedCount, setSelectedCount] = useState(0);
   // Tracks whether the view is currently zoomed into a distance subgraph, so we
   // can zoom back out when the filter is cleared.
   const fittedSubgraphRef = useRef(false);
@@ -297,6 +314,13 @@ export function GraphView({
       }
     });
 
+    // Track how many real nodes are selected so the alignment tools can appear
+    // for multi-selections (e.g. via Shift box-select).
+    const updateSelectedCount = () => {
+      setSelectedCount(cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS)).length);
+    };
+    cy.on("select unselect", "node", updateSelectedCount);
+
     // Right-click a node to open a context menu at the cursor. Clicking the
     // background (or panning/zooming) dismisses it.
     cy.on("cxttap", "node", (evt) => {
@@ -315,12 +339,17 @@ export function GraphView({
     const el = containerRef.current;
     let dragging = false;
     cy.on("mouseover", "node", (evt) => {
-      if (dragging || evt.target.hasClass(GROUP_CLASS)) return;
-      el.style.cursor = "pointer";
+      if (evt.target.hasClass(GROUP_CLASS)) return;
+      // Disable box-select while hovering a node so Shift+drag moves (and
+      // 45°-constrains) the node rather than starting a selection box. Shift+drag
+      // on the background still box-selects.
+      cy.boxSelectionEnabled(false);
+      if (!dragging) el.style.cursor = "pointer";
     });
     cy.on("mouseout", "node", (evt) => {
-      if (dragging || evt.target.hasClass(GROUP_CLASS)) return;
-      el.style.cursor = "";
+      if (evt.target.hasClass(GROUP_CLASS)) return;
+      cy.boxSelectionEnabled(true);
+      if (!dragging) el.style.cursor = "";
     });
     cy.on("grab", "node", () => {
       dragging = true;
@@ -348,14 +377,107 @@ export function GraphView({
     // Catch releases that happen outside the canvas during a pan/drag.
     window.addEventListener("mouseup", endDrag);
 
+    // Shift-constrained dragging: while Shift is held, the drag is locked to the
+    // nearest 45° axis (horizontal, vertical or diagonal) measured from each
+    // node's position when the drag began. The grabbed node's constrained delta
+    // is applied to every node moving with it so the group stays rigid.
+    let shiftDown = false;
+    const trackShift = (e: KeyboardEvent) => {
+      shiftDown = e.shiftKey;
+    };
+    window.addEventListener("keydown", trackShift);
+    window.addEventListener("keyup", trackShift);
+
+    let dragState:
+      | { grabbedId: string; start: { x: number; y: number }; ids: string[] }
+      | null = null;
+
+    cy.on("grab", "node", (evt) => {
+      const grabbed = evt.target as NodeSingular;
+      if (grabbed.hasClass(GROUP_CLASS)) {
+        dragState = null;
+        return;
+      }
+      // Nodes that move together: the selection if the grabbed node belongs to
+      // it, otherwise just the grabbed node.
+      const selected = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
+      const moving = grabbed.selected() && selected.nonempty() ? selected : grabbed;
+      const ids = (moving.toArray() as NodeSingular[]).map((n) => n.id());
+      dragState = { grabbedId: grabbed.id(), start: { ...grabbed.position() }, ids };
+    });
+
+    cy.on("drag", "node", (evt) => {
+      if (!shiftDown || !dragState) return;
+      // Cytoscape fires "drag" per moving node; act once, off the grabbed node.
+      if ((evt.target as NodeSingular).id() !== dragState.grabbedId) return;
+      const grabbed = cy.getElementById(dragState.grabbedId);
+      const free = grabbed.position();
+      const dx = free.x - dragState.start.x;
+      const dy = free.y - dragState.start.y;
+      if (dx === 0 && dy === 0) return;
+      // Lock to the nearest 45° axis and project the drag onto it.
+      const STEP = Math.PI / 4;
+      const axis = Math.round(Math.atan2(dy, dx) / STEP) * STEP;
+      const proj = dx * Math.cos(axis) + dy * Math.sin(axis);
+      const cx = dragState.start.x + proj * Math.cos(axis);
+      const cy2 = dragState.start.y + proj * Math.sin(axis);
+      const corrX = cx - free.x;
+      const corrY = cy2 - free.y;
+      if (corrX === 0 && corrY === 0) return;
+      // Same correction for every moving node keeps the group rigid.
+      for (const id of dragState.ids) {
+        const n = cy.getElementById(id);
+        const p = n.position();
+        n.position({ x: p.x + corrX, y: p.y + corrY });
+      }
+    });
+
+    cy.on("free", "node", () => {
+      dragState = null;
+    });
+
     // Suppress the browser's native context menu over the canvas.
     const handleContextMenu = (e: MouseEvent) => e.preventDefault();
     containerRef.current.addEventListener("contextmenu", handleContextMenu);
 
-    // Keyboard shortcuts acting on the currently selected node:
+    // Keyboard shortcuts acting on the currently selected node(s):
+    //   Arrow keys  nudge the selection (hold Shift for a larger step)
     //   Ctrl/Cmd-C  centers it in the view
     //   Ctrl/Cmd-Y  opens its YAML manifest modal
+    const ARROW_DELTAS: Record<string, [number, number]> = {
+      ArrowUp: [0, -1],
+      ArrowDown: [0, 1],
+      ArrowLeft: [-1, 0],
+      ArrowRight: [1, 0],
+    };
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't hijack keys while the user is typing in a form field.
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      // Arrow keys move the selected node(s) in model space. Plain arrows only
+      // (modifiers are reserved for other shortcuts / browser behavior).
+      const delta = ARROW_DELTAS[e.key];
+      if (delta && !(e.ctrlKey || e.metaKey || e.altKey)) {
+        const selected = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
+        if (selected.empty()) return;
+        e.preventDefault();
+        const step = e.shiftKey ? 50 : 10;
+        const [dx, dy] = delta;
+        selected.forEach((n) => {
+          const p = n.position();
+          n.position({ x: p.x + dx * step, y: p.y + dy * step });
+        });
+        return;
+      }
+
       if (!(e.ctrlKey || e.metaKey)) return;
       const key = e.key.toLowerCase();
       if (key !== "c" && key !== "y") return;
@@ -375,6 +497,8 @@ export function GraphView({
     cyRef.current = cy;
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keydown", trackShift);
+      window.removeEventListener("keyup", trackShift);
       window.removeEventListener("mouseup", endDrag);
       container.removeEventListener("contextmenu", handleContextMenu);
       cy.destroy();
@@ -438,9 +562,143 @@ export function GraphView({
     fittedSubgraphRef.current = true;
   }, [graph, selectedId, maxDistance]);
 
+  // Align the currently selected nodes onto a common axis: "horizontal" puts
+  // them in a row (shared Y = their average), "vertical" in a column (shared X).
+  const alignSelected = (axis: "horizontal" | "vertical") => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    const nodes = cy
+      .nodes(":selected")
+      .filter((n) => !n.hasClass(GROUP_CLASS))
+      .toArray() as NodeSingular[];
+    if (nodes.length < 2) return;
+    if (axis === "horizontal") {
+      const y = nodes.reduce((s, n) => s + n.position().y, 0) / nodes.length;
+      nodes.forEach((n) => {
+        n.position({ x: n.position().x, y });
+      });
+    } else {
+      const x = nodes.reduce((s, n) => s + n.position().x, 0) / nodes.length;
+      nodes.forEach((n) => {
+        n.position({ x, y: n.position().y });
+      });
+    }
+  };
+
+  // Distribute the selected nodes so their centers are evenly spaced along an
+  // axis, keeping the two extremes fixed. Needs at least three nodes.
+  const distributeSelected = (axis: "horizontal" | "vertical") => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    const nodes = cy
+      .nodes(":selected")
+      .filter((n) => !n.hasClass(GROUP_CLASS))
+      .toArray() as NodeSingular[];
+    if (nodes.length < 3) return;
+    const key = axis === "horizontal" ? "x" : "y";
+    const sorted = [...nodes].sort((a, b) => a.position()[key] - b.position()[key]);
+    const first = sorted[0].position()[key];
+    const last = sorted[sorted.length - 1].position()[key];
+    const step = (last - first) / (sorted.length - 1);
+    sorted.forEach((n, i) => {
+      const p = n.position();
+      const v = first + i * step;
+      n.position(axis === "horizontal" ? { x: v, y: p.y } : { x: p.x, y: v });
+    });
+  };
+
+  // Export the current graph as a PNG and trigger a download. Uses Cytoscape's
+  // built-in raster export (full graph, 2x scale, on the app background).
+  const exportPng = () => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    const blob = cy.png({ output: "blob", full: true, scale: 2, bg: "#1a1d23" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${exportName || "gamera-graph"}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <>
       <div ref={containerRef} className="graph-canvas" />
+      {showGrid && <div className="graph-grid-overlay" aria-hidden />}
+      <Group gap={6} className="graph-controls">
+        {selectedCount >= 2 && (
+          <>
+            <Tooltip label="Align horizontally (same row)" position="bottom" withArrow>
+              <ActionIcon
+                variant="default"
+                size="lg"
+                aria-label="Align selected nodes horizontally"
+                onClick={() => alignSelected("horizontal")}
+              >
+                <IconLayoutAlignMiddle size={18} stroke={1.5} />
+              </ActionIcon>
+            </Tooltip>
+            <Tooltip label="Align vertically (same column)" position="bottom" withArrow>
+              <ActionIcon
+                variant="default"
+                size="lg"
+                aria-label="Align selected nodes vertically"
+                onClick={() => alignSelected("vertical")}
+              >
+                <IconLayoutAlignCenter size={18} stroke={1.5} />
+              </ActionIcon>
+            </Tooltip>
+            {selectedCount >= 3 && (
+              <>
+                <Tooltip label="Distribute horizontally (even spacing)" position="bottom" withArrow>
+                  <ActionIcon
+                    variant="default"
+                    size="lg"
+                    aria-label="Distribute selected nodes horizontally"
+                    onClick={() => distributeSelected("horizontal")}
+                  >
+                    <IconLayoutDistributeVertical size={18} stroke={1.5} />
+                  </ActionIcon>
+                </Tooltip>
+                <Tooltip label="Distribute vertically (even spacing)" position="bottom" withArrow>
+                  <ActionIcon
+                    variant="default"
+                    size="lg"
+                    aria-label="Distribute selected nodes vertically"
+                    onClick={() => distributeSelected("vertical")}
+                  >
+                    <IconLayoutDistributeHorizontal size={18} stroke={1.5} />
+                  </ActionIcon>
+                </Tooltip>
+              </>
+            )}
+            <Divider orientation="vertical" />
+          </>
+        )}
+        <Tooltip label="Export as PNG" position="bottom" withArrow>
+          <ActionIcon
+            variant="default"
+            size="lg"
+            aria-label="Export graph as PNG"
+            onClick={exportPng}
+          >
+            <IconDownload size={18} stroke={1.5} />
+          </ActionIcon>
+        </Tooltip>
+        <Tooltip label={showGrid ? "Hide grid" : "Show grid"} position="bottom" withArrow>
+          <ActionIcon
+            variant={showGrid ? "filled" : "default"}
+            size="lg"
+            aria-label="Toggle grid overlay"
+            aria-pressed={showGrid}
+            onClick={() => setShowGrid((v) => !v)}
+          >
+            <IconGrid3x3 size={18} stroke={1.5} />
+          </ActionIcon>
+        </Tooltip>
+      </Group>
       {menu && (
         <Menu
           opened
