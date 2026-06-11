@@ -17,4 +17,6 @@ export {
   IconTrash,
   IconGrid3x3,
   IconDownload,
+  IconLayoutAlignMiddle,
+  IconLayoutAlignCenter,
 } from "@tabler/icons-react";

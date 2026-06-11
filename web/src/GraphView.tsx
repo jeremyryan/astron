@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { ActionIcon, Group, Menu, Text, Tooltip } from "@mantine/core";
-import { IconCode, IconDownload, IconGrid3x3, IconPencil } from "./icons";
-import cytoscape, { type Core, type ElementDefinition } from "cytoscape";
+import { ActionIcon, Divider, Group, Menu, Text, Tooltip } from "@mantine/core";
+import {
+  IconCode,
+  IconDownload,
+  IconGrid3x3,
+  IconLayoutAlignCenter,
+  IconLayoutAlignMiddle,
+  IconPencil,
+} from "./icons";
+import cytoscape, { type Core, type ElementDefinition, type NodeSingular } from "cytoscape";
 import dagre from "cytoscape-dagre";
 import fcose from "cytoscape-fcose";
 import type { Graph, GraphNode, GraphSelection } from "./api";
@@ -140,6 +147,9 @@ export function GraphView({
   const [menu, setMenu] = useState<NodeMenu | null>(null);
   // Whether a reference grid is overlaid on the display.
   const [showGrid, setShowGrid] = useState(false);
+  // Number of (non-group) nodes currently selected; alignment tools appear when
+  // two or more are selected.
+  const [selectedCount, setSelectedCount] = useState(0);
   // Tracks whether the view is currently zoomed into a distance subgraph, so we
   // can zoom back out when the filter is cleared.
   const fittedSubgraphRef = useRef(false);
@@ -301,6 +311,13 @@ export function GraphView({
         onSelect(null);
       }
     });
+
+    // Track how many real nodes are selected so the alignment tools can appear
+    // for multi-selections (e.g. via Shift box-select).
+    const updateSelectedCount = () => {
+      setSelectedCount(cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS)).length);
+    };
+    cy.on("select unselect", "node", updateSelectedCount);
 
     // Right-click a node to open a context menu at the cursor. Clicking the
     // background (or panning/zooming) dismisses it.
@@ -477,6 +494,29 @@ export function GraphView({
     fittedSubgraphRef.current = true;
   }, [graph, selectedId, maxDistance]);
 
+  // Align the currently selected nodes onto a common axis: "horizontal" puts
+  // them in a row (shared Y = their average), "vertical" in a column (shared X).
+  const alignSelected = (axis: "horizontal" | "vertical") => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    const nodes = cy
+      .nodes(":selected")
+      .filter((n) => !n.hasClass(GROUP_CLASS))
+      .toArray() as NodeSingular[];
+    if (nodes.length < 2) return;
+    if (axis === "horizontal") {
+      const y = nodes.reduce((s, n) => s + n.position().y, 0) / nodes.length;
+      nodes.forEach((n) => {
+        n.position({ x: n.position().x, y });
+      });
+    } else {
+      const x = nodes.reduce((s, n) => s + n.position().x, 0) / nodes.length;
+      nodes.forEach((n) => {
+        n.position({ x, y: n.position().y });
+      });
+    }
+  };
+
   // Export the current graph as a PNG and trigger a download. Uses Cytoscape's
   // built-in raster export (full graph, 2x scale, on the app background).
   const exportPng = () => {
@@ -498,6 +538,31 @@ export function GraphView({
       <div ref={containerRef} className="graph-canvas" />
       {showGrid && <div className="graph-grid-overlay" aria-hidden />}
       <Group gap={6} className="graph-controls">
+        {selectedCount >= 2 && (
+          <>
+            <Tooltip label="Align horizontally (same row)" position="bottom" withArrow>
+              <ActionIcon
+                variant="default"
+                size="lg"
+                aria-label="Align selected nodes horizontally"
+                onClick={() => alignSelected("horizontal")}
+              >
+                <IconLayoutAlignMiddle size={18} stroke={1.5} />
+              </ActionIcon>
+            </Tooltip>
+            <Tooltip label="Align vertically (same column)" position="bottom" withArrow>
+              <ActionIcon
+                variant="default"
+                size="lg"
+                aria-label="Align selected nodes vertically"
+                onClick={() => alignSelected("vertical")}
+              >
+                <IconLayoutAlignCenter size={18} stroke={1.5} />
+              </ActionIcon>
+            </Tooltip>
+            <Divider orientation="vertical" />
+          </>
+        )}
         <Tooltip label="Export as PNG" position="bottom" withArrow>
           <ActionIcon
             variant="default"
