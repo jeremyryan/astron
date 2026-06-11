@@ -6,6 +6,8 @@ import {
   IconGrid3x3,
   IconLayoutAlignCenter,
   IconLayoutAlignMiddle,
+  IconLayoutDistributeHorizontal,
+  IconLayoutDistributeVertical,
   IconPencil,
 } from "./icons";
 import cytoscape, { type Core, type ElementDefinition, type NodeSingular } from "cytoscape";
@@ -517,6 +519,28 @@ export function GraphView({
     }
   };
 
+  // Distribute the selected nodes so their centers are evenly spaced along an
+  // axis, keeping the two extremes fixed. Needs at least three nodes.
+  const distributeSelected = (axis: "horizontal" | "vertical") => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    const nodes = cy
+      .nodes(":selected")
+      .filter((n) => !n.hasClass(GROUP_CLASS))
+      .toArray() as NodeSingular[];
+    if (nodes.length < 3) return;
+    const key = axis === "horizontal" ? "x" : "y";
+    const sorted = [...nodes].sort((a, b) => a.position()[key] - b.position()[key]);
+    const first = sorted[0].position()[key];
+    const last = sorted[sorted.length - 1].position()[key];
+    const step = (last - first) / (sorted.length - 1);
+    sorted.forEach((n, i) => {
+      const p = n.position();
+      const v = first + i * step;
+      n.position(axis === "horizontal" ? { x: v, y: p.y } : { x: p.x, y: v });
+    });
+  };
+
   // Export the current graph as a PNG and trigger a download. Uses Cytoscape's
   // built-in raster export (full graph, 2x scale, on the app background).
   const exportPng = () => {
@@ -560,6 +584,30 @@ export function GraphView({
                 <IconLayoutAlignCenter size={18} stroke={1.5} />
               </ActionIcon>
             </Tooltip>
+            {selectedCount >= 3 && (
+              <>
+                <Tooltip label="Distribute horizontally (even spacing)" position="bottom" withArrow>
+                  <ActionIcon
+                    variant="default"
+                    size="lg"
+                    aria-label="Distribute selected nodes horizontally"
+                    onClick={() => distributeSelected("horizontal")}
+                  >
+                    <IconLayoutDistributeVertical size={18} stroke={1.5} />
+                  </ActionIcon>
+                </Tooltip>
+                <Tooltip label="Distribute vertically (even spacing)" position="bottom" withArrow>
+                  <ActionIcon
+                    variant="default"
+                    size="lg"
+                    aria-label="Distribute selected nodes vertically"
+                    onClick={() => distributeSelected("vertical")}
+                  >
+                    <IconLayoutDistributeHorizontal size={18} stroke={1.5} />
+                  </ActionIcon>
+                </Tooltip>
+              </>
+            )}
             <Divider orientation="vertical" />
           </>
         )}

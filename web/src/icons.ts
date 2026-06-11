@@ -19,4 +19,6 @@ export {
   IconDownload,
   IconLayoutAlignMiddle,
   IconLayoutAlignCenter,
+  IconLayoutDistributeHorizontal,
+  IconLayoutDistributeVertical,
 } from "@tabler/icons-react";
