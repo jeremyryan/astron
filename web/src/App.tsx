@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ActionIcon,
@@ -502,16 +502,18 @@ function GraphPanel({
     setGroupByNamespace(f.groupByNamespace ?? true);
   };
 
-  // When a saved view is selected in the navbar, apply its filters once.
-  const appliedRef = useRef<View | null>(null);
+  // Keep the panel filters in sync with the navbar selection: apply a view's
+  // filters when one is active, and otherwise reset to the unfiltered default.
+  // Keying on the projection means moving from one projection to another
+  // without picking a view starts from a clean slate rather than carrying the
+  // previous view's filters over. Manual filter edits don't touch activeView,
+  // so they persist (this only runs when the projection or active view
+  // changes).
   useEffect(() => {
-    if (activeView && appliedRef.current !== activeView) {
-      appliedRef.current = activeView;
-      applyFilters(activeView.filters);
-    }
-    // applyFilters is stable for our purposes; only re-run when the view changes.
+    applyFilters(activeView ? activeView.filters : {});
+    // applyFilters is stable for our purposes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeView]);
+  }, [projection.uid, activeView]);
 
   return (
     <div className="graph-panel">
