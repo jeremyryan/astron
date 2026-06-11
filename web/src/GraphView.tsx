@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Menu, Text } from "@mantine/core";
-import { IconCode, IconPencil } from "./icons";
+import { ActionIcon, Menu, Text, Tooltip } from "@mantine/core";
+import { IconCode, IconGrid3x3, IconPencil } from "./icons";
 import cytoscape, { type Core, type ElementDefinition } from "cytoscape";
 import dagre from "cytoscape-dagre";
 import fcose from "cytoscape-fcose";
@@ -135,6 +135,8 @@ export function GraphView({
   const cyRef = useRef<Core | null>(null);
   // Right-click context menu state (null = closed).
   const [menu, setMenu] = useState<NodeMenu | null>(null);
+  // Whether a reference grid is overlaid on the display.
+  const [showGrid, setShowGrid] = useState(false);
   // Tracks whether the view is currently zoomed into a distance subgraph, so we
   // can zoom back out when the filter is cleared.
   const fittedSubgraphRef = useRef(false);
@@ -441,6 +443,19 @@ export function GraphView({
   return (
     <>
       <div ref={containerRef} className="graph-canvas" />
+      {showGrid && <div className="graph-grid-overlay" aria-hidden />}
+      <Tooltip label={showGrid ? "Hide grid" : "Show grid"} position="left" withArrow>
+        <ActionIcon
+          className="graph-grid-toggle"
+          variant={showGrid ? "filled" : "default"}
+          size="lg"
+          aria-label="Toggle grid overlay"
+          aria-pressed={showGrid}
+          onClick={() => setShowGrid((v) => !v)}
+        >
+          <IconGrid3x3 size={18} stroke={1.5} />
+        </ActionIcon>
+      </Tooltip>
       {menu && (
         <Menu
           opened
