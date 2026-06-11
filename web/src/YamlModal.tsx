@@ -1,4 +1,4 @@
-import { Code, Group, Loader, Modal, ScrollArea, Text } from "@mantine/core";
+import { Code, Group, Loader, Modal, Text } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
 import { getResourceYaml, type GraphNode } from "./api";
 import { IconFileCode } from "./icons";
@@ -25,13 +25,7 @@ export function YamlModal({ node, onClose }: { node: GraphNode | null; onClose: 
   );
 
   return (
-    <Modal
-      opened={!!node}
-      onClose={onClose}
-      size="xl"
-      title={title}
-      scrollAreaComponent={ScrollArea.Autosize}
-    >
+    <Modal opened={!!node} onClose={onClose} size="xl" title={title}>
       {isLoading && (
         <Group gap="xs">
           <Loader size="sm" />
@@ -40,7 +34,12 @@ export function YamlModal({ node, onClose }: { node: GraphNode | null; onClose: 
       )}
       {error && <Text c="red">{(error as Error).message}</Text>}
       {data && (
-        <Code block style={{ maxHeight: "70vh", overflow: "auto", fontSize: 12 }}>
+        <Code
+          block
+          // Keep the manifest's own scrolling self-contained so a long line
+          // never widens the dialog and pushes the close button out of view.
+          style={{ maxWidth: "100%", maxHeight: "70vh", overflow: "auto", fontSize: 12 }}
+        >
           {data}
         </Code>
       )}
