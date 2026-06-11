@@ -461,6 +461,91 @@ export function GraphView({
       dragState = null;
     });
 
+    // --- Drag a whole namespace by grabbing its name -----------------------
+    // The compound "namespace" boxes have events disabled so the canvas can be
+    // panned / box-selected from their empty interior. To still let users move
+    // an entire namespace, we treat a press on the box's *label* (its name,
+    // rendered at the top) as a grab and move every child node, just as if the
+    // group had been box-selected and dragged. The compound parent's bounding
+    // box — and thus the label — follows its children automatically.
+
+    // Height, in model units, of the grabbable band around a namespace label
+    // at the top edge of its box. Generous enough to cover the rendered name.
+    const LABEL_BAND = 22;
+
+    // The namespace group whose label band contains a model-space position, if
+    // any. The label sits at the top edge (nudged slightly above it), so the
+    // band straddles that edge.
+    const groupAtLabel = (pos: { x: number; y: number }): NodeSingular | null => {
+      let hit: NodeSingular | null = null;
+      cy.nodes(`.${GROUP_CLASS}`).forEach((g) => {
+        // Box body only (exclude the label) so bb.y1 is the top edge, where the
+        // name is drawn.
+        const bb = g.boundingBox({ includeLabels: false, includeOverlays: false });
+        if (
+          pos.x >= bb.x1 &&
+          pos.x <= bb.x2 &&
+          pos.y >= bb.y1 - LABEL_BAND &&
+          pos.y <= bb.y1 + LABEL_BAND
+        ) {
+          hit = g;
+        }
+      });
+      return hit;
+    };
+
+    let groupDrag: { childIds: string[]; last: { x: number; y: number } } | null = null;
+
+    cy.on("tapstart", (evt) => {
+      // Group bodies have events:"no", so a press over one reports the core as
+      // the target. Only react to a primary, unmodified press over a label.
+      if (evt.target !== cy) return;
+      const oe = evt.originalEvent as MouseEvent | undefined;
+      if (oe && (oe.button !== 0 || oe.shiftKey)) return;
+      const g = groupAtLabel(evt.position);
+      if (!g) return;
+      const children = g.children().filter((n) => !n.hasClass(GROUP_CLASS));
+      if (children.empty()) return;
+      groupDrag = {
+        childIds: (children.toArray() as NodeSingular[]).map((n) => n.id()),
+        last: { x: evt.position.x, y: evt.position.y },
+      };
+      // Hold off panning / box-selecting while we move the namespace.
+      cy.userPanningEnabled(false);
+      cy.boxSelectionEnabled(false);
+      el.style.cursor = "grabbing";
+    });
+
+    cy.on("tapdrag", (evt) => {
+      if (!groupDrag) return;
+      const dx = evt.position.x - groupDrag.last.x;
+      const dy = evt.position.y - groupDrag.last.y;
+      if (dx === 0 && dy === 0) return;
+      groupDrag.last = { x: evt.position.x, y: evt.position.y };
+      for (const id of groupDrag.childIds) {
+        const n = cy.getElementById(id);
+        const p = n.position();
+        n.position({ x: p.x + dx, y: p.y + dy });
+      }
+    });
+
+    const endGroupDrag = () => {
+      if (!groupDrag) return;
+      groupDrag = null;
+      cy.userPanningEnabled(true);
+      cy.boxSelectionEnabled(true);
+      el.style.cursor = "";
+    };
+    cy.on("tapend", endGroupDrag);
+    window.addEventListener("mouseup", endGroupDrag);
+
+    // Cursor affordance: show a "grab" cursor when hovering a namespace label
+    // so it's discoverable as draggable (the box interior stays a pan target).
+    cy.on("mousemove", (evt) => {
+      if (groupDrag || dragging || evt.target !== cy) return;
+      el.style.cursor = groupAtLabel(evt.position) ? "grab" : "";
+    });
+
     // Suppress the browser's native context menu over the canvas.
     const handleContextMenu = (e: MouseEvent) => e.preventDefault();
     containerRef.current.addEventListener("contextmenu", handleContextMenu);
@@ -525,6 +610,7 @@ export function GraphView({
       window.removeEventListener("keydown", trackShift);
       window.removeEventListener("keyup", trackShift);
       window.removeEventListener("mouseup", endDrag);
+      window.removeEventListener("mouseup", endGroupDrag);
       container.removeEventListener("contextmenu", handleContextMenu);
       cy.destroy();
       cyRef.current = null;
