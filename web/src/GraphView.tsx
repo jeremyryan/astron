@@ -123,6 +123,8 @@ interface Props {
   onShowYaml: (node: GraphNode) => void;
   // When true, resources are grouped into compound nodes by namespace.
   groupByNamespace: boolean;
+  // When false, edge (relationship-type) labels are hidden.
+  showEdgeLabels: boolean;
   // Base file name (without extension) used when exporting the graph image.
   exportName?: string;
 }
@@ -141,6 +143,7 @@ export function GraphView({
   maxDistance,
   onShowYaml,
   groupByNamespace,
+  showEdgeLabels,
   exportName,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -231,6 +234,12 @@ export function GraphView({
         {
           selector: "node:selected",
           style: { "border-width": 3, "border-color": "#fff" },
+        },
+        // Edges whose labels are toggled off hide just the relationship text
+        // while keeping the line, arrow and color.
+        {
+          selector: "edge.no-label",
+          style: { "text-opacity": 0, "text-background-opacity": 0 },
         },
         // A selected edge is highlighted (brighter, thicker).
         {
@@ -561,6 +570,14 @@ export function GraphView({
     cy.animate({ fit: { eles: withinNodes, padding: 50 }, duration: 250 });
     fittedSubgraphRef.current = true;
   }, [graph, selectedId, maxDistance]);
+
+  // Toggle edge labels without rebuilding the graph. Re-runs after a rebuild
+  // (graph dep) so the current preference is reapplied to fresh elements.
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    cy.edges().toggleClass("no-label", !showEdgeLabels);
+  }, [graph, showEdgeLabels]);
 
   // Align the currently selected nodes onto a common axis: "horizontal" puts
   // them in a row (shared Y = their average), "vertical" in a column (shared X).

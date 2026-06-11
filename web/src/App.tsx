@@ -37,7 +37,14 @@ import { YamlModal } from "./YamlModal";
 import { SettingsModal } from "./SettingsModal";
 import { useSettings } from "./settings";
 import { colorForRelationship, iconForKind } from "./kinds";
-import { IconBookmark, IconHierarchy2, IconSettings, IconTopologyStar3 } from "./icons";
+import {
+  IconBookmark,
+  IconHierarchy2,
+  IconSettings,
+  IconTag,
+  IconTagOff,
+  IconTopologyStar3,
+} from "./icons";
 
 // ProjectionNavItem renders one projection in the navbar with its saved Views
 // nested beneath it. Clicking the projection selects it (custom filters);
@@ -331,10 +338,40 @@ function matchesLabelFilters(
 }
 
 // EdgeLegend is a small floating key mapping relationship types to their edge
-// colors, shown over the graph.
-function EdgeLegend({ types }: { types: string[] }) {
+// colors, shown over the graph. It also carries a toggle for edge labels.
+function EdgeLegend({
+  types,
+  showLabels,
+  onToggleLabels,
+}: {
+  types: string[];
+  showLabels: boolean;
+  onToggleLabels: () => void;
+}) {
   return (
     <div className="edge-legend">
+      <div className="edge-legend-header">
+        <span className="edge-legend-title">Edges</span>
+        <Tooltip
+          label={showLabels ? "Hide edge labels" : "Show edge labels"}
+          position="top"
+          withArrow
+        >
+          <ActionIcon
+            variant={showLabels ? "filled" : "default"}
+            size="sm"
+            aria-label="Toggle edge labels"
+            aria-pressed={showLabels}
+            onClick={onToggleLabels}
+          >
+            {showLabels ? (
+              <IconTag size={14} stroke={1.5} />
+            ) : (
+              <IconTagOff size={14} stroke={1.5} />
+            )}
+          </ActionIcon>
+        </Tooltip>
+      </div>
       {types.map((t) => (
         <div key={t} className="edge-legend-item">
           <span className="edge-legend-swatch" style={{ background: colorForRelationship(t) }} />
@@ -368,6 +405,8 @@ function GraphPanel({
   const [maxDistance, setMaxDistance] = useState<number | null>(null);
   // Whether to group resources into compound nodes by namespace.
   const [groupByNamespace, setGroupByNamespace] = useState(true);
+  // Whether edge (relationship-type) labels are drawn on the graph.
+  const [showEdgeLabels, setShowEdgeLabels] = useState(true);
   // Label filters and the AND/OR mode used to combine them.
   const [labelFilters, setLabelFilters] = useState<LabelFilter[]>([]);
   const [labelMode, setLabelMode] = useState<LabelMatchMode>("any");
@@ -539,10 +578,17 @@ function GraphPanel({
             maxDistance={maxDistance}
             onShowYaml={setYamlNode}
             groupByNamespace={groupByNamespace}
+            showEdgeLabels={showEdgeLabels}
             exportName={`${projection.namespace}-${projection.name}`}
           />
         )}
-        {edgeTypes.length > 0 && <EdgeLegend types={edgeTypes} />}
+        {edgeTypes.length > 0 && (
+          <EdgeLegend
+            types={edgeTypes}
+            showLabels={showEdgeLabels}
+            onToggleLabels={() => setShowEdgeLabels((v) => !v)}
+          />
+        )}
       </div>
       <YamlModal node={yamlNode} onClose={() => setYamlNode(null)} />
       <ScrollArea component="aside" className="inspector" type="scroll">
