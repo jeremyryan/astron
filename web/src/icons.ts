@@ -24,4 +24,6 @@ export {
   IconLayoutDistributeVertical,
   IconTag,
   IconTagOff,
+  IconCopy,
+  IconCheck,
 } from "@tabler/icons-react";
