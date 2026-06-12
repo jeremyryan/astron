@@ -489,7 +489,7 @@ function GraphPanel({
   activeView: View | null;
   onActiveViewChange: (v: View | null) => void;
 }) {
-  const { settings } = useSettings();
+  const { settings, update } = useSettings();
   // The currently inspected element (node or edge), or null.
   const [selection, setSelection] = useState<GraphSelection | null>(null);
   const selectedNode = selection?.type === "node" ? selection.node : null;
@@ -503,8 +503,9 @@ function GraphPanel({
   const [maxDistance, setMaxDistance] = useState<number | null>(null);
   // Whether to group resources into compound nodes by namespace.
   const [groupByNamespace, setGroupByNamespace] = useState(true);
-  // Whether edge (relationship-type) labels are drawn on the graph.
-  const [showEdgeLabels, setShowEdgeLabels] = useState(true);
+  // Whether edge (relationship-type) labels are drawn on the graph. Persisted
+  // across sessions via settings.
+  const showEdgeLabels = settings.showEdgeLabels;
   // Label filters and the AND/OR mode used to combine them.
   const [labelFilters, setLabelFilters] = useState<LabelFilter[]>([]);
   const [labelMode, setLabelMode] = useState<LabelMatchMode>("any");
@@ -686,7 +687,7 @@ function GraphPanel({
           <EdgeLegend
             types={edgeTypes}
             showLabels={showEdgeLabels}
-            onToggleLabels={() => setShowEdgeLabels((v) => !v)}
+            onToggleLabels={() => update({ showEdgeLabels: !showEdgeLabels })}
           />
         )}
       </div>

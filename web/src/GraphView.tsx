@@ -17,6 +17,7 @@ import dagre from "cytoscape-dagre";
 import fcose from "cytoscape-fcose";
 import type { Graph, GraphNode, GraphSelection } from "./api";
 import { colorForKind, colorForRelationship, iconForKind } from "./kinds";
+import { useSettings } from "./settings";
 
 cytoscape.use(dagre);
 cytoscape.use(fcose);
@@ -159,8 +160,10 @@ export function GraphView({
   const cyRef = useRef<Core | null>(null);
   // Right-click context menu state (null = closed).
   const [menu, setMenu] = useState<NodeMenu | null>(null);
-  // Whether a reference grid is overlaid on the display.
-  const [showGrid, setShowGrid] = useState(false);
+  // Whether a reference grid is overlaid on the display. Persisted across
+  // sessions via settings.
+  const { settings, update } = useSettings();
+  const showGrid = settings.showGrid;
   // Number of (non-group) nodes currently selected; alignment tools appear when
   // two or more are selected.
   const [selectedCount, setSelectedCount] = useState(0);
@@ -862,7 +865,7 @@ export function GraphView({
             size="lg"
             aria-label="Toggle grid overlay"
             aria-pressed={showGrid}
-            onClick={() => setShowGrid((v) => !v)}
+            onClick={() => update({ showGrid: !showGrid })}
           >
             <IconGrid3x3 size={18} stroke={1.5} />
           </ActionIcon>
