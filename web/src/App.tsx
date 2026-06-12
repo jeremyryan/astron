@@ -12,6 +12,7 @@ import {
   Text,
   Title,
   Tooltip,
+  UnstyledButton,
 } from "@mantine/core";
 import {
   getGraph,
@@ -219,6 +220,103 @@ function KeyValueSection({ title, value }: { title: string; value: unknown }) {
         </Text>
       )}
     </div>
+  );
+}
+
+// groupResources buckets nodes by namespace and then by kind, sorting each
+// level (and the resources within a kind) alphabetically. Cluster-scoped
+// resources are collected under a synthetic "(cluster-scoped)" group.
+function groupResources(nodes: GraphNode[]) {
+  const byNs = new Map<string, GraphNode[]>();
+  for (const n of nodes) {
+    const ns = n.namespace || "(cluster-scoped)";
+    let bucket = byNs.get(ns);
+    if (!bucket) byNs.set(ns, (bucket = []));
+    bucket.push(n);
+  }
+  return [...byNs.keys()]
+    .sort((a, b) => a.localeCompare(b))
+    .map((namespace) => {
+      const byKind = new Map<string, GraphNode[]>();
+      for (const n of byNs.get(namespace)!) {
+        let bucket = byKind.get(n.kind);
+        if (!bucket) byKind.set(n.kind, (bucket = []));
+        bucket.push(n);
+      }
+      const kinds = [...byKind.keys()]
+        .sort((a, b) => a.localeCompare(b))
+        .map((kind) => ({
+          kind,
+          nodes: byKind.get(kind)!.sort((a, b) => a.name.localeCompare(b.name)),
+        }));
+      return { namespace, kinds };
+    });
+}
+
+// ResourceList is shown in the inspector when nothing is selected: a browsable
+// index of the visible resources grouped by namespace then kind. Clicking a
+// resource name selects that node.
+function ResourceList({
+  nodes,
+  onSelect,
+}: {
+  nodes: GraphNode[];
+  onSelect: (node: GraphNode) => void;
+}) {
+  const groups = useMemo(() => groupResources(nodes), [nodes]);
+  if (nodes.length === 0)
+    return (
+      <Text size="sm" c="dimmed">
+        No resources to display.
+      </Text>
+    );
+  return (
+    <Stack gap="lg">
+      <Text size="xs" c="dimmed">
+        Select a node to inspect it, or pick a resource below.
+      </Text>
+      {groups.map((g) => (
+        <Stack gap="xs" key={g.namespace}>
+          <Text
+            size="xs"
+            fw={700}
+            tt="uppercase"
+            c="dimmed"
+            style={{ letterSpacing: "0.06em" }}
+          >
+            {g.namespace}
+          </Text>
+          {g.kinds.map((k) => {
+            const icon = iconForKind(k.kind);
+            return (
+              <Stack gap={2} key={k.kind}>
+                <Group gap={6} wrap="nowrap" align="center">
+                  {icon && <img src={icon} width={14} height={14} alt="" />}
+                  <Text size="xs" fw={600}>
+                    {k.kind}
+                  </Text>
+                  <Text size="xs" c="dimmed">
+                    {k.nodes.length}
+                  </Text>
+                </Group>
+                <Stack gap={0} pl={20}>
+                  {k.nodes.map((n) => (
+                    <UnstyledButton
+                      key={n.id}
+                      className="resource-link"
+                      onClick={() => onSelect(n)}
+                      title={n.name}
+                    >
+                      {n.name}
+                    </UnstyledButton>
+                  ))}
+                </Stack>
+              </Stack>
+            );
+          })}
+        </Stack>
+      ))}
+    </Stack>
   );
 }
 
@@ -596,8 +694,13 @@ function GraphPanel({
       <ScrollArea component="aside" className="inspector" type="scroll">
         {selection?.type === "edge" ? (
           <EdgeDetails selection={selection} />
-        ) : (
+        ) : selectedNode ? (
           <NodeDetails node={selectedNode} />
+        ) : (
+          <ResourceList
+            nodes={filteredGraph?.nodes ?? []}
+            onSelect={(node) => setSelection({ type: "node", node })}
+          />
         )}
       </ScrollArea>
     </div>

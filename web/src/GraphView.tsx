@@ -683,6 +683,24 @@ export function GraphView({
     cy.edges().toggleClass("no-label", !showEdgeLabels);
   }, [graph, showEdgeLabels]);
 
+  // Reflect an externally-driven selection (e.g. clicking a resource in the
+  // inspector list) onto the canvas: select and center the node. A node picked
+  // by tapping the canvas is already :selected by the time this runs, so taps
+  // are ignored here and never trigger an unwanted recenter.
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy || !selectedId) return;
+    const node = cy.getElementById(selectedId);
+    if (node.empty() || node.selected()) return;
+    cy.elements().unselect();
+    node.select();
+    // When a distance filter is active the fading effect already refits the
+    // view, so only center here otherwise.
+    if (maxDistance === null) {
+      cy.animate({ center: { eles: node }, duration: 250 });
+    }
+  }, [selectedId, maxDistance]);
+
   // Align the currently selected nodes onto a common axis: "horizontal" puts
   // them in a row (shared Y = their average), "vertical" in a column (shared X).
   const alignSelected = (axis: "horizontal" | "vertical") => {
