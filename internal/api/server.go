@@ -24,6 +24,7 @@ import (
 	"io/fs"
 	"net/http"
 	"path"
+	"sort"
 	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -95,6 +96,15 @@ func (s *Server) handleListProjections(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	// Sort deterministically (namespace, then name) so the API returns the same
+	// order on every call; the underlying List has no guaranteed ordering.
+	sort.Slice(list.Items, func(i, j int) bool {
+		a, b := list.Items[i], list.Items[j]
+		if a.Namespace != b.Namespace {
+			return a.Namespace < b.Namespace
+		}
+		return a.Name < b.Name
+	})
 	out := make([]projectionDTO, 0, len(list.Items))
 	for _, p := range list.Items {
 		out = append(out, projectionToDTO(p))

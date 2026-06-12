@@ -92,6 +92,37 @@ func TestListProjections(t *testing.T) {
 	}
 }
 
+func TestListProjectionsSorted(t *testing.T) {
+	// Provide projections out of order; the API must return them sorted by
+	// (namespace, name) regardless of input order.
+	objs := []client.Object{
+		&gamerav1alpha1.GraphProjection{ObjectMeta: metav1.ObjectMeta{Name: "zeta", Namespace: "b", UID: types.UID("u1")}},
+		&gamerav1alpha1.GraphProjection{ObjectMeta: metav1.ObjectMeta{Name: "alpha", Namespace: "b", UID: types.UID("u2")}},
+		&gamerav1alpha1.GraphProjection{ObjectMeta: metav1.ObjectMeta{Name: "mid", Namespace: "a", UID: types.UID("u3")}},
+	}
+	srv := newTestServer(t, objs...)
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/projections", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+
+	var got []projectionDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	want := []struct{ ns, name string }{{"a", "mid"}, {"b", "alpha"}, {"b", "zeta"}}
+	if len(got) != len(want) {
+		t.Fatalf("got %d projections, want %d", len(got), len(want))
+	}
+	for i, w := range want {
+		if got[i].Namespace != w.ns || got[i].Name != w.name {
+			t.Fatalf("projection[%d] = %s/%s, want %s/%s", i, got[i].Namespace, got[i].Name, w.ns, w.name)
+		}
+	}
+}
+
 func TestGraphNotFound(t *testing.T) {
 	srv := newTestServer(t)
 	rec := httptest.NewRecorder()
