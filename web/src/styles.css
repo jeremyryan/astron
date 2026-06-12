@@ -111,7 +111,13 @@ body {
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 2px;
-  /* The legend itself ignores pointer events; re-enable them for the toggle. */
+  /* Stay click-through (like the legend) so the title, padding and the toggle's
+     rounded corners don't swallow clicks; only the toggle button itself
+     captures pointer events. */
+  pointer-events: none;
+}
+
+.edge-legend-header button {
   pointer-events: auto;
 }
 
