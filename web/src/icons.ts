@@ -26,4 +26,6 @@ export {
   IconTagOff,
   IconCopy,
   IconCheck,
+  IconZoomIn,
+  IconZoomOut,
 } from "@tabler/icons-react";

@@ -9,6 +9,8 @@ import {
   IconLayoutDistributeHorizontal,
   IconLayoutDistributeVertical,
   IconPencil,
+  IconZoomIn,
+  IconZoomOut,
 } from "./icons";
 import cytoscape, { type Core, type ElementDefinition, type NodeSingular } from "cytoscape";
 import dagre from "cytoscape-dagre";
@@ -726,6 +728,15 @@ export function GraphView({
     });
   };
 
+  // Zoom in or out by a fixed factor, anchored on the center of the viewport so
+  // the graph grows / shrinks in place rather than drifting.
+  const zoomBy = (factor: number) => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    const center = { x: cy.width() / 2, y: cy.height() / 2 };
+    cy.zoom({ level: cy.zoom() * factor, renderedPosition: center });
+  };
+
   // Export the current graph as a PNG and trigger a download. Uses Cytoscape's
   // built-in raster export (full graph, 2x scale, on the app background).
   const exportPng = () => {
@@ -796,6 +807,27 @@ export function GraphView({
             <Divider orientation="vertical" />
           </>
         )}
+        <Tooltip label="Zoom in" position="bottom" withArrow>
+          <ActionIcon
+            variant="default"
+            size="lg"
+            aria-label="Zoom in"
+            onClick={() => zoomBy(1.2)}
+          >
+            <IconZoomIn size={18} stroke={1.5} />
+          </ActionIcon>
+        </Tooltip>
+        <Tooltip label="Zoom out" position="bottom" withArrow>
+          <ActionIcon
+            variant="default"
+            size="lg"
+            aria-label="Zoom out"
+            onClick={() => zoomBy(1 / 1.2)}
+          >
+            <IconZoomOut size={18} stroke={1.5} />
+          </ActionIcon>
+        </Tooltip>
+        <Divider orientation="vertical" />
         <Tooltip label="Export as PNG" position="bottom" withArrow>
           <ActionIcon
             variant="default"
