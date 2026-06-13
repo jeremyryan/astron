@@ -320,7 +320,21 @@ export function GraphView({
             padding: 20,
             nodeDimensionsIncludeLabels: true,
           } as unknown as cytoscape.LayoutOptions)
-        : ({ name: "dagre", rankDir: "TB", nodeSep: 30, rankSep: 50 } as cytoscape.LayoutOptions),
+        : // Force-directed rather than a strict dagre hierarchy: a cluster graph
+          // is mostly many small, disconnected source -> target trees, which
+          // dagre packs into a couple of cramped rows. fcose spreads them
+          // organically across the canvas and packs the disconnected components
+          // so the available 2D space is used.
+          ({
+            name: "fcose",
+            quality: "proof",
+            animate: false,
+            packComponents: true,
+            nodeSeparation: 75,
+            idealEdgeLength: 80,
+            padding: 30,
+            nodeDimensionsIncludeLabels: true,
+          } as unknown as cytoscape.LayoutOptions),
     });
 
     cy.on("tap", "node", (evt) => {
