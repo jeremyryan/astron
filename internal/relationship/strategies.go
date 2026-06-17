@@ -67,8 +67,13 @@ const (
 	kindPersistentVolume      = "PersistentVolume"
 	kindIngress               = "Ingress"
 	kindHTTPRoute             = "HTTPRoute"
+	kindGateway               = "Gateway"
 	kindService               = "Service"
 )
+
+// groupGatewayAPI is the API group for Gateway API resources (HTTPRoute,
+// Gateway, ...). Used as the default group for parentRefs that omit it.
+const groupGatewayAPI = "gateway.networking.k8s.io"
 
 // ownerReferenceStrategy derives edges from Kubernetes ownerReferences. For
 // every target object (rule.To) whose ownerReferences include an owner matching
@@ -576,6 +581,122 @@ func httpRouteBackendServices(obj *unstructured.Unstructured) []serviceBackend {
 			}
 			out = append(out, serviceBackend{namespace: ns, name: name, port: numberString(ref, "port")})
 		}
+	}
+	return out
+}
+
+// parentRefStrategy derives edges between an HTTPRoute and the Gateway(s) it is
+// attached to via spec.parentRefs. The edge is oriented according to the rule's
+// From/To kinds, so a projection can model either Gateway -> HTTPRoute (the
+// natural traffic direction) or HTTPRoute -> Gateway.
+type parentRefStrategy struct{}
+
+func (parentRefStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
+	// One side of the rule is the HTTPRoute (which holds the parentRefs); the
+	// other is the parent (a Gateway by default).
+	routeSel, parentSel := rule.From, rule.To
+	fromIsRoute := rule.From.Kind == kindHTTPRoute
+	if !fromIsRoute {
+		routeSel, parentSel = rule.To, rule.From
+	}
+
+	parentKind := parentSel.Kind
+	if parentKind == "" {
+		parentKind = kindGateway
+	}
+	parentGroup := parentSel.Group
+	if parentGroup == "" {
+		parentGroup = groupGatewayAPI
+	}
+	parentVersion := parentSel.Version
+	if parentVersion == "" {
+		parentVersion = "v1"
+	}
+	parentAPIVersion := schema.GroupVersion{Group: parentGroup, Version: parentVersion}.String()
+
+	routes := index.ByKind(selectorGVK(routeSel))
+	var edges []graph.Relationship
+	for _, route := range routes {
+		for _, p := range parentRefs(route, parentKind, parentGroup) {
+			ref := graph.Ref{APIVersion: parentAPIVersion, Kind: parentKind, Namespace: p.namespace, Name: p.name}
+			// Enrich with the real UID when the parent object is in the index.
+			if obj, ok := index.Lookup(parentAPIVersion, parentKind, p.namespace, p.name); ok {
+				ref = refOf(obj)
+			}
+
+			props := map[string]any{}
+			if p.sectionName != "" {
+				props["sectionName"] = p.sectionName
+			}
+			if p.port != "" {
+				props["port"] = p.port
+			}
+
+			// Default orientation is parent -> route (traffic flows Gateway into
+			// the route); flip it when the rule declares the route as the source.
+			from, to := ref, refOf(route)
+			if fromIsRoute {
+				from, to = refOf(route), ref
+			}
+			edges = append(edges, graph.Relationship{Type: rule.Type, From: from, To: to, Properties: props})
+		}
+	}
+	return edges, nil
+}
+
+// parentRef is a resolved HTTPRoute parentRef (typically a Gateway) plus the
+// optional attachment data (sectionName/port) that describes it.
+type parentRef struct {
+	namespace   string
+	name        string
+	sectionName string
+	port        string
+}
+
+// parentRefs reads spec.parentRefs[] from a Gateway API HTTPRoute, keeping only
+// references whose kind/group match the desired parent (defaulting to Gateway in
+// the Gateway API group, per the Gateway API spec). A parentRef without a
+// namespace refers to a parent in the route's own namespace.
+func parentRefs(obj *unstructured.Unstructured, wantKind, wantGroup string) []parentRef {
+	routeNS := obj.GetNamespace()
+	var out []parentRef
+
+	refs, _, _ := unstructured.NestedSlice(obj.Object, "spec", "parentRefs")
+	for _, r := range refs {
+		ref, ok := r.(map[string]any)
+		if !ok {
+			continue
+		}
+		// parentRef kind defaults to Gateway; group defaults to the Gateway API.
+		k, _, _ := unstructured.NestedString(ref, "kind")
+		if k == "" {
+			k = kindGateway
+		}
+		if k != wantKind {
+			continue
+		}
+		g, _, _ := unstructured.NestedString(ref, "group")
+		if g == "" {
+			g = groupGatewayAPI
+		}
+		if g != wantGroup {
+			continue
+		}
+		name, _, _ := unstructured.NestedString(ref, "name")
+		if name == "" {
+			continue
+		}
+		ns := routeNS
+		if n, ok, _ := unstructured.NestedString(ref, "namespace"); ok && n != "" {
+			ns = n
+		}
+		sectionName, _, _ := unstructured.NestedString(ref, "sectionName")
+		out = append(out, parentRef{
+			namespace:   ns,
+			name:        name,
+			sectionName: sectionName,
+			port:        numberString(ref, "port"),
+		})
 	}
 	return out
 }

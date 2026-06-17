@@ -10,6 +10,8 @@ import cronjob from "./assets/k8s/cronjob.svg";
 import deploy from "./assets/k8s/deploy.svg";
 import ds from "./assets/k8s/ds.svg";
 import ep from "./assets/k8s/ep.svg";
+import gateway from "./assets/k8s/gateway.svg";
+import generic from "./assets/k8s/generic.svg";
 import hpa from "./assets/k8s/hpa.svg";
 import ing from "./assets/k8s/ing.svg";
 import job from "./assets/k8s/job.svg";
@@ -36,6 +38,9 @@ export const KIND_COLORS: Record<string, string> = {
   Service: "#e67e22",
   ConfigMap: "#9b59b6",
   Secret: "#c0392b",
+  Ingress: "#f1c40f",
+  HTTPRoute: "#f1c40f",
+  Gateway: "#16a085",
 };
 
 export function colorForKind(kind: string): string {
@@ -58,8 +63,11 @@ export function colorForRelationship(type: string): string {
   return RELATIONSHIP_COLORS[type] ?? "#8a909c";
 }
 
-// Official Kubernetes icon per kind. Unknown kinds have no icon and fall back to
-// the colored glyph.
+// Generic fallback icon shown for any Kubernetes kind that doesn't have a
+// dedicated official icon.
+export const GENERIC_ICON = generic;
+
+// Official Kubernetes icon per kind. Unknown kinds fall back to GENERIC_ICON.
 export const KIND_ICONS: Record<string, string> = {
   ConfigMap: cm,
   CustomResourceDefinition: crd,
@@ -67,6 +75,7 @@ export const KIND_ICONS: Record<string, string> = {
   Deployment: deploy,
   DaemonSet: ds,
   Endpoints: ep,
+  Gateway: gateway,
   HorizontalPodAutoscaler: hpa,
   Ingress: ing,
   Job: job,
@@ -83,6 +92,8 @@ export const KIND_ICONS: Record<string, string> = {
   Service: svc,
 };
 
-export function iconForKind(kind: string): string | undefined {
-  return KIND_ICONS[kind];
+// iconForKind returns the official icon for a kind, or a generic fallback icon
+// for kinds without a dedicated one. It always returns a usable icon URL.
+export function iconForKind(kind: string): string {
+  return KIND_ICONS[kind] ?? GENERIC_ICON;
 }

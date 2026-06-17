@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Gateway API Gateway icon: an arched gateway with traffic passing through,
+       styled to match the other Kubernetes resource icons. -->
+  <g fill="none" stroke="#326ce5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 54 V26 a20 20 0 0 1 40 0 V54" fill="#eef3fd"/>
+    <path d="M22 54 V30 a10 10 0 0 1 20 0 V54" />
+    <path d="M8 54 H56" />
+    <path d="M32 12 V4" />
+    <path d="M32 38 V50" />
+    <path d="M27 45 L32 50 L37 45" />
+  </g>
+</svg>

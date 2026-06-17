@@ -343,6 +343,7 @@ func standardKindSet() map[string]bool {
 		{Group: "", Kind: "ServiceAccount"},
 		{Group: "networking.k8s.io", Kind: "Ingress"},
 		{Group: "gateway.networking.k8s.io", Kind: "HTTPRoute"},
+		{Group: "gateway.networking.k8s.io", Kind: "Gateway"},
 	}
 	set := make(map[string]bool, len(kinds))
 	for _, gk := range kinds {

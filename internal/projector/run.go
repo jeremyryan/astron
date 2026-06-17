@@ -386,6 +386,7 @@ func defaultResources() []gamerav1alpha1.ResourceSelector {
 		{Group: "networking.k8s.io", Version: "v1", Kind: "Ingress"},
 		// Gateway API; captured when its CRDs are installed, otherwise skipped.
 		{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRoute"},
+		{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "Gateway"},
 	}
 }
 

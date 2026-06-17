@@ -349,6 +349,50 @@ func TestServiceBackendStrategy_HTTPRoute(t *testing.T) {
 	}
 }
 
+func TestParentRefStrategy_HTTPRoute(t *testing.T) {
+	gw := obj("gateway.networking.k8s.io/v1", "Gateway", "infra", "shared-gw", "gw-uid")
+	route := obj("gateway.networking.k8s.io/v1", "HTTPRoute", "default", "rt", "rt-uid")
+	_ = unstructured.SetNestedSlice(route.Object, []any{
+		// Gateway in another namespace, with attachment metadata.
+		map[string]any{"name": "shared-gw", "namespace": "infra", "sectionName": "https", "port": int64(443)},
+		// Implicit kind/group (defaults to Gateway in the Gateway API group),
+		// in the route's own namespace.
+		map[string]any{"name": "local-gw"},
+		// Non-Gateway parent, ignored.
+		map[string]any{"name": "mesh", "kind": "Mesh", "group": "example.com"},
+	}, "spec", "parentRefs")
+
+	index := NewMapIndex(gw, route)
+	rule := gamerav1alpha1.RelationshipRule{
+		Name: "gateway-routes-httproute", Type: "ROUTES", Strategy: gamerav1alpha1.GatewayParentStrategy,
+		From: sel("gateway.networking.k8s.io", "v1", "Gateway"), To: sel("gateway.networking.k8s.io", "v1", "HTTPRoute"),
+	}
+	edges, err := (parentRefStrategy{}).Derive(rule, index)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(edges) != 2 {
+		t.Fatalf("expected 2 Gateway edges (shared-gw, local-gw), got %d: %+v", len(edges), edges)
+	}
+	// Edge is oriented Gateway -> HTTPRoute and resolves the in-index Gateway UID.
+	shared := findEdge(edges, "ROUTES", "shared-gw", "rt")
+	if shared == nil || shared.From.UID != "gw-uid" {
+		t.Fatalf("expected ROUTES shared-gw->rt with resolved gateway UID, got %+v", edges)
+	}
+	if got := shared.Properties["sectionName"]; got != "https" {
+		t.Errorf("expected sectionName https, got %v", got)
+	}
+	if got := shared.Properties["port"]; got != "443" {
+		t.Errorf("expected port 443, got %v", got)
+	}
+	if local := findEdge(edges, "ROUTES", "local-gw", "rt"); local == nil {
+		t.Errorf("expected ROUTES local-gw->rt (default namespace/kind/group), got %+v", edges)
+	}
+	if findEdge(edges, "ROUTES", "mesh", "rt") != nil {
+		t.Errorf("non-Gateway parentRef should be ignored")
+	}
+}
+
 func TestVolumeMountStrategy_PersistentVolumeClaim(t *testing.T) {
 	pvc := obj("v1", kindPersistentVolumeClaim, "default", "data", "pvc-uid")
 	pod := obj("v1", "Pod", "default", "web-1", "p1")

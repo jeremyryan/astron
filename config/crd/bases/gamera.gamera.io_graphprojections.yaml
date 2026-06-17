@@ -290,6 +290,7 @@ spec:
                       - VolumeMount
                       - ClaimRef
                       - ServiceBackend
+                      - GatewayParent
                       - Custom
                       type: string
                     to:

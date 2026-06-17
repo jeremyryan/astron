@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Generic Kubernetes resource icon: a labelled box, used as the fallback
+       glyph for kinds that don't have a dedicated official icon. -->
+  <g fill="none" stroke="#326ce5" stroke-width="3" stroke-linejoin="round">
+    <path d="M32 6 L54 18 V46 L32 58 L10 46 V18 Z" fill="#eef3fd"/>
+    <path d="M32 6 V32 L54 18" />
+    <path d="M32 32 L10 18" />
+    <path d="M32 32 V58" />
+  </g>
+</svg>

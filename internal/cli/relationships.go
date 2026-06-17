@@ -33,6 +33,10 @@ var (
 	daemonSet   = gamerav1alpha1.ResourceSelector{Group: "apps", Version: "v1", Kind: "DaemonSet"}
 	job         = gamerav1alpha1.ResourceSelector{Group: "batch", Version: "v1", Kind: "Job"}
 	cronJob     = gamerav1alpha1.ResourceSelector{Group: "batch", Version: "v1", Kind: "CronJob"}
+
+	ingress   = gamerav1alpha1.ResourceSelector{Group: "networking.k8s.io", Version: "v1", Kind: "Ingress"}
+	httpRoute = gamerav1alpha1.ResourceSelector{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRoute"}
+	gateway   = gamerav1alpha1.ResourceSelector{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "Gateway"}
 )
 
 // buildRelationships returns the subset of well-known relationship rules whose
@@ -64,6 +68,11 @@ func buildRelationships(selectors []gamerav1alpha1.ResourceSelector) []gamerav1a
 		// Configuration mounts (ConfigMap/Secret consumed by a Pod).
 		{"configmap-mounts-pod", "MOUNTS", gamerav1alpha1.VolumeMountStrategy, configMap, pod},
 		{"secret-mounts-pod", "MOUNTS", gamerav1alpha1.VolumeMountStrategy, secret, pod},
+		// Traffic routing (Ingress/HTTPRoute forward to a Service via backendRefs).
+		{"ingress-routes-service", "ROUTES", gamerav1alpha1.ServiceBackendStrategy, ingress, service},
+		{"httproute-routes-service", "ROUTES", gamerav1alpha1.ServiceBackendStrategy, httpRoute, service},
+		// Gateway attachment (HTTPRoute attaches to a Gateway via parentRefs).
+		{"gateway-routes-httproute", "ROUTES", gamerav1alpha1.GatewayParentStrategy, gateway, httpRoute},
 	}
 
 	var rules []gamerav1alpha1.RelationshipRule

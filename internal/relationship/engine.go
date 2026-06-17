@@ -60,6 +60,7 @@ func NewEngine() *Engine {
 			gamerav1alpha1.VolumeMountStrategy:    volumeMountStrategy{},
 			gamerav1alpha1.ClaimRefStrategy:       claimRefStrategy{},
 			gamerav1alpha1.ServiceBackendStrategy: serviceBackendStrategy{},
+			gamerav1alpha1.GatewayParentStrategy:  parentRefStrategy{},
 		},
 	}
 }
