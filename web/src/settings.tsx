@@ -7,10 +7,16 @@ export interface Settings {
   // Data URL of an image to use as the graph-area background, or null for the
   // default solid color.
   wallpaper: string | null;
+  // Whether edge (relationship-type) labels are drawn on the graph.
+  showEdgeLabels: boolean;
+  // Whether the reference grid is overlaid on the graph display.
+  showGrid: boolean;
 }
 
 const DEFAULT_SETTINGS: Settings = {
   wallpaper: null,
+  showEdgeLabels: true,
+  showGrid: false,
 };
 
 const STORAGE_KEY = "gamera.settings";

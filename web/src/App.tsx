@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ActionIcon,
@@ -12,18 +12,21 @@ import {
   Text,
   Title,
   Tooltip,
+  UnstyledButton,
 } from "@mantine/core";
 import {
   getGraph,
   listProjections,
+  listViews,
   type Graph,
   type GraphNode,
   type GraphSelection,
   type Projection,
+  type View,
   type ViewFilters,
 } from "./api";
 import { GraphView } from "./GraphView";
-import { ViewsPanel } from "./ViewsPanel";
+import { ViewControls } from "./ViewControls";
 import {
   FilterPanel,
   kindCounts,
@@ -35,14 +38,75 @@ import { YamlModal } from "./YamlModal";
 import { SettingsModal } from "./SettingsModal";
 import { useSettings } from "./settings";
 import { colorForRelationship, iconForKind } from "./kinds";
-import { IconHierarchy2, IconSettings, IconTopologyStar3 } from "./icons";
+import {
+  IconBookmark,
+  IconHierarchy2,
+  IconSettings,
+  IconTag,
+  IconTagOff,
+  IconTopologyStar3,
+} from "./icons";
+
+// ProjectionNavItem renders one projection in the navbar with its saved Views
+// nested beneath it. Clicking the projection selects it (custom filters);
+// clicking a view selects the projection and applies that view's filters.
+function ProjectionNavItem({
+  projection,
+  selected,
+  activeView,
+  onSelectProjection,
+  onSelectView,
+}: {
+  projection: Projection;
+  selected?: Projection;
+  activeView: View | null;
+  onSelectProjection: (p: Projection) => void;
+  onSelectView: (p: Projection, v: View) => void;
+}) {
+  const { data: views } = useQuery({
+    queryKey: ["views", projection.namespace, projection.name],
+    queryFn: () => listViews(projection.namespace, projection.name),
+  });
+  const isSelected = selected?.uid === projection.uid;
+  const items = views ?? [];
+  return (
+    <Box>
+      <NavLink
+        active={isSelected && !activeView}
+        onClick={() => onSelectProjection(projection)}
+        leftSection={<IconHierarchy2 size={16} stroke={1.5} />}
+        label={<Text fw={600}>{projection.name}</Text>}
+        description={`${projection.namespace} · ${projection.phase ?? "—"} · ${projection.nodeCount}n / ${projection.relationshipCount}e`}
+      />
+      {/* Views associated with this projection, always shown indented below it. */}
+      {items.map((v) => (
+        <NavLink
+          key={v.uid ?? `${v.namespace}/${v.name}`}
+          pl={28}
+          active={
+            isSelected &&
+            activeView?.namespace === v.namespace &&
+            activeView?.name === v.name
+          }
+          onClick={() => onSelectView(projection, v)}
+          leftSection={<IconBookmark size={14} stroke={1.5} />}
+          label={v.displayName || v.name}
+        />
+      ))}
+    </Box>
+  );
+}
 
 function ProjectionList({
   selected,
-  onSelect,
+  activeView,
+  onSelectProjection,
+  onSelectView,
 }: {
   selected?: Projection;
-  onSelect: (p: Projection) => void;
+  activeView: View | null;
+  onSelectProjection: (p: Projection) => void;
+  onSelectView: (p: Projection, v: View) => void;
 }) {
   const { data, isLoading, error } = useQuery({
     queryKey: ["projections"],
@@ -75,13 +139,13 @@ function ProjectionList({
   return (
     <Stack gap={4}>
       {data.map((p) => (
-        <NavLink
+        <ProjectionNavItem
           key={p.uid}
-          active={selected?.uid === p.uid}
-          onClick={() => onSelect(p)}
-          leftSection={<IconHierarchy2 size={16} stroke={1.5} />}
-          label={<Text fw={600}>{p.name}</Text>}
-          description={`${p.namespace} · ${p.phase ?? "—"} · ${p.nodeCount}n / ${p.relationshipCount}e`}
+          projection={p}
+          selected={selected}
+          activeView={activeView}
+          onSelectProjection={onSelectProjection}
+          onSelectView={onSelectView}
         />
       ))}
     </Stack>
@@ -156,6 +220,103 @@ function KeyValueSection({ title, value }: { title: string; value: unknown }) {
         </Text>
       )}
     </div>
+  );
+}
+
+// groupResources buckets nodes by namespace and then by kind, sorting each
+// level (and the resources within a kind) alphabetically. Cluster-scoped
+// resources are collected under a synthetic "(cluster-scoped)" group.
+function groupResources(nodes: GraphNode[]) {
+  const byNs = new Map<string, GraphNode[]>();
+  for (const n of nodes) {
+    const ns = n.namespace || "(cluster-scoped)";
+    let bucket = byNs.get(ns);
+    if (!bucket) byNs.set(ns, (bucket = []));
+    bucket.push(n);
+  }
+  return [...byNs.keys()]
+    .sort((a, b) => a.localeCompare(b))
+    .map((namespace) => {
+      const byKind = new Map<string, GraphNode[]>();
+      for (const n of byNs.get(namespace)!) {
+        let bucket = byKind.get(n.kind);
+        if (!bucket) byKind.set(n.kind, (bucket = []));
+        bucket.push(n);
+      }
+      const kinds = [...byKind.keys()]
+        .sort((a, b) => a.localeCompare(b))
+        .map((kind) => ({
+          kind,
+          nodes: byKind.get(kind)!.sort((a, b) => a.name.localeCompare(b.name)),
+        }));
+      return { namespace, kinds };
+    });
+}
+
+// ResourceList is shown in the inspector when nothing is selected: a browsable
+// index of the visible resources grouped by namespace then kind. Clicking a
+// resource name selects that node.
+function ResourceList({
+  nodes,
+  onSelect,
+}: {
+  nodes: GraphNode[];
+  onSelect: (node: GraphNode) => void;
+}) {
+  const groups = useMemo(() => groupResources(nodes), [nodes]);
+  if (nodes.length === 0)
+    return (
+      <Text size="sm" c="dimmed">
+        No resources to display.
+      </Text>
+    );
+  return (
+    <Stack gap="lg">
+      <Text size="xs" c="dimmed">
+        Select a node to inspect it, or pick a resource below.
+      </Text>
+      {groups.map((g) => (
+        <Stack gap="xs" key={g.namespace}>
+          <Text
+            size="xs"
+            fw={700}
+            tt="uppercase"
+            c="dimmed"
+            style={{ letterSpacing: "0.06em" }}
+          >
+            {g.namespace}
+          </Text>
+          {g.kinds.map((k) => {
+            const icon = iconForKind(k.kind);
+            return (
+              <Stack gap={2} key={k.kind}>
+                <Group gap={6} wrap="nowrap" align="center">
+                  {icon && <img src={icon} width={14} height={14} alt="" />}
+                  <Text size="xs" fw={600}>
+                    {k.kind}
+                  </Text>
+                  <Text size="xs" c="dimmed">
+                    {k.nodes.length}
+                  </Text>
+                </Group>
+                <Stack gap={0} pl={20}>
+                  {k.nodes.map((n) => (
+                    <UnstyledButton
+                      key={n.id}
+                      className="resource-link"
+                      onClick={() => onSelect(n)}
+                      title={n.name}
+                    >
+                      {n.name}
+                    </UnstyledButton>
+                  ))}
+                </Stack>
+              </Stack>
+            );
+          })}
+        </Stack>
+      ))}
+    </Stack>
   );
 }
 
@@ -275,10 +436,40 @@ function matchesLabelFilters(
 }
 
 // EdgeLegend is a small floating key mapping relationship types to their edge
-// colors, shown over the graph.
-function EdgeLegend({ types }: { types: string[] }) {
+// colors, shown over the graph. It also carries a toggle for edge labels.
+function EdgeLegend({
+  types,
+  showLabels,
+  onToggleLabels,
+}: {
+  types: string[];
+  showLabels: boolean;
+  onToggleLabels: () => void;
+}) {
   return (
     <div className="edge-legend">
+      <div className="edge-legend-header">
+        <span className="edge-legend-title">Edges</span>
+        <Tooltip
+          label={showLabels ? "Hide edge labels" : "Show edge labels"}
+          position="top"
+          withArrow
+        >
+          <ActionIcon
+            variant={showLabels ? "filled" : "default"}
+            size="sm"
+            aria-label="Toggle edge labels"
+            aria-pressed={showLabels}
+            onClick={onToggleLabels}
+          >
+            {showLabels ? (
+              <IconTag size={14} stroke={1.5} />
+            ) : (
+              <IconTagOff size={14} stroke={1.5} />
+            )}
+          </ActionIcon>
+        </Tooltip>
+      </div>
       {types.map((t) => (
         <div key={t} className="edge-legend-item">
           <span className="edge-legend-swatch" style={{ background: colorForRelationship(t) }} />
@@ -289,8 +480,16 @@ function EdgeLegend({ types }: { types: string[] }) {
   );
 }
 
-function GraphPanel({ projection }: { projection: Projection }) {
-  const { settings } = useSettings();
+function GraphPanel({
+  projection,
+  activeView,
+  onActiveViewChange,
+}: {
+  projection: Projection;
+  activeView: View | null;
+  onActiveViewChange: (v: View | null) => void;
+}) {
+  const { settings, update } = useSettings();
   // The currently inspected element (node or edge), or null.
   const [selection, setSelection] = useState<GraphSelection | null>(null);
   const selectedNode = selection?.type === "node" ? selection.node : null;
@@ -304,6 +503,9 @@ function GraphPanel({ projection }: { projection: Projection }) {
   const [maxDistance, setMaxDistance] = useState<number | null>(null);
   // Whether to group resources into compound nodes by namespace.
   const [groupByNamespace, setGroupByNamespace] = useState(true);
+  // Whether edge (relationship-type) labels are drawn on the graph. Persisted
+  // across sessions via settings.
+  const showEdgeLabels = settings.showEdgeLabels;
   // Label filters and the AND/OR mode used to combine them.
   const [labelFilters, setLabelFilters] = useState<LabelFilter[]>([]);
   const [labelMode, setLabelMode] = useState<LabelMatchMode>("any");
@@ -399,6 +601,19 @@ function GraphPanel({ projection }: { projection: Projection }) {
     setGroupByNamespace(f.groupByNamespace ?? true);
   };
 
+  // Keep the panel filters in sync with the navbar selection: apply a view's
+  // filters when one is active, and otherwise reset to the unfiltered default.
+  // Keying on the projection means moving from one projection to another
+  // without picking a view starts from a clean slate rather than carrying the
+  // previous view's filters over. Manual filter edits don't touch activeView,
+  // so they persist (this only runs when the projection or active view
+  // changes).
+  useEffect(() => {
+    applyFilters(activeView ? activeView.filters : {});
+    // applyFilters is stable for our purposes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projection.uid, activeView]);
+
   return (
     <div className="graph-panel">
       <FilterPanel
@@ -423,6 +638,14 @@ function GraphPanel({ projection }: { projection: Projection }) {
         onUpdateLabel={updateLabel}
         onRemoveLabel={removeLabel}
         onChangeLabelMode={setLabelMode}
+        viewControls={
+          <ViewControls
+            projection={projection}
+            currentFilters={currentFilters}
+            activeView={activeView}
+            onActiveViewChange={onActiveViewChange}
+          />
+        }
       />
       <div
         className="graph-area"
@@ -437,11 +660,6 @@ function GraphPanel({ projection }: { projection: Projection }) {
             : undefined
         }
       >
-        <ViewsPanel
-          projection={projection}
-          currentFilters={currentFilters}
-          onApply={applyFilters}
-        />
         {isLoading && (
           <Group gap="xs" p="md">
             <Loader size="sm" />
@@ -461,16 +679,29 @@ function GraphPanel({ projection }: { projection: Projection }) {
             maxDistance={maxDistance}
             onShowYaml={setYamlNode}
             groupByNamespace={groupByNamespace}
+            showEdgeLabels={showEdgeLabels}
+            exportName={`${projection.namespace}-${projection.name}`}
           />
         )}
-        {edgeTypes.length > 0 && <EdgeLegend types={edgeTypes} />}
+        {edgeTypes.length > 0 && (
+          <EdgeLegend
+            types={edgeTypes}
+            showLabels={showEdgeLabels}
+            onToggleLabels={() => update({ showEdgeLabels: !showEdgeLabels })}
+          />
+        )}
       </div>
       <YamlModal node={yamlNode} onClose={() => setYamlNode(null)} />
       <ScrollArea component="aside" className="inspector" type="scroll">
         {selection?.type === "edge" ? (
           <EdgeDetails selection={selection} />
-        ) : (
+        ) : selectedNode ? (
           <NodeDetails node={selectedNode} />
+        ) : (
+          <ResourceList
+            nodes={filteredGraph?.nodes ?? []}
+            onSelect={(node) => setSelection({ type: "node", node })}
+          />
         )}
       </ScrollArea>
     </div>
@@ -479,8 +710,19 @@ function GraphPanel({ projection }: { projection: Projection }) {
 
 export default function App() {
   const [selected, setSelected] = useState<Projection>();
+  // The saved view currently applied (null = custom/unsaved filters).
+  const [activeView, setActiveView] = useState<View | null>(null);
   // Whether the settings modal is open.
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const selectProjection = (p: Projection) => {
+    setSelected(p);
+    setActiveView(null);
+  };
+  const selectView = (p: Projection, v: View) => {
+    setSelected(p);
+    setActiveView(v);
+  };
 
   return (
     <AppShell header={{ height: 52 }} navbar={{ width: 260, breakpoint: "sm" }} padding={0}>
@@ -514,13 +756,22 @@ export default function App() {
           Projections
         </Text>
         <AppShell.Section grow component={ScrollArea}>
-          <ProjectionList selected={selected} onSelect={setSelected} />
+          <ProjectionList
+            selected={selected}
+            activeView={activeView}
+            onSelectProjection={selectProjection}
+            onSelectView={selectView}
+          />
         </AppShell.Section>
       </AppShell.Navbar>
 
       <AppShell.Main className="app-main">
         {selected ? (
-          <GraphPanel projection={selected} />
+          <GraphPanel
+            projection={selected}
+            activeView={activeView}
+            onActiveViewChange={setActiveView}
+          />
         ) : (
           <Text c="dimmed" p="md">
             Choose a projection to view its graph.

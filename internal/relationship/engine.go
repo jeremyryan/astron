@@ -19,6 +19,7 @@ limitations under the License.
 package relationship
 
 import (
+	"errors"
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -92,23 +93,7 @@ func (e *Engine) Derive(rules []gamerav1alpha1.RelationshipRule, index Index) ([
 		}
 		edges = append(edges, ruleEdges...)
 	}
-	return edges, errorsJoin(errs)
-}
-
-// errorsJoin joins multiple errors, returning nil when there are none.
-func errorsJoin(errs []error) error {
-	switch len(errs) {
-	case 0:
-		return nil
-	case 1:
-		return errs[0]
-	default:
-		err := errs[0]
-		for _, e := range errs[1:] {
-			err = fmt.Errorf("%w; %v", err, e)
-		}
-		return err
-	}
+	return edges, errors.Join(errs...)
 }
 
 // refOf builds a graph.Ref from an unstructured object.

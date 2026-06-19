@@ -114,7 +114,7 @@ web: ## Build the web UI into web/dist (requires npm).
 
 .PHONY: build
 build: manifests generate fmt vet ## Build manager binary (embeds web/dist).
-	go build -o bin/manager cmd/main.go
+	go build -o bin/manager ./cmd
 
 .PHONY: build-cli
 build-cli: fmt vet ## Build the gamera CLI client binary.
@@ -122,7 +122,7 @@ build-cli: fmt vet ## Build the gamera CLI client binary.
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./cmd/main.go
+	go run ./cmd
 
 .PHONY: helm-deps
 helm-deps: ## Fetch the chart's subchart dependencies (Neo4J).

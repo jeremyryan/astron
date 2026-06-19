@@ -100,6 +100,8 @@ interface Props {
   onUpdateLabel: (id: string, patch: Partial<Pick<LabelFilter, "key" | "value">>) => void;
   onRemoveLabel: (id: string) => void;
   onChangeLabelMode: (mode: LabelMatchMode) => void;
+  // Saved-view controls (Save / Delete / Save as…) rendered at the top.
+  viewControls?: ReactNode;
 }
 
 const MAX_DISTANCE = 9;
@@ -202,6 +204,7 @@ export function FilterPanel({
   onUpdateLabel,
   onRemoveLabel,
   onChangeLabelMode,
+  viewControls,
 }: Props) {
   const visibleCount = kinds.filter((k) => !hiddenKinds.has(k.kind)).length;
   const filtering = hiddenKinds.size > 0;
@@ -217,6 +220,9 @@ export function FilterPanel({
             Filters
           </Text>
         </Group>
+
+        {/* Views (saved filter sets) */}
+        {viewControls && <FilterSection title="View">{viewControls}</FilterSection>}
 
         {/* Resource types */}
         <FilterSection
