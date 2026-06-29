@@ -299,14 +299,15 @@ export function GraphView({
             events: "no",
           },
         },
-        // A selected edge is highlighted (brighter, thicker).
+        // A selected edge keeps its relationship color but gets a white halo
+        // (an underlay drawn behind/around the line) so it stands out without
+        // washing the line out to solid white.
         {
           selector: "edge:selected",
           style: {
-            "line-color": "#fff",
-            "target-arrow-color": "#fff",
-            color: "#fff",
-            width: 3,
+            "underlay-color": "#fff",
+            "underlay-opacity": 1,
+            "underlay-padding": 2.5,
           },
         },
         // Compound parent nodes used to group resources by namespace.
