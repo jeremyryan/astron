@@ -600,6 +600,7 @@ export function GraphView({
     //   Arrow keys  nudge the selection (hold Shift for a larger step)
     //   Ctrl/Cmd-C  centers it in the view
     //   Ctrl/Cmd-Y  opens its YAML manifest modal
+    //   Ctrl/Cmd-N  starts an "Add Link" gesture from the single selected node
     const ARROW_DELTAS: Record<string, [number, number]> = {
       ArrowUp: [0, -1],
       ArrowDown: [0, 1],
@@ -636,6 +637,19 @@ export function GraphView({
 
       if (!(e.ctrlKey || e.metaKey)) return;
       const key = e.key.toLowerCase();
+
+      // Ctrl/Cmd-N: start linking from the single selected node, mirroring the
+      // "Add Link" context-menu action. No effect with zero or multiple nodes
+      // selected, or while a link is already being drawn.
+      if (key === "n") {
+        if (linkingRef.current) return;
+        const selectedNodes = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
+        if (selectedNodes.length !== 1) return;
+        e.preventDefault();
+        setLinkingSourceId(selectedNodes.first().id());
+        return;
+      }
+
       if (key !== "c" && key !== "y") return;
       const selected = cy.nodes(":selected");
       if (selected.empty()) return;
