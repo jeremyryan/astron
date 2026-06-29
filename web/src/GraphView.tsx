@@ -490,6 +490,17 @@ export function GraphView({
       cy.boxSelectionEnabled(true);
       if (!dragging) el.style.cursor = "";
     });
+    // Edges are clickable (select / inspect / right-click menu), so show a
+    // pointer on hover. Outline/ghost edges have events disabled and never fire
+    // these. Skip while panning/dragging or aiming a new link (crosshair).
+    cy.on("mouseover", "edge", () => {
+      if (dragging || linkingRef.current) return;
+      el.style.cursor = "pointer";
+    });
+    cy.on("mouseout", "edge", () => {
+      if (dragging || linkingRef.current) return;
+      el.style.cursor = "";
+    });
     cy.on("grab", "node", () => {
       dragging = true;
       el.style.cursor = "grabbing";
