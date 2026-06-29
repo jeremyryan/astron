@@ -39,7 +39,7 @@ import {
 import { YamlModal } from "./YamlModal";
 import { SettingsModal } from "./SettingsModal";
 import { useSettings } from "./settings";
-import { colorForRelationship, iconForKind } from "./kinds";
+import { colorForRelationship, iconForKindOrGeneric } from "./kinds";
 import {
   IconBookmark,
   IconHierarchy2,
@@ -289,11 +289,11 @@ function ResourceList({
             {g.namespace}
           </Text>
           {g.kinds.map((k) => {
-            const icon = iconForKind(k.kind);
+            const icon = iconForKindOrGeneric(k.kind);
             return (
               <Stack gap={2} key={k.kind}>
                 <Group gap={6} wrap="nowrap" align="center">
-                  {icon && <img src={icon} width={14} height={14} alt="" />}
+                  <img src={icon} width={14} height={14} alt="" />
                   <Text size="xs" fw={600}>
                     {k.kind}
                   </Text>
@@ -332,11 +332,11 @@ function NodeDetails({ node }: { node: GraphNode | null }) {
   const props = Object.entries(node.properties ?? {});
   const scalarProps = props.filter(([k]) => !MAP_PROPS.has(k));
   const mapProps = props.filter(([k]) => MAP_PROPS.has(k));
-  const icon = iconForKind(node.kind);
+  const icon = iconForKindOrGeneric(node.kind);
   return (
     <Stack gap="md">
       <Group gap={8} wrap="nowrap" align="center">
-        {icon && <img src={icon} width={22} height={22} alt="" />}
+        <img src={icon} width={22} height={22} alt="" />
         <Title order={3} size="h4">
           {node.kind}{" "}
           <Text span c="dimmed" size="sm" fw={400}>

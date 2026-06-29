@@ -93,3 +93,9 @@ export const genericIcon = generic;
 export function iconForKind(kind: string): string | undefined {
   return KIND_ICONS[kind];
 }
+
+// iconForKindOrGeneric returns the kind's dedicated icon, falling back to the
+// generic Kubernetes badge so callers always have a badge to render.
+export function iconForKindOrGeneric(kind: string): string {
+  return KIND_ICONS[kind] ?? generic;
+}
