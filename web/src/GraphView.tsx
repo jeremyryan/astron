@@ -299,15 +299,27 @@ export function GraphView({
             events: "no",
           },
         },
-        // A selected edge keeps its relationship color but gets a white halo
-        // (an underlay drawn behind/around the line) so it stands out without
-        // washing the line out to solid white.
+        // A selected edge keeps its relationship color; a thin white "outline"
+        // edge is drawn just behind it (added by the select/unselect handler)
+        // so both the line and the arrowhead get a white stroke. Both are forced
+        // straight so the outline overlaps the edge exactly.
         {
           selector: "edge:selected",
+          style: { "curve-style": "straight", "z-index": 10 },
+        },
+        {
+          selector: ".edge-outline",
           style: {
-            "underlay-color": "#fff",
-            "underlay-opacity": 1,
-            "underlay-padding": 2.5,
+            "curve-style": "straight",
+            "line-color": "#fff",
+            "target-arrow-color": "#fff",
+            "target-arrow-shape": "triangle",
+            // Slightly wider than the 1.5px edge -> a thin white stroke; the
+            // arrowhead scales with width, so it frames the real arrow too.
+            width: 3.5,
+            label: "",
+            events: "no",
+            "z-index": 9,
           },
         },
         // Compound parent nodes used to group resources by namespace.
@@ -408,6 +420,27 @@ export function GraphView({
       setSelectedCount(cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS)).length);
     };
     cy.on("select unselect", "node", updateSelectedCount);
+
+    // Maintain a white "outline" edge behind each selected edge so the
+    // selection reads as a thin stroke around the line and arrow (cytoscape's
+    // underlay/line-outline don't cover the arrowhead).
+    const OUTLINE_CLASS = "edge-outline";
+    const syncEdgeOutlines = () => {
+      cy.edges(`.${OUTLINE_CLASS}`).remove();
+      cy.edges(":selected").forEach((e) => {
+        cy.add({
+          group: "edges",
+          data: {
+            id: `__outline__${e.id()}`,
+            source: e.source().id(),
+            target: e.target().id(),
+          },
+          classes: OUTLINE_CLASS,
+          selectable: false,
+        });
+      });
+    };
+    cy.on("select unselect", "edge", syncEdgeOutlines);
 
     // Right-click a node to open a context menu at the cursor. Clicking the
     // background (or panning/zooming) dismisses it.
