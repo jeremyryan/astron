@@ -18,7 +18,7 @@ import cytoscape, { type Core, type ElementDefinition, type NodeSingular } from 
 import dagre from "cytoscape-dagre";
 import fcose from "cytoscape-fcose";
 import type { Graph, GraphEdge, GraphNode, GraphSelection } from "./api";
-import { colorForKind, colorForRelationship, iconForKind } from "./kinds";
+import { colorForKind, colorForRelationship, genericIcon, iconForKind } from "./kinds";
 import { useSettings } from "./settings";
 
 cytoscape.use(dagre);
@@ -91,8 +91,9 @@ function toElements(graph: Graph, groupByNamespace: boolean): ElementDefinition[
     // `status` (e.g. CrashLoopBackOff) over the coarse `phase`.
     const statusColor = phaseColor(n.properties?.status ?? n.properties?.phase);
     if (statusColor) data.statusColor = statusColor;
-    const icon = iconForKind(n.kind);
-    if (icon) data.icon = icon;
+    // Use the kind's official icon, falling back to the generic Kubernetes
+    // badge so resources without a dedicated icon still render as a badge.
+    data.icon = iconForKind(n.kind) ?? genericIcon;
 
     if (groupByNamespace) {
       data.parent = n.namespace ? GROUP_PREFIX + n.namespace : CLUSTER_GROUP_ID;

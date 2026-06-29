@@ -4,6 +4,7 @@
 // Official Kubernetes resource icons (from github.com/kubernetes/community,
 // icons/svg, unlabeled variants). Imported as URLs so only the ones used are
 // emitted as assets.
+import generic from "./assets/k8s/generic.svg";
 import cm from "./assets/k8s/cm.svg";
 import crd from "./assets/k8s/crd.svg";
 import cronjob from "./assets/k8s/cronjob.svg";
@@ -83,6 +84,11 @@ export const KIND_ICONS: Record<string, string> = {
   StatefulSet: sts,
   Service: svc,
 };
+
+// genericIcon is the official Kubernetes badge shape/color with no inner glyph.
+// Use it as a fallback for resource kinds that don't have a dedicated icon yet,
+// so they still read as Kubernetes resources rather than a plain colored dot.
+export const genericIcon = generic;
 
 export function iconForKind(kind: string): string | undefined {
   return KIND_ICONS[kind];
