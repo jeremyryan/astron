@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ActionIcon,
+  Anchor,
   AppShell,
   Box,
   Button,
@@ -161,6 +162,36 @@ function ProjectionList({
 // Properties that hold a map of key/value pairs (stored as a JSON string by the
 // backend) and should be rendered as individual entries rather than raw JSON.
 const MAP_PROPS = new Set(["labels", "annotations"]);
+
+// Properties hidden from the resource details panel: internal/noisy fields, or
+// values rendered by a dedicated section (e.g. hostnames).
+const HIDDEN_PROPS = new Set(["resourceVersion", "hostnames"]);
+
+// formatTimestamp renders an RFC3339 timestamp as 'MM/DD/YYYY HH:MM' in local
+// time, falling back to the raw value when it can't be parsed.
+function formatTimestamp(value: string): string {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getMonth() + 1)}/${pad(d.getDate())}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// nodeHostnames extracts an HTTPRoute's hostnames, which the backend stores as a
+// string list (or, in some transports, a JSON-encoded array).
+function nodeHostnames(node: GraphNode): string[] {
+  const raw = node.properties?.hostnames;
+  if (Array.isArray(raw)) return raw.map(String);
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.map(String);
+    } catch {
+      // not JSON; fall through
+    }
+    return raw ? [raw] : [];
+  }
+  return [];
+}
 
 // asKeyValues parses a property value into sorted key/value entries when it
 // represents an object (either an object or a JSON-encoded string). Returns null
@@ -340,8 +371,9 @@ function NodeDetails({ node }: { node: GraphNode | null }) {
       </Text>
     );
   const props = Object.entries(node.properties ?? {});
-  const scalarProps = props.filter(([k]) => !MAP_PROPS.has(k));
+  const scalarProps = props.filter(([k]) => !MAP_PROPS.has(k) && !HIDDEN_PROPS.has(k));
   const mapProps = props.filter(([k]) => MAP_PROPS.has(k));
+  const hostnames = nodeHostnames(node);
   const icon = iconForKindOrGeneric(node.kind);
   return (
     <Stack gap="md">
@@ -358,9 +390,38 @@ function NodeDetails({ node }: { node: GraphNode | null }) {
         <Field label="Name" value={node.name} />
         {node.namespace && <Field label="Namespace" value={node.namespace} />}
         {scalarProps.map(([k, v]) => (
-          <Field key={k} label={k} value={typeof v === "string" ? v : JSON.stringify(v)} />
+          <Field
+            key={k}
+            label={k}
+            value={
+              k === "creationTimestamp"
+                ? formatTimestamp(String(v))
+                : typeof v === "string"
+                  ? v
+                  : JSON.stringify(v)
+            }
+          />
         ))}
       </Stack>
+      {hostnames.length > 0 && (
+        <Stack gap={4}>
+          <Text size="xs" c="dimmed" tt="uppercase" style={{ letterSpacing: "0.05em" }}>
+            Hostnames
+          </Text>
+          {hostnames.map((h) => (
+            <Anchor
+              key={h}
+              href={`https://${h}`}
+              target="_blank"
+              rel="noreferrer"
+              size="sm"
+              style={{ wordBreak: "break-word" }}
+            >
+              {h}
+            </Anchor>
+          ))}
+        </Stack>
+      )}
       {mapProps.map(([k, v]) => (
         <KeyValueSection key={k} title={k} value={v} />
       ))}

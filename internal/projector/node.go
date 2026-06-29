@@ -33,6 +33,10 @@ import (
 // node properties so that lifecycle changes are visible in the UI.
 const podKind = "Pod"
 
+// httpRouteKind is the Kind of Gateway API HTTPRoute objects, whose spec
+// hostnames are surfaced as a node property so the UI can link to them.
+const httpRouteKind = "HTTPRoute"
+
 // newFactory builds a dynamic shared informer factory scoped to the given
 // namespace (use metav1.NamespaceAll to watch the whole cluster). Additional
 // namespace and label filtering is performed during sync.
@@ -65,6 +69,13 @@ func nodeFor(obj *unstructured.Unstructured) graph.Node {
 	// readiness, restarts) flow through to the graph and the UI on each re-sync.
 	if obj.GetAPIVersion() == "v1" && obj.GetKind() == podKind {
 		maps.Copy(props, podStatusProps(obj))
+	}
+
+	// Surface HTTPRoute hostnames so the UI can list them as clickable links.
+	if obj.GetKind() == httpRouteKind {
+		if hostnames, found, err := unstructured.NestedStringSlice(obj.Object, "spec", "hostnames"); err == nil && found && len(hostnames) > 0 {
+			props["hostnames"] = hostnames
+		}
 	}
 
 	return graph.Node{
