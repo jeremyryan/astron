@@ -598,9 +598,9 @@ export function GraphView({
 
     // Keyboard shortcuts acting on the currently selected node(s):
     //   Arrow keys  nudge the selection (hold Shift for a larger step)
+    //   L           starts an "Add Link" gesture from the single selected node
     //   Ctrl/Cmd-C  centers it in the view
     //   Ctrl/Cmd-Y  opens its YAML manifest modal
-    //   Ctrl/Cmd-N  starts an "Add Link" gesture from the single selected node
     const ARROW_DELTAS: Record<string, [number, number]> = {
       ArrowUp: [0, -1],
       ArrowDown: [0, 1],
@@ -635,13 +635,11 @@ export function GraphView({
         return;
       }
 
-      if (!(e.ctrlKey || e.metaKey)) return;
-      const key = e.key.toLowerCase();
-
-      // Ctrl/Cmd-N: start linking from the single selected node, mirroring the
-      // "Add Link" context-menu action. No effect with zero or multiple nodes
-      // selected, or while a link is already being drawn.
-      if (key === "n") {
+      // L (no modifiers): start linking from the single selected node, mirroring
+      // the "Add Link" context-menu action. A plain key avoids clashing with
+      // browser shortcuts (Ctrl-N/Ctrl-L are reserved). No effect with zero or
+      // multiple nodes selected, or while a link is already being drawn.
+      if (e.key.toLowerCase() === "l" && !(e.ctrlKey || e.metaKey || e.altKey)) {
         if (linkingRef.current) return;
         const selectedNodes = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
         if (selectedNodes.length !== 1) return;
@@ -650,6 +648,8 @@ export function GraphView({
         return;
       }
 
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const key = e.key.toLowerCase();
       if (key !== "c" && key !== "y") return;
       const selected = cy.nodes(":selected");
       if (selected.empty()) return;
@@ -1039,6 +1039,11 @@ export function GraphView({
             </Menu.Item>
             <Menu.Item
               leftSection={<IconLink size={16} stroke={1.5} />}
+              rightSection={
+                <Text size="xs" c="dimmed">
+                  L
+                </Text>
+              }
               onClick={() => {
                 setLinkingSourceId(menu.node.id);
                 setMenu(null);
