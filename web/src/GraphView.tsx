@@ -5,6 +5,7 @@ import {
   IconDownload,
   IconGrid3x3,
   IconLink,
+  IconTrash,
   IconLayoutAlignCenter,
   IconLayoutAlignMiddle,
   IconLayoutDistributeHorizontal,
@@ -16,7 +17,7 @@ import {
 import cytoscape, { type Core, type ElementDefinition, type NodeSingular } from "cytoscape";
 import dagre from "cytoscape-dagre";
 import fcose from "cytoscape-fcose";
-import type { Graph, GraphNode, GraphSelection } from "./api";
+import type { Graph, GraphEdge, GraphNode, GraphSelection } from "./api";
 import { colorForKind, colorForRelationship, iconForKind } from "./kinds";
 import { useSettings } from "./settings";
 
@@ -109,6 +110,7 @@ function toElements(graph: Graph, groupByNamespace: boolean): ElementDefinition[
         target: e.target,
         label: e.type,
         edgeColor: colorForRelationship(e.type),
+        manual: e.manual ? 1 : 0,
       },
     });
   }
@@ -129,6 +131,8 @@ interface Props {
   // Called when the user completes an "Add Link" gesture from one node to
   // another, with the source and target node ids.
   onAddLink: (sourceId: string, targetId: string) => void;
+  // Called when the user deletes a user-created link via its context menu.
+  onDeleteLink: (edge: GraphEdge) => void;
   // When true, resources are grouped into compound nodes by namespace.
   groupByNamespace: boolean;
   // When false, edge (relationship-type) labels are hidden.
@@ -138,6 +142,12 @@ interface Props {
 }
 
 // Context menu anchored at a viewport position for a right-clicked node.
+interface EdgeMenu {
+  x: number;
+  y: number;
+  edge: GraphEdge;
+}
+
 interface NodeMenu {
   x: number;
   y: number;
@@ -151,6 +161,7 @@ export function GraphView({
   maxDistance,
   onShowYaml,
   onAddLink,
+  onDeleteLink,
   groupByNamespace,
   showEdgeLabels,
   exportName,
@@ -159,6 +170,8 @@ export function GraphView({
   const cyRef = useRef<Core | null>(null);
   // Right-click context menu state (null = closed).
   const [menu, setMenu] = useState<NodeMenu | null>(null);
+  // Right-click context menu for a user-created (manual) edge (null = closed).
+  const [edgeMenu, setEdgeMenu] = useState<EdgeMenu | null>(null);
   // Whether a reference grid is overlaid on the display. Persisted across
   // sessions via settings.
   const { settings, update } = useSettings();
@@ -364,12 +377,14 @@ export function GraphView({
       if (linkingRef.current) return; // handled by the linking effect
       if (evt.target.hasClass(GROUP_CLASS)) return;
       setMenu(null);
+      setEdgeMenu(null);
       const found = graph.nodes.find((n) => n.id === evt.target.id());
       onSelect(found ? { type: "node", node: found } : null);
     });
     cy.on("tap", "edge", (evt) => {
       if (linkingRef.current) return;
       setMenu(null);
+      setEdgeMenu(null);
       const edge = graph.edges.find((e) => e.id === evt.target.id());
       if (!edge) return;
       const source = graph.nodes.find((n) => n.id === edge.source);
@@ -380,6 +395,7 @@ export function GraphView({
       if (linkingRef.current) return; // handled by the linking effect
       if (evt.target === cy) {
         setMenu(null);
+        setEdgeMenu(null);
         onSelect(null);
       }
     });
@@ -398,12 +414,29 @@ export function GraphView({
       const found = graph.nodes.find((n) => n.id === evt.target.id());
       if (!found) return;
       const oe = evt.originalEvent as MouseEvent;
+      setEdgeMenu(null);
       setMenu({ x: oe.clientX, y: oe.clientY, node: found });
     });
-    cy.on("cxttap", (evt) => {
-      if (evt.target === cy) setMenu(null);
+    // Right-click a user-created (manual) edge to delete it. Derived edges have
+    // no menu.
+    cy.on("cxttap", "edge", (evt) => {
+      if (linkingRef.current) return;
+      const edge = graph.edges.find((e) => e.id === evt.target.id());
+      if (!edge || !edge.manual) return;
+      const oe = evt.originalEvent as MouseEvent;
+      setMenu(null);
+      setEdgeMenu({ x: oe.clientX, y: oe.clientY, edge });
     });
-    cy.on("viewport", () => setMenu(null));
+    cy.on("cxttap", (evt) => {
+      if (evt.target === cy) {
+        setMenu(null);
+        setEdgeMenu(null);
+      }
+    });
+    cy.on("viewport", () => {
+      setMenu(null);
+      setEdgeMenu(null);
+    });
 
     // Cursor feedback: a "grabbing" cursor while dragging the canvas (pan) or a
     // node, and a "pointer" cursor when hovering a selectable node.
@@ -1053,6 +1086,39 @@ export function GraphView({
             </Menu.Item>
             {/* Edit is not implemented yet. */}
             <Menu.Item leftSection={<IconPencil size={16} stroke={1.5} />}>Edit</Menu.Item>
+          </Menu.Dropdown>
+        </Menu>
+      )}
+      {edgeMenu && (
+        <Menu
+          opened
+          onClose={() => setEdgeMenu(null)}
+          position="bottom-start"
+          shadow="md"
+          width={160}
+          withinPortal
+        >
+          <Menu.Target>
+            <div
+              style={{ position: "fixed", left: edgeMenu.x, top: edgeMenu.y, width: 1, height: 1 }}
+            />
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Label>
+              <Text size="xs" truncate>
+                {edgeMenu.edge.type} link
+              </Text>
+            </Menu.Label>
+            <Menu.Item
+              color="red"
+              leftSection={<IconTrash size={16} stroke={1.5} />}
+              onClick={() => {
+                onDeleteLink(edgeMenu.edge);
+                setEdgeMenu(null);
+              }}
+            >
+              Delete
+            </Menu.Item>
           </Menu.Dropdown>
         </Menu>
       )}

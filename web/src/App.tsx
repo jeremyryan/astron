@@ -16,6 +16,7 @@ import {
 } from "@mantine/core";
 import {
   createLink,
+  deleteLink,
   getGraph,
   listProjections,
   listViews,
@@ -690,6 +691,15 @@ function GraphPanel({
                 .catch(() => {
                   // Surfacing failures in the UI can come later; for now the
                   // graph simply won't gain the edge.
+                });
+            }}
+            onDeleteLink={(edge) => {
+              deleteLink(projection.namespace, projection.name, edge.source, edge.target, edge.type)
+                .then(() =>
+                  queryClient.invalidateQueries({ queryKey: ["graph", projection.uid] }),
+                )
+                .catch(() => {
+                  // Best-effort; the edge stays if the delete fails.
                 });
             }}
             exportName={`${projection.namespace}-${projection.name}`}

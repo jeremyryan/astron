@@ -67,6 +67,12 @@ type LinkStore interface {
 	// re-syncs do not prune it. It returns an error if either endpoint does not
 	// exist in the projection.
 	AddManualLink(ctx context.Context, projection ProjectionID, fromID, toID, relType string) error
+
+	// DeleteManualLink removes a manual relationship of relType between the two
+	// nodes (by node ID) within the projection. Only links flagged manual are
+	// removed, so projector-derived edges are never affected. It is idempotent:
+	// deleting a link that is absent is not an error.
+	DeleteManualLink(ctx context.Context, projection ProjectionID, fromID, toID, relType string) error
 }
 
 // NodeEmbedding pairs a node's identity with the embedding vector derived from

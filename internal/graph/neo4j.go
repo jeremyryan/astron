@@ -291,6 +291,40 @@ func (s *Neo4jStore) AddManualLink(ctx context.Context, projection ProjectionID,
 	return nil
 }
 
+// deleteManualLinkCypher matches a manual relationship of the given type between
+// two nodes (by UID) within a projection and deletes it. The type is matched
+// via type(r), so it needs no interpolation.
+const deleteManualLinkCypher = `
+MATCH (from:` + resourceLabel + ` {` + projectionProperty + `: $projection, uid: $fromID})-[r {` + projectionProperty + `: $projection}]->(to:` + resourceLabel + ` {` + projectionProperty + `: $projection, uid: $toID})
+WHERE type(r) = $relType AND coalesce(r.` + manualProperty + `, false) = true
+DELETE r`
+
+// DeleteManualLink removes a user-created relationship of relType between two
+// nodes of a projection. Only manual links are affected. It is idempotent.
+func (s *Neo4jStore) DeleteManualLink(ctx context.Context, projection ProjectionID, fromID, toID, relType string) error {
+	if fromID == "" || toID == "" {
+		return fmt.Errorf("both endpoint ids are required")
+	}
+	if relType == "" {
+		return fmt.Errorf("relationship type is required")
+	}
+	sess := s.session(ctx)
+	defer func() { _ = sess.Close(ctx) }()
+
+	_, err := sess.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		return tx.Run(ctx, deleteManualLinkCypher, map[string]any{
+			"projection": string(projection),
+			"fromID":     fromID,
+			"toID":       toID,
+			"relType":    relType,
+		})
+	})
+	if err != nil {
+		return fmt.Errorf("deleting manual link for projection %q: %w", projection, err)
+	}
+	return nil
+}
+
 // DeleteProjection removes all data owned by a projection.
 func (s *Neo4jStore) DeleteProjection(ctx context.Context, projection ProjectionID) error {
 	sess := s.session(ctx)
@@ -410,8 +444,14 @@ func nodeFromProps(props map[string]any) Node {
 // the endpoint identity.
 func relFromProps(row map[string]any) Relationship {
 	props := map[string]any{}
+	manual := false
 	if p, ok := row["props"].(map[string]any); ok {
 		for k, v := range p {
+			if k == manualProperty {
+				if b, ok := v.(bool); ok {
+					manual = b
+				}
+			}
 			if k == projectionProperty || k == syncTokenProperty || k == manualProperty {
 				continue
 			}
@@ -423,6 +463,7 @@ func relFromProps(row map[string]any) Relationship {
 		From:       Ref{UID: keyToUID(asString(row["fromKey"]))},
 		To:         Ref{UID: keyToUID(asString(row["toKey"]))},
 		Properties: props,
+		Manual:     manual,
 	}
 }
 
