@@ -54,6 +54,10 @@ type EmbeddingConfig struct {
 // ErrNotRunning indicates no projector is currently serving a projection.
 var ErrNotRunning = errors.New("no projector running for projection")
 
+// ErrLinksNotSupported indicates the projection's store cannot store manual
+// links.
+var ErrLinksNotSupported = errors.New("manual links are not supported by this store")
+
 // StoreFactory builds a graph.Store for a projection from a resolved config.
 type StoreFactory func(cfg graph.Neo4jConfig) (graph.Store, error)
 
@@ -208,6 +212,17 @@ func (m *Manager) ReadGraph(ctx context.Context, id graph.ProjectionID) (graph.G
 		return graph.GraphData{}, ErrNotRunning
 	}
 	return p.ReadGraph(ctx)
+}
+
+// AddLink creates a user-defined link between two nodes of a running
+// projection. It returns ErrNotRunning when no projector is serving the
+// projection, or ErrLinksNotSupported when the store cannot store manual links.
+func (m *Manager) AddLink(ctx context.Context, id graph.ProjectionID, fromID, toID, relType string) error {
+	p, ok := m.Get(id)
+	if !ok {
+		return ErrNotRunning
+	}
+	return p.AddLink(ctx, fromID, toID, relType)
 }
 
 // Search runs hybrid (vector + graph) retrieval against a running projection.

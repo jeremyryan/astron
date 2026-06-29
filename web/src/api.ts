@@ -142,3 +142,21 @@ export async function deleteView(namespace: string, name: string): Promise<void>
     `/api/views/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
   );
 }
+
+// ----- Links (user-created edges) -----
+
+// createLink adds a user-defined edge between two nodes (by their graph node
+// ids) within a projection. The backend defaults the relationship type to a
+// Custom link.
+export async function createLink(
+  namespace: string,
+  name: string,
+  from: string,
+  to: string,
+): Promise<void> {
+  await sendJSON<void>(
+    "POST",
+    `/api/projections/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/links`,
+    { from, to },
+  );
+}

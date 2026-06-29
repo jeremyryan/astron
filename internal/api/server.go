@@ -74,6 +74,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/projections/{namespace}/{name}/rag/neighborhood", s.handleRAGNeighborhood)
 	mux.HandleFunc("POST /api/projections/{namespace}/{name}/rag/query", s.handleRAGQuery)
 	mux.HandleFunc("POST /api/projections/{namespace}/{name}/rag/answer", s.handleRAGAnswer)
+	mux.HandleFunc("POST /api/projections/{namespace}/{name}/links", s.handleCreateLink)
 	mux.HandleFunc("GET /api/resource", s.handleResourceYAML)
 	mux.HandleFunc("GET /api/views", s.handleListViews)
 	mux.HandleFunc("POST /api/views", s.handleCreateView)
@@ -325,6 +326,51 @@ func (s *Server) writeRetrievalError(w http.ResponseWriter, query string, err er
 	default:
 		writeError(w, http.StatusInternalServerError, err)
 	}
+}
+
+// linkRequest is the body of a create-link request: the source and target node
+// IDs (as returned by the graph endpoint) and an optional relationship type
+// (defaulting to a Custom link).
+type linkRequest struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	Type string `json:"type"`
+}
+
+// handleCreateLink creates a user-defined edge between two existing nodes of a
+// projection. The link is persisted as a manual relationship that survives
+// projector re-syncs.
+func (s *Server) handleCreateLink(w http.ResponseWriter, r *http.Request) {
+	var req linkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if strings.TrimSpace(req.From) == "" || strings.TrimSpace(req.To) == "" {
+		writeError(w, http.StatusBadRequest, errors.New("from and to node ids are required"))
+		return
+	}
+	relType := strings.TrimSpace(req.Type)
+	if relType == "" {
+		relType = graph.ManualLinkType
+	}
+
+	id, ok := s.projectionID(w, r)
+	if !ok {
+		return
+	}
+
+	if err := s.projectors.AddLink(r.Context(), id, req.From, req.To, relType); err != nil {
+		switch {
+		case errors.Is(err, projector.ErrNotRunning), errors.Is(err, projector.ErrLinksNotSupported):
+			writeError(w, http.StatusServiceUnavailable, err)
+		default:
+			// Endpoint-not-found and validation problems surface as 400.
+			writeError(w, http.StatusBadRequest, err)
+		}
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"from": req.From, "to": req.To, "type": relType})
 }
 
 // handleResourceYAML fetches a single live resource from the cluster and returns

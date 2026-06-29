@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ActionIcon,
   AppShell,
@@ -15,6 +15,7 @@ import {
   UnstyledButton,
 } from "@mantine/core";
 import {
+  createLink,
   getGraph,
   listProjections,
   listViews,
@@ -490,6 +491,7 @@ function GraphPanel({
   onActiveViewChange: (v: View | null) => void;
 }) {
   const { settings, update } = useSettings();
+  const queryClient = useQueryClient();
   // The currently inspected element (node or edge), or null.
   const [selection, setSelection] = useState<GraphSelection | null>(null);
   const selectedNode = selection?.type === "node" ? selection.node : null;
@@ -680,6 +682,16 @@ function GraphPanel({
             onShowYaml={setYamlNode}
             groupByNamespace={groupByNamespace}
             showEdgeLabels={showEdgeLabels}
+            onAddLink={(from, to) => {
+              createLink(projection.namespace, projection.name, from, to)
+                .then(() =>
+                  queryClient.invalidateQueries({ queryKey: ["graph", projection.uid] }),
+                )
+                .catch(() => {
+                  // Surfacing failures in the UI can come later; for now the
+                  // graph simply won't gain the edge.
+                });
+            }}
             exportName={`${projection.namespace}-${projection.name}`}
           />
         )}

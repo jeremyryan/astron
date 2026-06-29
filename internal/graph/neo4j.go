@@ -40,6 +40,11 @@ const projectionProperty = "_projection"
 // that last wrote it, enabling mark-and-sweep pruning of stale data.
 const syncTokenProperty = "_syncToken"
 
+// manualProperty marks a relationship as user-created (added via the UI) so it
+// is excluded from the projector's mark-and-sweep pruning and persists across
+// re-syncs.
+const manualProperty = "_manual"
+
 // syncCounter guarantees unique, monotonically increasing sync tokens even when
 // two syncs occur within the same nanosecond.
 var syncCounter atomic.Uint64
@@ -62,8 +67,11 @@ type Neo4jStore struct {
 	database string
 }
 
-// compile-time assertion that Neo4jStore satisfies Store.
-var _ Store = (*Neo4jStore)(nil)
+// compile-time assertion that Neo4jStore satisfies Store and LinkStore.
+var (
+	_ Store     = (*Neo4jStore)(nil)
+	_ LinkStore = (*Neo4jStore)(nil)
+)
 
 // NewNeo4jStore constructs a Neo4jStore from the given configuration. It opens
 // the driver but does not verify connectivity; call Verify for that.
@@ -160,7 +168,7 @@ DETACH DELETE n`
 
 const pruneRelsCypher = `
 MATCH (:` + resourceLabel + `)-[r {` + projectionProperty + `: $projection}]->()
-WHERE r.` + syncTokenProperty + ` <> $token
+WHERE r.` + syncTokenProperty + ` <> $token AND coalesce(r.` + manualProperty + `, false) = false
 DELETE r`
 
 // Sync upserts all nodes and relationships under a fresh token, then prunes any
@@ -217,6 +225,71 @@ func (s *Neo4jStore) Sync(ctx context.Context, projection ProjectionID, nodes []
 const deleteProjectionCypher = `
 MATCH (n:` + resourceLabel + ` {` + projectionProperty + `: $projection})
 DETACH DELETE n`
+
+// ManualLinkType is the default relationship type used for user-created links.
+const ManualLinkType = "CUSTOM"
+
+// addManualLinkCypher matches both endpoints by their UID within the projection,
+// merges the relationship, and flags it manual. The relationship type is
+// interpolated (it cannot be parameterized) after validation by the caller.
+func addManualLinkCypher(relType string) string {
+	return fmt.Sprintf(`
+MATCH (from:%s {%s: $projection, uid: $fromID})
+MATCH (to:%s {%s: $projection, uid: $toID})
+MERGE (from)-[r:%s]->(to)
+SET r.%s = $projection, r.%s = true, r.%s = $token
+RETURN count(r) AS c`,
+		resourceLabel, projectionProperty,
+		resourceLabel, projectionProperty,
+		relType,
+		projectionProperty, manualProperty, syncTokenProperty)
+}
+
+// AddManualLink merges a user-created relationship between two existing nodes of
+// a projection, identified by their node IDs (UIDs). The link is flagged manual
+// so it survives Sync pruning. It errors when either endpoint is not found.
+func (s *Neo4jStore) AddManualLink(ctx context.Context, projection ProjectionID, fromID, toID, relType string) error {
+	if fromID == "" || toID == "" {
+		return fmt.Errorf("both endpoint ids are required")
+	}
+	if fromID == toID {
+		return fmt.Errorf("cannot link a node to itself")
+	}
+	rt, err := sanitizeRelType(relType)
+	if err != nil {
+		return err
+	}
+
+	sess := s.session(ctx)
+	defer func() { _ = sess.Close(ctx) }()
+
+	created, err := sess.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		res, err := tx.Run(ctx, addManualLinkCypher(rt), map[string]any{
+			"projection": string(projection),
+			"fromID":     fromID,
+			"toID":       toID,
+			"token":      newSyncToken(),
+		})
+		if err != nil {
+			return int64(0), err
+		}
+		// When either MATCH finds nothing, the MERGE never runs and the query
+		// produces no rows; treat that as "endpoint(s) not found".
+		rec, err := res.Single(ctx)
+		if err != nil {
+			return int64(0), nil
+		}
+		c, _ := rec.Get("c")
+		return asInt64(c), nil
+	})
+	if err != nil {
+		return fmt.Errorf("adding manual link for projection %q: %w", projection, err)
+	}
+	if created.(int64) == 0 {
+		return fmt.Errorf("one or both nodes were not found in projection %q", projection)
+	}
+	return nil
+}
 
 // DeleteProjection removes all data owned by a projection.
 func (s *Neo4jStore) DeleteProjection(ctx context.Context, projection ProjectionID) error {
@@ -339,7 +412,7 @@ func relFromProps(row map[string]any) Relationship {
 	props := map[string]any{}
 	if p, ok := row["props"].(map[string]any); ok {
 		for k, v := range p {
-			if k == projectionProperty || k == syncTokenProperty {
+			if k == projectionProperty || k == syncTokenProperty || k == manualProperty {
 				continue
 			}
 			props[k] = v

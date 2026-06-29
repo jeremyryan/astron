@@ -52,6 +52,7 @@ export const RELATIONSHIP_COLORS: Record<string, string> = {
   BINDS: "#1abc9c", // PersistentVolume <-> PersistentVolumeClaim
   ROUTES: "#f1c40f", // Ingress / HTTPRoute -> Service
   DEFINES: "#e84393", // CRD -> its instances
+  CUSTOM: "#16a3b8", // user-created link
 };
 
 export function colorForRelationship(type: string): string {

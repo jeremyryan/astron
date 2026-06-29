@@ -142,6 +142,17 @@ func (p *Projector) ReadGraph(ctx context.Context) (graph.GraphData, error) {
 	return p.opts.Store.ReadGraph(ctx, p.opts.ID)
 }
 
+// AddLink creates a user-defined link between two nodes of this projection, if
+// the backing store supports manual links. It returns ErrLinksNotSupported
+// otherwise.
+func (p *Projector) AddLink(ctx context.Context, fromID, toID, relType string) error {
+	ls, ok := p.opts.Store.(graph.LinkStore)
+	if !ok {
+		return ErrLinksNotSupported
+	}
+	return ls.AddManualLink(ctx, p.opts.ID, fromID, toID, relType)
+}
+
 // enqueue requests a (debounced) re-sync without blocking the caller.
 func (p *Projector) enqueue() {
 	select {

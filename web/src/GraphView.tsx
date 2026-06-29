@@ -4,6 +4,7 @@ import {
   IconCode,
   IconDownload,
   IconGrid3x3,
+  IconLink,
   IconLayoutAlignCenter,
   IconLayoutAlignMiddle,
   IconLayoutDistributeHorizontal,
@@ -125,6 +126,9 @@ interface Props {
   maxDistance: number | null;
   // Called when the user picks "YAML" from a node's right-click menu.
   onShowYaml: (node: GraphNode) => void;
+  // Called when the user completes an "Add Link" gesture from one node to
+  // another, with the source and target node ids.
+  onAddLink: (sourceId: string, targetId: string) => void;
   // When true, resources are grouped into compound nodes by namespace.
   groupByNamespace: boolean;
   // When false, edge (relationship-type) labels are hidden.
@@ -146,6 +150,7 @@ export function GraphView({
   selectedId,
   maxDistance,
   onShowYaml,
+  onAddLink,
   groupByNamespace,
   showEdgeLabels,
   exportName,
@@ -164,6 +169,10 @@ export function GraphView({
   // Tracks whether the view is currently zoomed into a distance subgraph, so we
   // can zoom back out when the filter is cleared.
   const fittedSubgraphRef = useRef(false);
+  // Id of the node a link is being drawn from (null = not linking). A ref mirror
+  // lets the canvas event handlers, registered once, read the live value.
+  const [linkingSourceId, setLinkingSourceId] = useState<string | null>(null);
+  const linkingRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -255,6 +264,27 @@ export function GraphView({
           selector: "edge.no-label",
           style: { "text-opacity": 0, "text-background-opacity": 0 },
         },
+        // The transient node tracking the cursor while drawing a new link. It is
+        // invisible and ignores pointer events so taps fall through to the real
+        // node beneath it.
+        {
+          selector: ".link-ghost",
+          style: { width: 1, height: 1, "background-opacity": 0, "border-width": 0, label: "", events: "no" },
+        },
+        // The dashed arrow drawn from the source node to the cursor.
+        {
+          selector: ".link-ghost-edge",
+          style: {
+            width: 2,
+            "line-color": "#16a3b8",
+            "line-style": "dashed",
+            "target-arrow-color": "#16a3b8",
+            "target-arrow-shape": "triangle",
+            "curve-style": "straight",
+            label: "",
+            events: "no",
+          },
+        },
         // A selected edge is highlighted (brighter, thicker).
         {
           selector: "edge:selected",
@@ -331,12 +361,14 @@ export function GraphView({
     });
 
     cy.on("tap", "node", (evt) => {
+      if (linkingRef.current) return; // handled by the linking effect
       if (evt.target.hasClass(GROUP_CLASS)) return;
       setMenu(null);
       const found = graph.nodes.find((n) => n.id === evt.target.id());
       onSelect(found ? { type: "node", node: found } : null);
     });
     cy.on("tap", "edge", (evt) => {
+      if (linkingRef.current) return;
       setMenu(null);
       const edge = graph.edges.find((e) => e.id === evt.target.id());
       if (!edge) return;
@@ -345,6 +377,7 @@ export function GraphView({
       onSelect({ type: "edge", edge, source, target });
     });
     cy.on("tap", (evt) => {
+      if (linkingRef.current) return; // handled by the linking effect
       if (evt.target === cy) {
         setMenu(null);
         onSelect(null);
@@ -361,6 +394,7 @@ export function GraphView({
     // Right-click a node to open a context menu at the cursor. Clicking the
     // background (or panning/zooming) dismisses it.
     cy.on("cxttap", "node", (evt) => {
+      if (linkingRef.current) return;
       const found = graph.nodes.find((n) => n.id === evt.target.id());
       if (!found) return;
       const oe = evt.originalEvent as MouseEvent;
@@ -617,6 +651,8 @@ export function GraphView({
 
     const container = containerRef.current;
     cyRef.current = cy;
+    // Dev-only handle for debugging / e2e tests; stripped from production builds.
+    if (import.meta.env.DEV) (window as unknown as { __cy?: Core }).__cy = cy;
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keydown", trackShift);
@@ -692,6 +728,81 @@ export function GraphView({
     if (!cy) return;
     cy.edges().toggleClass("no-label", !showEdgeLabels);
   }, [graph, showEdgeLabels]);
+
+  // "Add Link" gesture: while linkingSourceId is set, draw a dashed arrow from
+  // the source node to the cursor. Tapping another node creates the link;
+  // tapping empty space (or pressing Escape) cancels without changes.
+  useEffect(() => {
+    const cy = cyRef.current;
+    const el = containerRef.current;
+    if (!cy || !el || !linkingSourceId) {
+      linkingRef.current = null;
+      return;
+    }
+    const source = cy.getElementById(linkingSourceId);
+    if (source.empty()) {
+      setLinkingSourceId(null);
+      return;
+    }
+    linkingRef.current = linkingSourceId;
+    el.style.cursor = "crosshair";
+    // Don't box-select or pan while aiming the link.
+    cy.boxSelectionEnabled(false);
+
+    const GHOST = "__link_ghost__";
+    const GHOST_EDGE = "__link_ghost_edge__";
+    cy.add({
+      group: "nodes",
+      data: { id: GHOST },
+      position: { ...source.position() },
+      classes: "link-ghost",
+      selectable: false,
+      grabbable: false,
+    });
+    cy.add({
+      group: "edges",
+      data: { id: GHOST_EDGE, source: linkingSourceId, target: GHOST },
+      classes: "link-ghost-edge",
+    });
+
+    const onMove = (evt: cytoscape.EventObject) => {
+      const g = cy.getElementById(GHOST);
+      if (g.nonempty()) g.position(evt.position);
+    };
+    cy.on("mousemove", onMove);
+
+    const finish = (targetId: string | null) => {
+      if (targetId && targetId !== linkingSourceId) onAddLink(linkingSourceId, targetId);
+      setLinkingSourceId(null);
+    };
+    const onTapNode = (evt: cytoscape.EventObject) => {
+      const t = evt.target as NodeSingular;
+      if (t.hasClass(GROUP_CLASS) || t.id() === GHOST) return;
+      finish(t.id());
+    };
+    const onTapBg = (evt: cytoscape.EventObject) => {
+      if (evt.target === cy) finish(null);
+    };
+    cy.on("tap", "node", onTapNode);
+    cy.on("tap", onTapBg);
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLinkingSourceId(null);
+    };
+    window.addEventListener("keydown", onKey);
+
+    return () => {
+      cy.off("mousemove", onMove);
+      cy.off("tap", "node", onTapNode);
+      cy.off("tap", onTapBg);
+      window.removeEventListener("keydown", onKey);
+      cy.getElementById(GHOST_EDGE).remove();
+      cy.getElementById(GHOST).remove();
+      cy.boxSelectionEnabled(true);
+      el.style.cursor = "";
+      linkingRef.current = null;
+    };
+  }, [linkingSourceId, onAddLink]);
 
   // Reflect an externally-driven selection (e.g. clicking a resource in the
   // inspector list) onto the canvas: select and center the node. A node picked
@@ -785,6 +896,11 @@ export function GraphView({
     <>
       <div ref={containerRef} className="graph-canvas" />
       {showGrid && <div className="graph-grid-overlay" aria-hidden />}
+      {linkingSourceId && (
+        <div className="link-hint">
+          Click a target node to link it · Esc to cancel
+        </div>
+      )}
       <Group gap={6} className="graph-controls">
         {selectedCount >= 2 && (
           <>
@@ -906,6 +1022,15 @@ export function GraphView({
               }}
             >
               YAML
+            </Menu.Item>
+            <Menu.Item
+              leftSection={<IconLink size={16} stroke={1.5} />}
+              onClick={() => {
+                setLinkingSourceId(menu.node.id);
+                setMenu(null);
+              }}
+            >
+              Add Link
             </Menu.Item>
             {/* Edit is not implemented yet. */}
             <Menu.Item leftSection={<IconPencil size={16} stroke={1.5} />}>Edit</Menu.Item>

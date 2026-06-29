@@ -172,7 +172,7 @@ func convertProps(props map[string]any) map[string]any {
 // query results stay clean and don't leak large embedding vectors.
 func stripInternal(props map[string]any) map[string]any {
 	for _, k := range []string{
-		"_key", projectionProperty, syncTokenProperty,
+		"_key", projectionProperty, syncTokenProperty, manualProperty,
 		embeddingProperty, cardProperty, cardHashProperty, embeddingModelProperty,
 	} {
 		delete(props, k)
