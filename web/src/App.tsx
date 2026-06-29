@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ActionIcon,
@@ -515,10 +515,12 @@ function GraphPanel({
   // Whether the inspector panel is collapsed to a thin strip.
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   // Selecting/inspecting an element returns from the list to the detail view.
-  const handleSelect = (sel: GraphSelection | null) => {
+  // Memoized so its identity stays stable: GraphView rebuilds its canvas when
+  // onSelect changes, so an inline function here would relayout on every render.
+  const handleSelect = useCallback((sel: GraphSelection | null) => {
     setSelection(sel);
     if (sel) setShowResourceList(false);
-  };
+  }, []);
   // Node whose YAML manifest is shown in the modal (null = closed).
   const [yamlNode, setYamlNode] = useState<GraphNode | null>(null);
   // Kinds the user has hidden. Empty = show everything (the default).
