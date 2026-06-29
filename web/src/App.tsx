@@ -4,6 +4,7 @@ import {
   ActionIcon,
   AppShell,
   Box,
+  Button,
   Group,
   Loader,
   NavLink,
@@ -41,7 +42,10 @@ import { SettingsModal } from "./SettingsModal";
 import { useSettings } from "./settings";
 import { colorForRelationship, iconForKindOrGeneric } from "./kinds";
 import {
+  IconArrowLeft,
   IconBookmark,
+  IconChevronLeft,
+  IconChevronRight,
   IconHierarchy2,
   IconSettings,
   IconTag,
@@ -261,9 +265,11 @@ function groupResources(nodes: GraphNode[]) {
 function ResourceList({
   nodes,
   onSelect,
+  selectedIds,
 }: {
   nodes: GraphNode[];
   onSelect: (node: GraphNode) => void;
+  selectedIds: Set<string>;
 }) {
   const groups = useMemo(() => groupResources(nodes), [nodes]);
   if (nodes.length === 0)
@@ -305,7 +311,11 @@ function ResourceList({
                   {k.nodes.map((n) => (
                     <UnstyledButton
                       key={n.id}
-                      className="resource-link"
+                      className={
+                        selectedIds.has(n.id)
+                          ? "resource-link resource-link-selected"
+                          : "resource-link"
+                      }
                       onClick={() => onSelect(n)}
                       title={n.name}
                     >
@@ -496,6 +506,19 @@ function GraphPanel({
   // The currently inspected element (node or edge), or null.
   const [selection, setSelection] = useState<GraphSelection | null>(null);
   const selectedNode = selection?.type === "node" ? selection.node : null;
+  // Ids of all nodes selected on the canvas (supports box-select), used to
+  // highlight them in the resource list.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // When true, the inspector shows the resource list even if a node/edge is
+  // selected (the user navigated "Back" from the detail view).
+  const [showResourceList, setShowResourceList] = useState(false);
+  // Whether the inspector panel is collapsed to a thin strip.
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  // Selecting/inspecting an element returns from the list to the detail view.
+  const handleSelect = (sel: GraphSelection | null) => {
+    setSelection(sel);
+    if (sel) setShowResourceList(false);
+  };
   // Node whose YAML manifest is shown in the modal (null = closed).
   const [yamlNode, setYamlNode] = useState<GraphNode | null>(null);
   // Kinds the user has hidden. Empty = show everything (the default).
@@ -677,7 +700,8 @@ function GraphPanel({
         {filteredGraph && (
           <GraphView
             graph={filteredGraph}
-            onSelect={setSelection}
+            onSelect={handleSelect}
+            onSelectedIdsChange={(ids) => setSelectedIds(new Set(ids))}
             selectedId={selectedNode?.id ?? null}
             maxDistance={maxDistance}
             onShowYaml={setYamlNode}
@@ -714,18 +738,69 @@ function GraphPanel({
         )}
       </div>
       <YamlModal node={yamlNode} onClose={() => setYamlNode(null)} />
-      <ScrollArea component="aside" className="inspector" type="scroll">
-        {selection?.type === "edge" ? (
-          <EdgeDetails selection={selection} />
-        ) : selectedNode ? (
-          <NodeDetails node={selectedNode} />
-        ) : (
-          <ResourceList
-            nodes={filteredGraph?.nodes ?? []}
-            onSelect={(node) => setSelection({ type: "node", node })}
-          />
-        )}
-      </ScrollArea>
+      {inspectorCollapsed ? (
+        <aside className="inspector inspector-collapsed">
+          <Tooltip label="Expand panel" position="left">
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              onClick={() => setInspectorCollapsed(false)}
+              aria-label="Expand panel"
+            >
+              <IconChevronLeft size={18} />
+            </ActionIcon>
+          </Tooltip>
+        </aside>
+      ) : (
+        (() => {
+          const showDetails =
+            !showResourceList && (selection?.type === "edge" || !!selectedNode);
+          return (
+            <aside className="inspector">
+              <div className="inspector-header">
+                {showDetails ? (
+                  <Button
+                    variant="subtle"
+                    color="gray"
+                    size="compact-sm"
+                    leftSection={<IconArrowLeft size={16} />}
+                    onClick={() => setShowResourceList(true)}
+                  >
+                    Back
+                  </Button>
+                ) : (
+                  <span />
+                )}
+                <Tooltip label="Collapse panel" position="left">
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    onClick={() => setInspectorCollapsed(true)}
+                    aria-label="Collapse panel"
+                  >
+                    <IconChevronRight size={18} />
+                  </ActionIcon>
+                </Tooltip>
+              </div>
+              <ScrollArea className="inspector-body" type="scroll">
+                <Box p={14}>
+                  {showDetails && selection?.type === "edge" ? (
+                    <EdgeDetails selection={selection} />
+                  ) : showDetails ? (
+                    <NodeDetails node={selectedNode} />
+                  ) : (
+                    <ResourceList
+                      nodes={filteredGraph?.nodes ?? []}
+                      selectedIds={selectedIds}
+                      onSelect={(node) => handleSelect({ type: "node", node })}
+                    />
+                  )}
+                </Box>
+              </ScrollArea>
+            </aside>
+          );
+        })()
+      )}
     </div>
   );
 }

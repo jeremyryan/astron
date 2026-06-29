@@ -134,6 +134,9 @@ interface Props {
   onAddLink: (sourceId: string, targetId: string) => void;
   // Called when the user deletes a user-created link via its context menu.
   onDeleteLink: (edge: GraphEdge) => void;
+  // Called whenever the set of selected (real) nodes changes, with their ids.
+  // Lets the inspector highlight every selected resource in its list view.
+  onSelectedIdsChange?: (ids: string[]) => void;
   // When true, resources are grouped into compound nodes by namespace.
   groupByNamespace: boolean;
   // When false, edge (relationship-type) labels are hidden.
@@ -163,6 +166,7 @@ export function GraphView({
   onShowYaml,
   onAddLink,
   onDeleteLink,
+  onSelectedIdsChange,
   groupByNamespace,
   showEdgeLabels,
   exportName,
@@ -187,6 +191,10 @@ export function GraphView({
   // lets the canvas event handlers, registered once, read the live value.
   const [linkingSourceId, setLinkingSourceId] = useState<string | null>(null);
   const linkingRef = useRef<string | null>(null);
+  // Ref mirror of onSelectedIdsChange so the once-registered cytoscape handler
+  // always calls the latest callback without rebuilding the graph.
+  const selectedIdsCbRef = useRef(onSelectedIdsChange);
+  selectedIdsCbRef.current = onSelectedIdsChange;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -417,7 +425,9 @@ export function GraphView({
     // Track how many real nodes are selected so the alignment tools can appear
     // for multi-selections (e.g. via Shift box-select).
     const updateSelectedCount = () => {
-      setSelectedCount(cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS)).length);
+      const sel = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
+      setSelectedCount(sel.length);
+      selectedIdsCbRef.current?.(sel.map((n) => n.id()));
     };
     cy.on("select unselect", "node", updateSelectedCount);
 

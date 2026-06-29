@@ -13,6 +13,8 @@ export {
   IconPlus,
   IconX,
   IconChevronRight,
+  IconChevronLeft,
+  IconArrowLeft,
   IconDeviceFloppy,
   IconTrash,
   IconBookmark,

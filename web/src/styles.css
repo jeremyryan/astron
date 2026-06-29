@@ -163,7 +163,39 @@ body {
   width: 300px;
   border-left: 1px solid var(--border);
   background: var(--panel);
-  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Header row holding the Back / collapse controls. */
+.inspector-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+/* Scrollable body filling the remaining height below the header. */
+.inspector-body {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Collapsed strip: just the expand button. */
+.inspector-collapsed {
+  width: auto;
+  align-items: center;
+  padding: 8px 4px;
+}
+
+/* A resource currently selected on the canvas, highlighted in the list. */
+.resource-link-selected {
+  background: rgba(116, 192, 252, 0.16);
+  color: var(--mantine-color-brand-4, #74c0fc);
+  font-weight: 600;
 }
 
 /* Clickable resource name in the inspector's resource browser (shown when no
