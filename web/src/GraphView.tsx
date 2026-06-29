@@ -23,12 +23,6 @@ cytoscape.use(dagre);
 cytoscape.use(fcose);
 
 // Vertices of a regular heptagon with a single vertex pointing straight up,
-// normalized to the [-1, 1] node bounding box. This matches the 7-sided
-// Kubernetes badge silhouette so status / selection outlines trace the icon's
-// shape instead of sitting as a circle cutting across it.
-const K8S_BADGE_POINTS =
-  "0 -1 0.782 -0.623 0.975 0.223 0.434 0.901 -0.434 0.901 -0.975 0.223 -0.782 -0.623";
-
 // Class applied to synthetic compound "namespace" parent nodes so they can be
 // excluded from selection, fading and menus.
 const GROUP_CLASS = "namespace-group";
@@ -197,29 +191,28 @@ export function GraphView({
             height: 28,
           },
         },
-        // Nodes with an official Kubernetes icon render the icon instead of the
-        // solid color circle. The node is shaped as the 7-sided Kubernetes
-        // badge so a status / selection outline traces the icon's silhouette,
-        // and the glyph is inset so that outline reads as a ring around it
-        // rather than a border cutting across the icon.
+        // Nodes with an official Kubernetes icon render as a circular disc with
+        // the icon inset inside it. The disc carries a ring border that conveys
+        // state (a neutral default, a health color for status-bearing nodes, or
+        // white when selected); insetting the glyph leaves room for that ring to
+        // sit cleanly around it rather than cutting across the icon.
         {
           selector: "node[icon]",
           style: {
-            shape: "polygon",
-            "shape-polygon-points": K8S_BADGE_POINTS,
+            shape: "ellipse",
+            "background-color": "#252a33",
+            "background-opacity": 1,
             "background-image": "data(icon)",
-            // Inset the glyph within the (larger) node so the heptagon outline
-            // has room to sit around it. background-clip:none keeps the icon
-            // from being clipped to the node shape.
             "background-fit": "none",
-            "background-width": "80%",
-            "background-height": "80%",
+            "background-width": "66%",
+            "background-height": "66%",
             "background-position-x": "50%",
             "background-position-y": "50%",
             "background-clip": "none",
-            "background-opacity": 0,
-            width: 38,
-            height: 38,
+            "border-width": 1.5,
+            "border-color": "#3c4350",
+            width: 34,
+            height: 34,
           },
         },
         {
@@ -246,15 +239,15 @@ export function GraphView({
             "text-rotation": "autorotate",
           },
         },
-        // Status-bearing nodes (e.g. Pods) get a health-colored outline that
-        // follows the node shape (a heptagon ring for icon nodes).
+        // Status-bearing nodes (e.g. Pods) get a health-colored ring border.
         {
           selector: "node[statusColor]",
-          style: { "border-width": 2.5, "border-color": "data(statusColor)", "border-opacity": 0.95 },
+          style: { "border-width": 3, "border-color": "data(statusColor)", "border-opacity": 1 },
         },
+        // Selection takes precedence over the health ring: a bright white ring.
         {
           selector: "node:selected",
-          style: { "border-width": 2.5, "border-color": "#fff" },
+          style: { "border-width": 3, "border-color": "#fff", "border-opacity": 1 },
         },
         // Edges whose labels are toggled off hide just the relationship text
         // while keeping the line, arrow and color.
