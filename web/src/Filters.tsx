@@ -18,6 +18,7 @@ import {
 import type { Graph } from "./api";
 import { iconForKindOrGeneric } from "./kinds";
 import {
+  IconChevronLeft,
   IconChevronRight,
   IconEye,
   IconEyeOff,
@@ -102,6 +103,9 @@ interface Props {
   onChangeLabelMode: (mode: LabelMatchMode) => void;
   // Saved-view controls (Save / Delete / Save as…) rendered at the top.
   viewControls?: ReactNode;
+  // Whether the panel is collapsed to a thin strip, and a toggle for it.
+  collapsed: boolean;
+  onToggleCollapse: () => void;
 }
 
 const MAX_DISTANCE = 9;
@@ -205,20 +209,51 @@ export function FilterPanel({
   onRemoveLabel,
   onChangeLabelMode,
   viewControls,
+  collapsed,
+  onToggleCollapse,
 }: Props) {
   const visibleCount = kinds.filter((k) => !hiddenKinds.has(k.kind)).length;
   const filtering = hiddenKinds.size > 0;
   const visibleNamespaces = namespaces.filter((n) => !hiddenNamespaces.has(n.namespace)).length;
   const nsFiltering = hiddenNamespaces.size > 0;
 
+  if (collapsed) {
+    return (
+      <Box component="aside" className="filters filters-collapsed">
+        <Tooltip label="Expand filters" position="right">
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            onClick={onToggleCollapse}
+            aria-label="Expand filters"
+          >
+            <IconChevronRight size={18} />
+          </ActionIcon>
+        </Tooltip>
+      </Box>
+    );
+  }
+
   return (
     <Box component="aside" className="filters">
       <Stack gap="lg">
-        <Group gap={6} align="center">
-          <IconFilter size={14} stroke={1.5} />
-          <Text size="xs" fw={700} tt="uppercase" c="dimmed">
-            Filters
-          </Text>
+        <Group gap={6} align="center" justify="space-between" wrap="nowrap">
+          <Group gap={6} align="center">
+            <IconFilter size={14} stroke={1.5} />
+            <Text size="xs" fw={700} tt="uppercase" c="dimmed">
+              Filters
+            </Text>
+          </Group>
+          <Tooltip label="Collapse filters" position="right">
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              onClick={onToggleCollapse}
+              aria-label="Collapse filters"
+            >
+              <IconChevronLeft size={18} />
+            </ActionIcon>
+          </Tooltip>
         </Group>
 
         {/* Views (saved filter sets) */}

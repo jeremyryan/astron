@@ -514,6 +514,8 @@ function GraphPanel({
   const [showResourceList, setShowResourceList] = useState(false);
   // Whether the inspector panel is collapsed to a thin strip.
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  // Whether the left filters panel is collapsed to a thin strip.
+  const [filtersCollapsed, setFiltersCollapsed] = useState(false);
   // Selecting/inspecting an element returns from the list to the detail view.
   // Memoized so its identity stays stable: GraphView rebuilds its canvas when
   // onSelect changes, so an inline function here would relayout on every render.
@@ -666,6 +668,8 @@ function GraphPanel({
         onUpdateLabel={updateLabel}
         onRemoveLabel={removeLabel}
         onChangeLabelMode={setLabelMode}
+        collapsed={filtersCollapsed}
+        onToggleCollapse={() => setFiltersCollapsed((v) => !v)}
         viewControls={
           <ViewControls
             projection={projection}

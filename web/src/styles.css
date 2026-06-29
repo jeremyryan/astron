@@ -47,6 +47,13 @@ body {
   overflow-y: auto;
 }
 
+/* Collapsed strip: just the expand button. */
+.filters-collapsed {
+  width: auto;
+  padding: 8px 4px;
+  overflow: hidden;
+}
+
 .graph-area {
   flex: 1;
   position: relative;
