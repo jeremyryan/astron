@@ -93,6 +93,39 @@ service:
     # -- Service port for the metrics endpoint.
     port: 8443
 
+# Optionally expose the API/UI server through a Gateway API HTTPRoute. Requires
+# the Gateway API CRDs (gateway.networking.k8s.io/v1) and a running Gateway in
+# the cluster. The route targets the API Service, so controller.api.enabled
+# must also be true.
+httpRoute:
+  # -- Create an HTTPRoute for the API/UI server.
+  enabled: false
+  # -- API version for the HTTPRoute resource.
+  apiVersion: gateway.networking.k8s.io/v1
+  # -- Extra annotations to add to the HTTPRoute.
+  annotations: {}
+  # -- Extra labels to add to the HTTPRoute.
+  labels: {}
+  # -- Hostnames the route matches. Empty matches all hostnames.
+  hostnames: []
+  # -- parentRefs binding the route to one or more Gateways/listeners.
+  parentRefs:
+    - name: ""
+      # namespace: ""
+      # sectionName: ""
+      # port: 80
+  # -- Route matching rules. Defaults to all paths ("/") routed to the API
+  # Service. Backend refs are filled in automatically when omitted.
+  matches:
+    - path:
+        type: PathPrefix
+        value: /
+  # -- Optional filters applied to the default rule (e.g. header modifiers).
+  filters: []
+  # -- Fully override the rules list. When set, matches/filters above are
+  # ignored and these rules are rendered verbatim.
+  rules: []
+
 # Connection to Neo4J used to materialize the graph. These values feed the
 # credentials Secret and the optional default GraphProjection.
 connection:

@@ -67,6 +67,9 @@ The existing Secret must contain the keys named by `connection.usernameKey`
 | `controller.metrics.enabled` / `.secure` | `true` / `true` | Metrics endpoint and auth. |
 | `controller.api.enabled` | `true` | Read API + embedded web UI. |
 | `service.api.port` | `8082` | UI/API service port. |
+| `httpRoute.enabled` | `false` | Expose the API/UI via a Gateway API `HTTPRoute`. |
+| `httpRoute.parentRefs` | `[]` | Gateways/listeners the route attaches to. |
+| `httpRoute.hostnames` | `[]` | Hostnames the route matches (empty = all). |
 | `connection.uri` | `""` | Bolt URI; auto-derived for bundled Neo4J. |
 | `connection.database` | `neo4j` | Target database. |
 | `connection.existingSecret` | `""` | Use an existing credentials Secret. |

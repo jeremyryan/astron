@@ -26,3 +26,12 @@ neo4j:
 defaultProjection:
   enabled: true
   ownNamespaceOnly: false
+
+
+httpRoute:
+  enabled: true
+  hostnames:
+    - gamera-192-168-1-190.nip.io
+  parentRefs:
+    - name: "traefik-gateway"
+      namespace: "kube-system"
