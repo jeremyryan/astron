@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ActionIcon, Divider, Group, Menu, Text, Tooltip } from "@mantine/core";
 import {
   IconCode,
@@ -195,6 +195,25 @@ export function GraphView({
   // always calls the latest callback without rebuilding the graph.
   const selectedIdsCbRef = useRef(onSelectedIdsChange);
   selectedIdsCbRef.current = onSelectedIdsChange;
+  // Ref mirror of the latest graph so the once-registered canvas event handlers
+  // (tap, context menu, YAML) read current data without being rebuilt on every
+  // poll.
+  const graphRef = useRef(graph);
+  graphRef.current = graph;
+
+  // A signature of the graph's *structure* (which nodes/edges exist and whether
+  // they're grouped). The expensive rebuild + layout only re-runs when this
+  // changes; polled updates that keep the same topology are reconciled in place
+  // (see the data-sync effect below) so node positions are preserved.
+  const structuralKey = useMemo(() => {
+    const nodeIds = graph.nodes.map((n) => n.id).sort().join(",");
+    const edgeIds = graph.edges
+      .filter((e) => e.id)
+      .map((e) => e.id)
+      .sort()
+      .join(",");
+    return `${groupByNamespace ? "g" : "f"}|${nodeIds}|${edgeIds}`;
+  }, [graph, groupByNamespace]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -206,7 +225,7 @@ export function GraphView({
       // unmodified drag). Selecting multiple nodes lets them be moved together.
       boxSelectionEnabled: true,
       selectionType: "single",
-      elements: toElements(graph, groupByNamespace),
+      elements: toElements(graphRef.current, groupByNamespace),
       style: [
         {
           selector: "node",
@@ -400,17 +419,17 @@ export function GraphView({
       if (evt.target.hasClass(GROUP_CLASS)) return;
       setMenu(null);
       setEdgeMenu(null);
-      const found = graph.nodes.find((n) => n.id === evt.target.id());
+      const found = graphRef.current.nodes.find((n) => n.id === evt.target.id());
       onSelect(found ? { type: "node", node: found } : null);
     });
     cy.on("tap", "edge", (evt) => {
       if (linkingRef.current) return;
       setMenu(null);
       setEdgeMenu(null);
-      const edge = graph.edges.find((e) => e.id === evt.target.id());
+      const edge = graphRef.current.edges.find((e) => e.id === evt.target.id());
       if (!edge) return;
-      const source = graph.nodes.find((n) => n.id === edge.source);
-      const target = graph.nodes.find((n) => n.id === edge.target);
+      const source = graphRef.current.nodes.find((n) => n.id === edge.source);
+      const target = graphRef.current.nodes.find((n) => n.id === edge.target);
       onSelect({ type: "edge", edge, source, target });
     });
     cy.on("tap", (evt) => {
@@ -456,7 +475,7 @@ export function GraphView({
     // background (or panning/zooming) dismisses it.
     cy.on("cxttap", "node", (evt) => {
       if (linkingRef.current) return;
-      const found = graph.nodes.find((n) => n.id === evt.target.id());
+      const found = graphRef.current.nodes.find((n) => n.id === evt.target.id());
       if (!found) return;
       const oe = evt.originalEvent as MouseEvent;
       setEdgeMenu(null);
@@ -466,7 +485,7 @@ export function GraphView({
     // no menu.
     cy.on("cxttap", "edge", (evt) => {
       if (linkingRef.current) return;
-      const edge = graph.edges.find((e) => e.id === evt.target.id());
+      const edge = graphRef.current.edges.find((e) => e.id === evt.target.id());
       if (!edge || !edge.manual) return;
       const oe = evt.originalEvent as MouseEvent;
       setMenu(null);
@@ -746,7 +765,7 @@ export function GraphView({
       if (key === "c") {
         cy.animate({ center: { eles: selected }, duration: 200 });
       } else {
-        const found = graph.nodes.find((n) => n.id === selected.first().id());
+        const found = graphRef.current.nodes.find((n) => n.id === selected.first().id());
         if (found) onShowYaml(found);
       }
     };
@@ -766,7 +785,40 @@ export function GraphView({
       cy.destroy();
       cyRef.current = null;
     };
-  }, [graph, onSelect, onShowYaml, groupByNamespace]);
+    // graph is intentionally read via graphRef (not a dep): only structural
+    // changes (structuralKey) rebuild the canvas; data updates are reconciled
+    // in place by the effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [structuralKey, onSelect, onShowYaml, groupByNamespace]);
+
+  // Reconcile polled data into the existing canvas without a rebuild/relayout:
+  // patch the mutable data (labels, kind/status colors, icons) of nodes and
+  // edges that already exist. Added/removed elements change structuralKey and
+  // are handled by the rebuild effect above, so here we only update in place.
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    cy.batch(() => {
+      for (const n of graph.nodes) {
+        const el = cy.getElementById(n.id);
+        if (el.empty()) continue;
+        el.data("label", `${n.kind}\n${n.name}`);
+        el.data("color", colorForKind(n.kind));
+        el.data("icon", iconForKind(n.kind) ?? genericIcon);
+        const statusColor = phaseColor(n.properties?.status ?? n.properties?.phase);
+        if (statusColor) el.data("statusColor", statusColor);
+        else el.removeData("statusColor");
+      }
+      for (const e of graph.edges) {
+        if (!e.id) continue;
+        const el = cy.getElementById(e.id);
+        if (el.empty()) continue;
+        el.data("label", e.type);
+        el.data("edgeColor", colorForRelationship(e.type));
+        el.data("manual", e.manual ? 1 : 0);
+      }
+    });
+  }, [graph]);
 
   // Fade nodes/edges that are more than `maxDistance` hops from the selected
   // node. Runs without rebuilding the graph so selecting/adjusting stays cheap.
