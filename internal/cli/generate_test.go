@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -260,6 +261,38 @@ func TestApplyProjection(t *testing.T) {
 	ns, found, _ := unstructured.NestedStringSlice(got.Object, "spec", "scope", "namespaces")
 	if !found || len(ns) != 1 || ns[0] != demoNS {
 		t.Fatalf("expected spec.scope.namespaces [demo], got %v (found=%v)", ns, found)
+	}
+}
+
+func TestDeleteProjection(t *testing.T) {
+	scheme := runtime.NewScheme()
+	gvrToListKind := map[schema.GroupVersionResource]string{
+		graphProjectionGVR: "GraphProjectionList",
+	}
+	existing := obj(gamerav1alpha1.GroupVersion.String(), "GraphProjection", demoNS, "web")
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, existing)
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	if err := deleteProjection(cmd, dyn, demoNS, "web"); err != nil {
+		t.Fatalf("deleteProjection: %v", err)
+	}
+	if !strings.Contains(out.String(), "graphprojection.gamera.gamera.io/web deleted from namespace demo") {
+		t.Errorf("unexpected confirmation: %q", out.String())
+	}
+
+	// The object is gone after deletion.
+	if _, err := dyn.Resource(graphProjectionGVR).Namespace(demoNS).Get(context.Background(), "web", metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("expected NotFound after delete, got %v", err)
+	}
+
+	// Deleting a missing projection reports a clear not-found error.
+	err := deleteProjection(cmd, dyn, demoNS, "web")
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("expected not-found error, got %v", err)
 	}
 }
 
