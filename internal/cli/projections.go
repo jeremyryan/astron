@@ -35,6 +35,7 @@ func newProjectionsCmd(opts *options) *cobra.Command {
 	cmd.AddCommand(newProjectionsListCmd(opts))
 	cmd.AddCommand(newGenerateCmd(opts))
 	cmd.AddCommand(newProjectionsRemoveCmd(opts))
+	cmd.AddCommand(newProjectionsUpdateCmd(opts))
 	return cmd
 }
 
