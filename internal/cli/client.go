@@ -38,6 +38,40 @@ type Projection struct {
 	RelationshipCount int64  `json:"relationshipCount"`
 }
 
+// ViewProjectionRef mirrors the read API's projectionRef on a view
+// (see internal/api projectionRefDTO).
+type ViewProjectionRef struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace,omitempty"`
+}
+
+// ViewLabelFilter mirrors a single label filter (see internal/api labelFilterDTO).
+type ViewLabelFilter struct {
+	Key   string `json:"key"`
+	Value string `json:"value,omitempty"`
+}
+
+// ViewFilters mirrors the read API's view filters (see internal/api viewFiltersDTO).
+type ViewFilters struct {
+	HiddenKinds      []string          `json:"hiddenKinds,omitempty"`
+	HiddenNamespaces []string          `json:"hiddenNamespaces,omitempty"`
+	LabelFilters     []ViewLabelFilter `json:"labelFilters,omitempty"`
+	LabelMode        string            `json:"labelMode,omitempty"`
+	MaxDistance      *int32            `json:"maxDistance,omitempty"`
+	GroupByNamespace *bool             `json:"groupByNamespace,omitempty"`
+}
+
+// View mirrors the read API's saved GraphView (see internal/api viewDTO).
+type View struct {
+	Namespace     string            `json:"namespace"`
+	Name          string            `json:"name"`
+	UID           string            `json:"uid,omitempty"`
+	DisplayName   string            `json:"displayName,omitempty"`
+	Description   string            `json:"description,omitempty"`
+	ProjectionRef ViewProjectionRef `json:"projectionRef"`
+	Filters       ViewFilters       `json:"filters"`
+}
+
 // Node mirrors the read API's graph node (see internal/api nodeDTO).
 type Node struct {
 	ID         string         `json:"id"`
@@ -89,6 +123,28 @@ func newClient(opts *options) (*Client, error) {
 func (c *Client) ListProjections(ctx context.Context) ([]Projection, error) {
 	var out []Projection
 	if err := c.getJSON(ctx, "/api/projections", &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ListViews returns the saved GraphViews known to the operator. When
+// projectionNamespace and/or projectionName are non-empty, the server narrows
+// the result to views referencing that GraphProjection.
+func (c *Client) ListViews(ctx context.Context, projectionNamespace, projectionName string) ([]View, error) {
+	path := "/api/views"
+	q := url.Values{}
+	if projectionNamespace != "" {
+		q.Set("projectionNamespace", projectionNamespace)
+	}
+	if projectionName != "" {
+		q.Set("projectionName", projectionName)
+	}
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var out []View
+	if err := c.getJSON(ctx, path, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
