@@ -33,6 +33,11 @@ type graphOptions struct {
 	// edgesOnly / nodesOnly restrict the table output to a single section.
 	edgesOnly bool
 	nodesOnly bool
+	// format selects how the graph is rendered: "table" (the default) prints
+	// human-readable node and edge tables; "json" prints a single JSON document
+	// containing all nodes and edges. When empty it falls back to the global
+	// --output flag.
+	format string
 }
 
 // newGraphCmd builds the "graph" command.
@@ -44,9 +49,16 @@ func newGraphCmd(opts *options) *cobra.Command {
 		Short: "Show the resource graph materialized by a projection",
 		Long: "graph fetches the nodes and edges a GraphProjection has materialized\n" +
 			"and prints them. The projection is identified by its namespace and name\n" +
-			"(see \"gamera projections list\").",
+			"(see \"gamera projections list\").\n\n" +
+			"Use --format table (the default) to print human-readable node and edge\n" +
+			"tables, or --format json to print a single JSON document containing all\n" +
+			"nodes and edges.",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			format, err := gopts.resolveFormat()
+			if err != nil {
+				return err
+			}
 			if gopts.edgesOnly && gopts.nodesOnly {
 				return fmt.Errorf("--edges-only and --nodes-only are mutually exclusive")
 			}
@@ -60,7 +72,7 @@ func newGraphCmd(opts *options) *cobra.Command {
 			}
 			g = filterGraph(g, gopts.kind)
 
-			if gopts.output == outputJSON {
+			if format == outputJSON {
 				return printJSON(cmd.OutOrStdout(), g)
 			}
 			return printGraphTable(cmd, g, gopts)
@@ -71,8 +83,27 @@ func newGraphCmd(opts *options) *cobra.Command {
 		"Only show nodes of this Kind (and edges touching them), e.g. Pod")
 	cmd.Flags().BoolVar(&gopts.edgesOnly, "edges-only", false, "Only print the edges section")
 	cmd.Flags().BoolVar(&gopts.nodesOnly, "nodes-only", false, "Only print the nodes section")
+	cmd.Flags().StringVar(&gopts.format, "format", "",
+		"Output format for the graph: table or json (defaults to the global --output)")
 
 	return cmd
+}
+
+// resolveFormat determines the effective output format for the graph command.
+// An explicit --format wins; otherwise it falls back to the global --output
+// flag. It returns an error for any unsupported value.
+func (o *graphOptions) resolveFormat() (string, error) {
+	format := o.format
+	if format == "" {
+		format = o.output
+	}
+	switch format {
+	case outputTable, outputJSON:
+		return format, nil
+	default:
+		return "", fmt.Errorf("invalid --format %q: must be %q or %q",
+			o.format, outputTable, outputJSON)
+	}
 }
 
 // filterGraph restricts the graph to nodes of the given kind (case-insensitive)

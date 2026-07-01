@@ -161,6 +161,47 @@ func TestGraphJSON(t *testing.T) {
 	}
 }
 
+func TestGraphFormatJSON(t *testing.T) {
+	srv := graphServer(t)
+	defer srv.Close()
+
+	out, err := runCmd(t, "--server", srv.URL, "graph", "gamera", "default", "--format", "json")
+	if err != nil {
+		t.Fatalf("graph --format json failed: %v", err)
+	}
+	var got Graph
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, out)
+	}
+	if len(got.Nodes) != 2 || len(got.Edges) != 1 {
+		t.Fatalf("unexpected graph payload: %+v", got)
+	}
+}
+
+func TestGraphFormatTableOverridesOutput(t *testing.T) {
+	srv := graphServer(t)
+	defer srv.Close()
+
+	// Explicit --format table wins over a global -o json.
+	out, err := runCmd(t, "--server", srv.URL, "-o", "json", "graph", "gamera", "default", "--format", "table")
+	if err != nil {
+		t.Fatalf("graph --format table failed: %v", err)
+	}
+	if !strings.Contains(out, "KIND") || !strings.Contains(out, "TYPE") {
+		t.Errorf("expected table output, got:\n%s", out)
+	}
+}
+
+func TestGraphFormatInvalid(t *testing.T) {
+	srv := graphServer(t)
+	defer srv.Close()
+
+	_, err := runCmd(t, "--server", srv.URL, "graph", "gamera", "default", "--format", "yaml")
+	if err == nil {
+		t.Fatal("expected error for invalid --format value")
+	}
+}
+
 func TestProjectionsListJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode([]Projection{
