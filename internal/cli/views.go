@@ -17,7 +17,9 @@ limitations under the License.
 package cli
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -30,7 +32,65 @@ func newViewsCmd(opts *options) *cobra.Command {
 		Short:   "Work with GraphViews",
 	}
 	cmd.AddCommand(newViewsListCmd(opts))
+	cmd.AddCommand(newViewsAddCmd(opts))
 	return cmd
+}
+
+// newViewsAddCmd builds "views add <namespace> <projection> <view>...".
+func newViewsAddCmd(opts *options) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "add <namespace> <projection> <view>...",
+		Aliases: []string{"create"},
+		Short:   "Create one or more default GraphViews for a GraphProjection",
+		Long: "add creates one or more of the built-in GraphViews for an existing\n" +
+			"GraphProjection in a namespace.\n\n" +
+			"Each view is one of the default views: " + strings.Join(defaultViewNames(), ", ") + ".\n" +
+			"View names are case-insensitive and one or more may be given. Each created\n" +
+			"GraphView is named \"<projection>-<view>\" (e.g. web-compute).",
+		Args: cobra.MinimumNArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runViewsAdd(cmd, opts, args[0], args[1], args[2:])
+		},
+	}
+	return cmd
+}
+
+// runViewsAdd validates the requested view names and creates a GraphView for
+// each one, referencing the given projection.
+func runViewsAdd(cmd *cobra.Command, opts *options, namespace, projection string, viewNames []string) error {
+	// Resolve and de-duplicate the requested views up front so an unknown name
+	// fails before anything is created.
+	seen := map[string]bool{}
+	var views []defaultViewCategory
+	for _, n := range viewNames {
+		cat, ok := lookupDefaultView(n)
+		if !ok {
+			return fmt.Errorf("unknown view %q: must be one of %s", n, strings.Join(defaultViewNames(), ", "))
+		}
+		if seen[cat.displayName] {
+			continue
+		}
+		seen[cat.displayName] = true
+		views = append(views, cat)
+	}
+
+	client, err := newClient(opts)
+	if err != nil {
+		return err
+	}
+
+	var errs []error
+	for _, cat := range views {
+		v := buildDefaultView(namespace, projection, cat)
+		created, err := client.CreateView(cmd.Context(), v)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("creating view %q: %w", cat.displayName, err))
+			continue
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(),
+			"graphview.gamera.gamera.io/%s created in namespace %s\n", created.Name, created.Namespace)
+	}
+	return errors.Join(errs...)
 }
 
 // viewsListOptions holds the flags for "views list".

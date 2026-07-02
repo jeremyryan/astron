@@ -17,6 +17,7 @@ limitations under the License.
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -150,6 +151,16 @@ func (c *Client) ListViews(ctx context.Context, projectionNamespace, projectionN
 	return out, nil
 }
 
+// CreateView creates a new GraphView and returns the server's representation of
+// the created object.
+func (c *Client) CreateView(ctx context.Context, v View) (View, error) {
+	var out View
+	if err := c.postJSON(ctx, "/api/views", v, &out); err != nil {
+		return View{}, err
+	}
+	return out, nil
+}
+
 // Graph returns the materialized graph for a single projection.
 func (c *Client) Graph(ctx context.Context, namespace, name string) (Graph, error) {
 	var out Graph
@@ -185,6 +196,44 @@ func (c *Client) getJSON(ctx context.Context, path string, v any) error {
 	}
 
 	if err := json.Unmarshal(body, v); err != nil {
+		return fmt.Errorf("decoding response from %s: %w", path, err)
+	}
+	return nil
+}
+
+// postJSON issues a POST request with a JSON body and decodes a JSON response
+// body into v. It accepts any 2xx status.
+func (c *Client) postJSON(ctx context.Context, path string, body, v any) error {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("encoding request for %s: %w", path, err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("requesting %s: %w", path, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("reading response from %s: %w", path, err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("%s: %s", path, apiError(resp.StatusCode, respBody))
+	}
+
+	if v == nil || len(respBody) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(respBody, v); err != nil {
 		return fmt.Errorf("decoding response from %s: %w", path, err)
 	}
 	return nil

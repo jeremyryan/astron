@@ -122,6 +122,100 @@ func TestViewsListProjectionRequiresNamespace(t *testing.T) {
 	}
 }
 
+func TestBuildDefaultViewHiddenKinds(t *testing.T) {
+	compute, ok := lookupDefaultView("compute") // case-insensitive
+	if !ok {
+		t.Fatal("expected 'compute' to resolve to a default view")
+	}
+	v := buildDefaultView("gamera", "web", compute)
+	if v.Name != "web-compute" || v.DisplayName != "Compute" {
+		t.Fatalf("unexpected view identity: %+v", v)
+	}
+	if v.ProjectionRef.Name != "web" || v.ProjectionRef.Namespace != "gamera" {
+		t.Fatalf("unexpected projectionRef: %+v", v.ProjectionRef)
+	}
+	hidden := map[string]bool{}
+	for _, k := range v.Filters.HiddenKinds {
+		hidden[k] = true
+	}
+	// Compute view hides networking + persistence kinds, not its own.
+	if hidden["Pod"] || hidden["Deployment"] {
+		t.Errorf("compute view must not hide compute kinds: %v", v.Filters.HiddenKinds)
+	}
+	if !hidden["Service"] || !hidden["PersistentVolumeClaim"] || !hidden["ConfigMap"] {
+		t.Errorf("compute view should hide networking/persistence kinds: %v", v.Filters.HiddenKinds)
+	}
+}
+
+func TestViewsAddCreatesViews(t *testing.T) {
+	var created []View
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/views" {
+			http.NotFound(w, r)
+			return
+		}
+		var in View
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		created = append(created, in)
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(in)
+	}))
+	defer srv.Close()
+
+	out, err := runCmd(t, "--server", srv.URL, "views", "add", "gamera", "web", "Compute", "networking")
+	if err != nil {
+		t.Fatalf("views add failed: %v", err)
+	}
+	if len(created) != 2 {
+		t.Fatalf("expected 2 views created, got %d", len(created))
+	}
+	if !strings.Contains(out, "graphview.gamera.gamera.io/web-compute created in namespace gamera") ||
+		!strings.Contains(out, "web-networking created") {
+		t.Errorf("unexpected confirmation output:\n%s", out)
+	}
+	for _, v := range created {
+		if v.ProjectionRef.Name != "web" || v.ProjectionRef.Namespace != "gamera" {
+			t.Errorf("unexpected projectionRef on created view: %+v", v.ProjectionRef)
+		}
+	}
+}
+
+func TestViewsAddDeduplicates(t *testing.T) {
+	count := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count++
+		var in View
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(in)
+	}))
+	defer srv.Close()
+
+	if _, err := runCmd(t, "--server", srv.URL, "views", "add", "gamera", "web", "compute", "Compute"); err != nil {
+		t.Fatalf("views add failed: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected duplicate view names to create once, got %d", count)
+	}
+}
+
+func TestViewsAddUnknownView(t *testing.T) {
+	// The server should never be hit; an unknown name fails validation first.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("server should not be called for an invalid view name")
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	_, err := runCmd(t, "--server", srv.URL, "views", "add", "gamera", "web", "Bogus")
+	if err == nil || !strings.Contains(err.Error(), "unknown view") {
+		t.Fatalf("expected unknown-view error, got %v", err)
+	}
+}
+
 func TestViewsListJSON(t *testing.T) {
 	srv := viewsServer(t)
 	defer srv.Close()
