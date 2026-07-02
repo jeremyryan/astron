@@ -87,8 +87,16 @@ func lookupDefaultView(name string) (defaultViewCategory, bool) {
 	return defaultViewCategory{}, false
 }
 
+// alwaysVisibleKinds are kinds kept visible in every default view because they
+// are central to each concern (e.g. Pods are the targets of networking and
+// persistence relationships as well as compute workloads).
+var alwaysVisibleKinds = map[string]bool{
+	"Pod": true,
+}
+
 // hiddenKindsFor returns the kinds a view should hide: the union of every other
-// category's kinds, sorted for deterministic output.
+// category's kinds, excluding always-visible kinds, sorted for deterministic
+// output.
 func hiddenKindsFor(view defaultViewCategory) []string {
 	seen := map[string]bool{}
 	var hidden []string
@@ -97,10 +105,11 @@ func hiddenKindsFor(view defaultViewCategory) []string {
 			continue
 		}
 		for _, k := range c.kinds {
-			if !seen[k] {
-				seen[k] = true
-				hidden = append(hidden, k)
+			if seen[k] || alwaysVisibleKinds[k] {
+				continue
 			}
+			seen[k] = true
+			hidden = append(hidden, k)
 		}
 	}
 	sort.Strings(hidden)

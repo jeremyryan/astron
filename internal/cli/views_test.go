@@ -147,6 +147,20 @@ func TestBuildDefaultViewHiddenKinds(t *testing.T) {
 	}
 }
 
+func TestDefaultViewsKeepPodsVisible(t *testing.T) {
+	for _, name := range defaultViewNames() {
+		cat, ok := lookupDefaultView(name)
+		if !ok {
+			t.Fatalf("default view %q did not resolve", name)
+		}
+		for _, k := range hiddenKindsFor(cat) {
+			if k == "Pod" {
+				t.Errorf("%s view must keep Pods visible, but hides them: %v", name, hiddenKindsFor(cat))
+			}
+		}
+	}
+}
+
 func TestViewsAddCreatesViews(t *testing.T) {
 	var created []View
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
