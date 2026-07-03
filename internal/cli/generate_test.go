@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -215,6 +216,86 @@ func TestWriteManifestToFile(t *testing.T) {
 	}
 }
 
+func TestParseViewSelection(t *testing.T) {
+	if got, err := parseViewSelection(""); err != nil || got != nil {
+		t.Fatalf("empty selection = %v, %v; want nil, nil", got, err)
+	}
+	all, err := parseViewSelection("defaults")
+	if err != nil || len(all) != 3 {
+		t.Fatalf("defaults = %v (%d), %v; want 3 views", all, len(all), err)
+	}
+	sel, err := parseViewSelection("compute, persistence, Compute")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sel) != 2 || sel[0].displayName != "Compute" || sel[1].displayName != "Persistence" {
+		t.Fatalf("unexpected selection: %+v", sel)
+	}
+	if _, err := parseViewSelection("compute,bogus"); err == nil {
+		t.Fatal("expected error for unknown view name")
+	}
+}
+
+func TestWriteManifestsWithViews(t *testing.T) {
+	m := buildManifest(&generateOptions{options: &options{}}, demoNS, []gamerav1alpha1.ResourceSelector{pod})
+	views, _ := parseViewSelection("compute,networking")
+	vms := make([]viewManifest, 0, len(views))
+	for _, v := range views {
+		vms = append(vms, buildViewManifest(demoNS, m.Metadata.Name, v))
+	}
+
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := writeManifests(cmd, "", m, vms); err != nil {
+		t.Fatalf("writeManifests: %v", err)
+	}
+	s := out.String()
+	if strings.Count(s, "---") != 2 {
+		t.Errorf("expected 2 document separators, got:\n%s", s)
+	}
+	for _, want := range []string{"kind: GraphProjection", "kind: GraphView", "name: demo-compute", "name: demo-networking", "displayName: Compute"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("multi-doc output missing %q:\n%s", want, s)
+		}
+	}
+}
+
+func TestApplyView(t *testing.T) {
+	scheme := runtime.NewScheme()
+	gvrToListKind := map[schema.GroupVersionResource]string{graphViewGVR: "GraphViewList"}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind)
+
+	views, _ := parseViewSelection("compute")
+	vm := buildViewManifest(demoNS, "web", views[0])
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := applyView(cmd, dyn, vm); err != nil {
+		t.Fatalf("applyView: %v", err)
+	}
+	if !strings.Contains(out.String(), "graphview.gamera.gamera.io/web-compute created in namespace demo") {
+		t.Errorf("unexpected confirmation: %q", out.String())
+	}
+
+	got, err := dyn.Resource(graphViewGVR).Namespace(demoNS).Get(context.Background(), "web-compute", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get after apply: %v", err)
+	}
+	name, _, _ := unstructured.NestedString(got.Object, "spec", "projectionRef", "name")
+	if name != "web" {
+		t.Fatalf("expected projectionRef.name web, got %q", name)
+	}
+	hidden, _, _ := unstructured.NestedStringSlice(got.Object, "spec", "filters", "hiddenKinds")
+	for _, k := range hidden {
+		if k == "Pod" {
+			t.Errorf("compute view should not hide Pod: %v", hidden)
+		}
+	}
+}
+
 func TestApplyProjection(t *testing.T) {
 	scheme := runtime.NewScheme()
 	gvrToListKind := map[schema.GroupVersionResource]string{
@@ -260,6 +341,38 @@ func TestApplyProjection(t *testing.T) {
 	ns, found, _ := unstructured.NestedStringSlice(got.Object, "spec", "scope", "namespaces")
 	if !found || len(ns) != 1 || ns[0] != demoNS {
 		t.Fatalf("expected spec.scope.namespaces [demo], got %v (found=%v)", ns, found)
+	}
+}
+
+func TestDeleteProjection(t *testing.T) {
+	scheme := runtime.NewScheme()
+	gvrToListKind := map[schema.GroupVersionResource]string{
+		graphProjectionGVR: "GraphProjectionList",
+	}
+	existing := obj(gamerav1alpha1.GroupVersion.String(), "GraphProjection", demoNS, "web")
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, existing)
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	if err := deleteProjection(cmd, dyn, demoNS, "web"); err != nil {
+		t.Fatalf("deleteProjection: %v", err)
+	}
+	if !strings.Contains(out.String(), "graphprojection.gamera.gamera.io/web deleted from namespace demo") {
+		t.Errorf("unexpected confirmation: %q", out.String())
+	}
+
+	// The object is gone after deletion.
+	if _, err := dyn.Resource(graphProjectionGVR).Namespace(demoNS).Get(context.Background(), "web", metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("expected NotFound after delete, got %v", err)
+	}
+
+	// Deleting a missing projection reports a clear not-found error.
+	err := deleteProjection(cmd, dyn, demoNS, "web")
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("expected not-found error, got %v", err)
 	}
 }
 

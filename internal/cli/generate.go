@@ -17,6 +17,7 @@ limitations under the License.
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -44,6 +45,13 @@ var graphProjectionGVR = schema.GroupVersionResource{
 	Resource: "graphprojections",
 }
 
+// graphViewGVR is the resource used to apply generated GraphViews.
+var graphViewGVR = schema.GroupVersionResource{
+	Group:    gamerav1alpha1.GroupVersion.Group,
+	Version:  gamerav1alpha1.GroupVersion.Version,
+	Resource: "graphviews",
+}
+
 // generateOptions holds the flags for "projections generate".
 type generateOptions struct {
 	*options
@@ -56,6 +64,9 @@ type generateOptions struct {
 	neo4jSecretNS     string
 	resyncInterval    string
 	withRelationships bool
+	// views selects default GraphViews to generate alongside the projection:
+	// "defaults" (all) or a comma-separated list, e.g. "compute,persistence".
+	views             string
 	exclude           []string
 	// allResources includes every namespaced kind that has instances, rather
 	// than just the standard common set.
@@ -77,6 +88,15 @@ type projectionManifest struct {
 	Kind       string                             `json:"kind"`
 	Metadata   manifestMeta                       `json:"metadata"`
 	Spec       gamerav1alpha1.GraphProjectionSpec `json:"spec"`
+}
+
+// viewManifest is a YAML-friendly wrapper used to emit a clean GraphView
+// manifest, reusing the real Spec type so it stays in sync with the API.
+type viewManifest struct {
+	APIVersion string                       `json:"apiVersion"`
+	Kind       string                       `json:"kind"`
+	Metadata   manifestMeta                 `json:"metadata"`
+	Spec       gamerav1alpha1.GraphViewSpec `json:"spec"`
 }
 
 type manifestMeta struct {
@@ -126,6 +146,8 @@ func newGenerateCmd(opts *options) *cobra.Command {
 		"Full reconciliation interval to set on the projection")
 	cmd.Flags().BoolVar(&gopts.withRelationships, "with-relationships", true,
 		"Include well-known relationship rules (OWNS/SELECTS/MOUNTS) for the discovered kinds")
+	cmd.Flags().StringVar(&gopts.views, "views", "",
+		"Also generate default GraphViews: 'defaults' for all, or a comma-separated list (e.g. compute,persistence)")
 	cmd.Flags().StringSliceVar(&gopts.exclude, "exclude", nil,
 		"Resource Kinds to exclude from the projection (e.g. Event,EndpointSlice)")
 	cmd.Flags().BoolVar(&gopts.allResources, "all-resources", false,
@@ -141,6 +163,10 @@ func newGenerateCmd(opts *options) *cobra.Command {
 func runGenerate(cmd *cobra.Command, gopts *generateOptions, namespace string) error {
 	if gopts.apply && gopts.outputFile != "" {
 		return fmt.Errorf("--apply cannot be combined with --output-file")
+	}
+	views, err := parseViewSelection(gopts.views)
+	if err != nil {
+		return err
 	}
 
 	cfg, err := gopts.kube.restConfig()
@@ -169,24 +195,78 @@ func runGenerate(cmd *cobra.Command, gopts *generateOptions, namespace string) e
 
 	manifest := buildManifest(gopts, namespace, selectors)
 
-	if gopts.apply {
-		return applyProjection(cmd, dyn, manifest)
+	viewManifests := make([]viewManifest, 0, len(views))
+	for _, v := range views {
+		viewManifests = append(viewManifests, buildViewManifest(namespace, manifest.Metadata.Name, v))
 	}
-	return writeManifest(cmd, gopts.outputFile, manifest)
+
+	if gopts.apply {
+		if err := applyProjection(cmd, dyn, manifest); err != nil {
+			return err
+		}
+		for _, vm := range viewManifests {
+			if err := applyView(cmd, dyn, vm); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return writeManifests(cmd, gopts.outputFile, manifest, viewManifests)
+}
+
+// buildViewManifest builds a GraphView manifest for a default view that filters
+// the given projection.
+func buildViewManifest(namespace, projection string, view defaultViewCategory) viewManifest {
+	return viewManifest{
+		APIVersion: gamerav1alpha1.GroupVersion.String(),
+		Kind:       "GraphView",
+		Metadata:   manifestMeta{Name: defaultViewResourceName(projection, view), Namespace: namespace},
+		Spec: gamerav1alpha1.GraphViewSpec{
+			ProjectionRef: gamerav1alpha1.ProjectionReference{Name: projection, Namespace: namespace},
+			DisplayName:   view.displayName,
+			Description:   view.description,
+			Filters:       gamerav1alpha1.GraphViewFilters{HiddenKinds: hiddenKindsFor(view)},
+		},
+	}
 }
 
 // writeManifest marshals the manifest to YAML and writes it to the given path,
 // or to stdout when path is empty or "-".
 func writeManifest(cmd *cobra.Command, path string, manifest projectionManifest) error {
-	out, err := yaml.Marshal(manifest)
-	if err != nil {
-		return fmt.Errorf("marshaling manifest: %w", err)
+	return writeDocuments(cmd, path, manifest)
+}
+
+// writeManifests writes the projection manifest followed by any generated view
+// manifests as a single multi-document YAML stream.
+func writeManifests(cmd *cobra.Command, path string, projection projectionManifest, views []viewManifest) error {
+	docs := make([]any, 0, 1+len(views))
+	docs = append(docs, projection)
+	for _, v := range views {
+		docs = append(docs, v)
+	}
+	return writeDocuments(cmd, path, docs...)
+}
+
+// writeDocuments marshals each document to YAML, joins them with "---"
+// separators, and writes the result to the given path (or stdout when the path
+// is empty or "-").
+func writeDocuments(cmd *cobra.Command, path string, docs ...any) error {
+	var buf bytes.Buffer
+	for i, d := range docs {
+		out, err := yaml.Marshal(d)
+		if err != nil {
+			return fmt.Errorf("marshaling manifest: %w", err)
+		}
+		if i > 0 {
+			buf.WriteString("---\n")
+		}
+		buf.Write(out)
 	}
 	if path == "" || path == "-" {
-		_, err = fmt.Fprint(cmd.OutOrStdout(), string(out))
+		_, err := fmt.Fprint(cmd.OutOrStdout(), buf.String())
 		return err
 	}
-	if err := os.WriteFile(path, out, 0o644); err != nil {
+	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
 		return fmt.Errorf("writing %s: %w", path, err)
 	}
 	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "wrote %s\n", path)
@@ -227,6 +307,42 @@ func applyProjection(cmd *cobra.Command, dyn dynamic.Interface, manifest project
 		verb = "configured"
 	}
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "graphprojection.gamera.gamera.io/%s %s in namespace %s\n", name, verb, ns)
+	return err
+}
+
+// applyView creates the generated GraphView in the cluster, or updates it in
+// place when one with the same name already exists.
+func applyView(cmd *cobra.Command, dyn dynamic.Interface, manifest viewManifest) error {
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		return fmt.Errorf("encoding view manifest: %w", err)
+	}
+	u := &unstructured.Unstructured{}
+	if uErr := u.UnmarshalJSON(data); uErr != nil {
+		return fmt.Errorf("decoding view manifest: %w", uErr)
+	}
+
+	ctx := cmd.Context()
+	ns := manifest.Metadata.Namespace
+	name := manifest.Metadata.Name
+	ri := dyn.Resource(graphViewGVR).Namespace(ns)
+
+	verb := "created"
+	if _, err := ri.Create(ctx, u, metav1.CreateOptions{}); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("creating GraphView %s/%s: %w", ns, name, err)
+		}
+		existing, getErr := ri.Get(ctx, name, metav1.GetOptions{})
+		if getErr != nil {
+			return fmt.Errorf("fetching existing GraphView %s/%s: %w", ns, name, getErr)
+		}
+		u.SetResourceVersion(existing.GetResourceVersion())
+		if _, updErr := ri.Update(ctx, u, metav1.UpdateOptions{}); updErr != nil {
+			return fmt.Errorf("updating GraphView %s/%s: %w", ns, name, updErr)
+		}
+		verb = "configured"
+	}
+	_, err = fmt.Fprintf(cmd.OutOrStdout(), "graphview.gamera.gamera.io/%s %s in namespace %s\n", name, verb, ns)
 	return err
 }
 

@@ -76,6 +76,7 @@ func newRootCmd() *cobra.Command {
 
 	cmd.AddCommand(newVersionCmd())
 	cmd.AddCommand(newProjectionsCmd(opts))
+	cmd.AddCommand(newViewsCmd(opts))
 	cmd.AddCommand(newGraphCmd(opts))
 
 	return cmd

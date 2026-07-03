@@ -20,6 +20,9 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/dynamic"
 )
 
 // newProjectionsCmd builds the "projections" command group.
@@ -31,7 +34,62 @@ func newProjectionsCmd(opts *options) *cobra.Command {
 	}
 	cmd.AddCommand(newProjectionsListCmd(opts))
 	cmd.AddCommand(newGenerateCmd(opts))
+	cmd.AddCommand(newProjectionsRemoveCmd(opts))
+	cmd.AddCommand(newProjectionsUpdateCmd(opts))
 	return cmd
+}
+
+// removeOptions holds the flags for "projections rm".
+type removeOptions struct {
+	*options
+	kube kubeOptions
+}
+
+// newProjectionsRemoveCmd builds "projections rm <namespace> <name>".
+func newProjectionsRemoveCmd(opts *options) *cobra.Command {
+	ropts := &removeOptions{options: opts}
+
+	cmd := &cobra.Command{
+		Use:     "rm <namespace> <name>",
+		Aliases: []string{"remove", "delete", "del"},
+		Short:   "Delete a GraphProjection from a namespace",
+		Long: "rm deletes the named GraphProjection from the given namespace.\n\n" +
+			"It talks directly to the Kubernetes API (via your kubeconfig), not the\n" +
+			"Gamera read API, so the --server flag does not apply here.",
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := ropts.kube.restConfig()
+			if err != nil {
+				return err
+			}
+			dyn, err := dynamic.NewForConfig(cfg)
+			if err != nil {
+				return fmt.Errorf("creating dynamic client: %w", err)
+			}
+			return deleteProjection(cmd, dyn, args[0], args[1])
+		},
+	}
+
+	cmd.Flags().StringVar(&ropts.kube.kubeconfig, "kubeconfig", "",
+		"Path to the kubeconfig file (defaults to KUBECONFIG or ~/.kube/config)")
+	cmd.Flags().StringVar(&ropts.kube.context, "context", "",
+		"Name of the kubeconfig context to use")
+
+	return cmd
+}
+
+// deleteProjection deletes the named GraphProjection from the namespace via the
+// dynamic client. It is split out so it can be unit-tested with a fake client.
+func deleteProjection(cmd *cobra.Command, dyn dynamic.Interface, namespace, name string) error {
+	ri := dyn.Resource(graphProjectionGVR).Namespace(namespace)
+	if err := ri.Delete(cmd.Context(), name, metav1.DeleteOptions{}); err != nil {
+		if apierrors.IsNotFound(err) {
+			return fmt.Errorf("GraphProjection %s/%s not found", namespace, name)
+		}
+		return fmt.Errorf("deleting GraphProjection %s/%s: %w", namespace, name, err)
+	}
+	_, err := fmt.Fprintf(cmd.OutOrStdout(), "graphprojection.gamera.gamera.io/%s deleted from namespace %s\n", name, namespace)
+	return err
 }
 
 // newProjectionsListCmd builds "projections list".
