@@ -262,6 +262,50 @@ func TestClaimRefStrategy(t *testing.T) {
 	}
 }
 
+func TestServiceAccountStrategy(t *testing.T) {
+	sa := obj("v1", kindServiceAccount, "default", "builder", "sa-uid")
+	defSA := obj("v1", kindServiceAccount, "default", "default", "def-uid")
+
+	// Pod with an explicit serviceAccountName.
+	explicit := obj("v1", "Pod", "default", "web", "web-uid")
+	_ = unstructured.SetNestedField(explicit.Object, "builder", "spec", "serviceAccountName")
+	// Pod with only the deprecated serviceAccount field.
+	deprecated := obj("v1", "Pod", "default", "legacy", "legacy-uid")
+	_ = unstructured.SetNestedField(deprecated.Object, "builder", "spec", "serviceAccount")
+	// Pod with neither set: falls back to the namespace "default" SA.
+	implicit := obj("v1", "Pod", "default", "bare", "bare-uid")
+
+	index := NewMapIndex(sa, defSA, explicit, deprecated, implicit)
+	rule := gamerav1alpha1.RelationshipRule{
+		Name: "sa-runs-pod", Type: "RUNS", Strategy: gamerav1alpha1.ServiceAccountStrategy,
+		From: sel("", "v1", kindServiceAccount), To: sel("", "v1", "Pod"),
+	}
+	edges, err := (serviceAccountStrategy{}).Derive(rule, index)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(edges) != 3 {
+		t.Fatalf("expected 3 edges, got %d: %+v", len(edges), edges)
+	}
+
+	// Explicit serviceAccountName resolves to the named SA (UID enriched).
+	if e := findEdge(edges, "RUNS", "builder", "web"); e == nil {
+		t.Errorf("missing builder->web edge: %+v", edges)
+	} else if e.From.UID != "sa-uid" || e.From.Kind != kindServiceAccount {
+		t.Errorf("explicit SA edge should resolve UID: %+v", e.From)
+	}
+	// Deprecated spec.serviceAccount is honored.
+	if findEdge(edges, "RUNS", "builder", "legacy") == nil {
+		t.Errorf("missing builder->legacy edge (deprecated field): %+v", edges)
+	}
+	// No SA set falls back to the "default" SA.
+	if e := findEdge(edges, "RUNS", "default", "bare"); e == nil {
+		t.Errorf("missing default->bare edge (implicit default SA): %+v", edges)
+	} else if e.From.UID != "def-uid" {
+		t.Errorf("implicit default SA edge should resolve UID: %+v", e.From)
+	}
+}
+
 func TestServiceBackendStrategy_Ingress(t *testing.T) {
 	svc := obj("v1", "Service", "default", "web", "svc-uid")
 	ing := obj("networking.k8s.io/v1", "Ingress", "default", "web-ing", "ing-uid")

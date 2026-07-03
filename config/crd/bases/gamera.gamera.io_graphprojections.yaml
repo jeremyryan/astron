@@ -291,6 +291,7 @@ spec:
                       - ClaimRef
                       - ServiceBackend
                       - GatewayParent
+                      - ServiceAccount
                       - Custom
                       type: string
                     to:

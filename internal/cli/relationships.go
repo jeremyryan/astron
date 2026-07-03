@@ -22,10 +22,11 @@ import (
 
 // known group/version/kind shorthands used when emitting relationship rules.
 var (
-	pod       = gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "Pod"}
-	service   = gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "Service"}
-	configMap = gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "ConfigMap"}
-	secret    = gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "Secret"}
+	pod            = gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "Pod"}
+	service        = gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "Service"}
+	configMap      = gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "ConfigMap"}
+	secret         = gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "Secret"}
+	serviceAccount = gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "ServiceAccount"}
 
 	deployment  = gamerav1alpha1.ResourceSelector{Group: "apps", Version: "v1", Kind: "Deployment"}
 	replicaSet  = gamerav1alpha1.ResourceSelector{Group: "apps", Version: "v1", Kind: "ReplicaSet"}
@@ -73,6 +74,8 @@ func buildRelationships(selectors []gamerav1alpha1.ResourceSelector) []gamerav1a
 		{"httproute-routes-service", "ROUTES", gamerav1alpha1.ServiceBackendStrategy, httpRoute, service},
 		// Gateway attachment (HTTPRoute attaches to a Gateway via parentRefs).
 		{"gateway-routes-httproute", "ROUTES", gamerav1alpha1.GatewayParentStrategy, gateway, httpRoute},
+		// Identity (Pod runs under a ServiceAccount, via spec.serviceAccountName).
+		{"serviceaccount-runs-pod", "RUNS", gamerav1alpha1.ServiceAccountStrategy, serviceAccount, pod},
 	}
 
 	var rules []gamerav1alpha1.RelationshipRule
