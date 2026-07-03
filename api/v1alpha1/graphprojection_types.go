@@ -332,7 +332,7 @@ type RelationshipRule struct {
 	// strategy selects how the relationship between source and target resources
 	// is determined.
 	// +required
-	// +kubebuilder:validation:Enum=OwnerReference;LabelSelector;VolumeMount;ClaimRef;ServiceBackend;Custom
+	// +kubebuilder:validation:Enum=OwnerReference;LabelSelector;VolumeMount;ClaimRef;ServiceBackend;ServiceAccount;Custom
 	Strategy RelationshipStrategy `json:"strategy"`
 }
 
@@ -354,6 +354,9 @@ const (
 	// ServiceBackendStrategy derives edges from a traffic-routing resource
 	// (Ingress or HTTPRoute) to the Services it forwards traffic to.
 	ServiceBackendStrategy RelationshipStrategy = "ServiceBackend"
+	// ServiceAccountStrategy derives edges from a ServiceAccount to the Pods that
+	// run under it (via the Pod's spec.serviceAccountName field reference).
+	ServiceAccountStrategy RelationshipStrategy = "ServiceAccount"
 	// CustomStrategy is reserved for projection-specific relationship logic.
 	CustomStrategy RelationshipStrategy = "Custom"
 )

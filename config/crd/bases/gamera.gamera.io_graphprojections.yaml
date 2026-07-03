@@ -290,6 +290,7 @@ spec:
                       - VolumeMount
                       - ClaimRef
                       - ServiceBackend
+                      - ServiceAccount
                       - Custom
                       type: string
                     to:

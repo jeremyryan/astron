@@ -401,6 +401,7 @@ func defaultResources() []gamerav1alpha1.ResourceSelector {
 		{Group: "apps", Version: "v1", Kind: "ReplicaSet"},
 		{Version: "v1", Kind: "Pod"},
 		{Version: "v1", Kind: "Service"},
+		{Version: "v1", Kind: "ServiceAccount"},
 		{Version: "v1", Kind: "ConfigMap"},
 		{Version: "v1", Kind: "Secret"},
 		{Version: "v1", Kind: "PersistentVolumeClaim"},

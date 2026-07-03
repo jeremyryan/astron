@@ -52,6 +52,7 @@ export const RELATIONSHIP_COLORS: Record<string, string> = {
   MOUNTS: "#9b59b6", // ConfigMap / Secret / PVC consumed by a Pod
   BINDS: "#1abc9c", // PersistentVolume <-> PersistentVolumeClaim
   ROUTES: "#f1c40f", // Ingress / HTTPRoute -> Service
+  RUNS: "#2ecc71", // ServiceAccount -> Pod (identity the pod runs as)
   DEFINES: "#e84393", // CRD -> its instances
   CUSTOM: "#16a3b8", // user-created link
 };

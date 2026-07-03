@@ -76,6 +76,15 @@ spec:
       to:
         version: v1
         kind: Pod
+    - name: serviceaccount-runs-pod
+      type: RUNS
+      strategy: ServiceAccount
+      from:
+        version: v1
+        kind: ServiceAccount
+      to:
+        version: v1
+        kind: Pod
   # Optionally enable GraphRAG: render each resource (and its relationships) into
   # a natural-language card, embed it, and store the vector on the node so the
   # read API can serve semantic (vector + graph) retrieval.

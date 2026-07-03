@@ -22,10 +22,11 @@ import (
 
 // known group/version/kind shorthands used when emitting relationship rules.
 var (
-	pod       = gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "Pod"}
-	service   = gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "Service"}
-	configMap = gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "ConfigMap"}
-	secret    = gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "Secret"}
+	pod            = gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "Pod"}
+	service        = gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "Service"}
+	configMap      = gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "ConfigMap"}
+	secret         = gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "Secret"}
+	serviceAccount = gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "ServiceAccount"}
 
 	deployment  = gamerav1alpha1.ResourceSelector{Group: "apps", Version: "v1", Kind: "Deployment"}
 	replicaSet  = gamerav1alpha1.ResourceSelector{Group: "apps", Version: "v1", Kind: "ReplicaSet"}
@@ -64,6 +65,8 @@ func buildRelationships(selectors []gamerav1alpha1.ResourceSelector) []gamerav1a
 		// Configuration mounts (ConfigMap/Secret consumed by a Pod).
 		{"configmap-mounts-pod", "MOUNTS", gamerav1alpha1.VolumeMountStrategy, configMap, pod},
 		{"secret-mounts-pod", "MOUNTS", gamerav1alpha1.VolumeMountStrategy, secret, pod},
+		// Identity (Pod runs under a ServiceAccount, via spec.serviceAccountName).
+		{"serviceaccount-runs-pod", "RUNS", gamerav1alpha1.ServiceAccountStrategy, serviceAccount, pod},
 	}
 
 	var rules []gamerav1alpha1.RelationshipRule

@@ -68,6 +68,7 @@ const (
 	kindIngress               = "Ingress"
 	kindHTTPRoute             = "HTTPRoute"
 	kindService               = "Service"
+	kindServiceAccount        = "ServiceAccount"
 )
 
 // ownerReferenceStrategy derives edges from Kubernetes ownerReferences. For
@@ -393,6 +394,49 @@ func (claimRefStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index Index
 		edges = append(edges, graph.Relationship{Type: rule.Type, From: from, To: to})
 	}
 	return edges, nil
+}
+
+// serviceAccountStrategy derives edges from a ServiceAccount (rule.From) to the
+// Pods (rule.To) that run under it. A Pod names its ServiceAccount in the scalar
+// field spec.serviceAccountName (or the deprecated spec.serviceAccount); when
+// neither is set Kubernetes assigns the namespace's "default" ServiceAccount, so
+// that is used as the fallback and every Pod links to some ServiceAccount. The
+// edge is only persisted when the ServiceAccount is itself captured (its UID is
+// needed to match the endpoint), which the index Lookup resolves.
+type serviceAccountStrategy struct{}
+
+func (serviceAccountStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
+	pods := index.ByKind(selectorGVK(rule.To))
+	edges := make([]graph.Relationship, 0, len(pods))
+	for _, pod := range pods {
+		name := podServiceAccountName(pod)
+		if name == "" {
+			continue
+		}
+		ref := graph.Ref{APIVersion: "v1", Kind: kindServiceAccount, Namespace: pod.GetNamespace(), Name: name}
+		if sa, ok := index.Lookup("v1", kindServiceAccount, pod.GetNamespace(), name); ok {
+			ref = refOf(sa)
+		}
+		edges = append(edges, graph.Relationship{
+			Type: rule.Type,
+			From: ref,
+			To:   refOf(pod),
+		})
+	}
+	return edges, nil
+}
+
+// podServiceAccountName returns the ServiceAccount a Pod runs as, preferring the
+// current spec.serviceAccountName over the deprecated spec.serviceAccount, and
+// falling back to the implicit "default" ServiceAccount when neither is set.
+func podServiceAccountName(pod *unstructured.Unstructured) string {
+	if n, ok, _ := unstructured.NestedString(pod.Object, "spec", "serviceAccountName"); ok && n != "" {
+		return n
+	}
+	if n, ok, _ := unstructured.NestedString(pod.Object, "spec", "serviceAccount"); ok && n != "" {
+		return n
+	}
+	return "default"
 }
 
 // serviceBackendStrategy derives edges from a traffic-routing resource
