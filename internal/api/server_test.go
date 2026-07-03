@@ -123,6 +123,58 @@ func TestListProjectionsSorted(t *testing.T) {
 	}
 }
 
+func TestCreateLink(t *testing.T) {
+	proj := &gamerav1alpha1.GraphProjection{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default", UID: types.UID("uid-1")},
+	}
+	srv := newTestServer(t, proj)
+
+	post := func(path, body string) int {
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, strings.NewReader(body)))
+		return rec.Code
+	}
+
+	// Missing endpoints -> 400.
+	if code := post("/api/projections/default/demo/links", `{"from":"","to":""}`); code != http.StatusBadRequest {
+		t.Fatalf("empty endpoints: status = %d, want 400", code)
+	}
+	// Unknown projection -> 404.
+	if code := post("/api/projections/default/missing/links", `{"from":"a","to":"b"}`); code != http.StatusNotFound {
+		t.Fatalf("missing projection: status = %d, want 404", code)
+	}
+	// Known projection but no running projector -> 503.
+	if code := post("/api/projections/default/demo/links", `{"from":"a","to":"b"}`); code != http.StatusServiceUnavailable {
+		t.Fatalf("not running: status = %d, want 503", code)
+	}
+}
+
+func TestDeleteLink(t *testing.T) {
+	proj := &gamerav1alpha1.GraphProjection{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default", UID: types.UID("uid-1")},
+	}
+	srv := newTestServer(t, proj)
+
+	del := func(path string) int {
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, path, nil))
+		return rec.Code
+	}
+
+	// Missing endpoints -> 400.
+	if code := del("/api/projections/default/demo/links"); code != http.StatusBadRequest {
+		t.Fatalf("missing params: status = %d, want 400", code)
+	}
+	// Unknown projection -> 404.
+	if code := del("/api/projections/default/missing/links?from=a&to=b"); code != http.StatusNotFound {
+		t.Fatalf("missing projection: status = %d, want 404", code)
+	}
+	// Known projection but no running projector -> 503.
+	if code := del("/api/projections/default/demo/links?from=a&to=b"); code != http.StatusServiceUnavailable {
+		t.Fatalf("not running: status = %d, want 503", code)
+	}
+}
+
 func TestGraphNotFound(t *testing.T) {
 	srv := newTestServer(t)
 	rec := httptest.NewRecorder()

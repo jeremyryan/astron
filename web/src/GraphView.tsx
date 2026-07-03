@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ActionIcon, Divider, Group, Menu, Text, Tooltip } from "@mantine/core";
 import {
   IconCode,
   IconDownload,
   IconGrid3x3,
+  IconLink,
+  IconTrash,
   IconLayoutAlignCenter,
   IconLayoutAlignMiddle,
   IconLayoutDistributeHorizontal,
@@ -15,20 +17,14 @@ import {
 import cytoscape, { type Core, type ElementDefinition, type NodeSingular } from "cytoscape";
 import dagre from "cytoscape-dagre";
 import fcose from "cytoscape-fcose";
-import type { Graph, GraphNode, GraphSelection } from "./api";
-import { colorForKind, colorForRelationship, iconForKind } from "./kinds";
+import type { Graph, GraphEdge, GraphNode, GraphSelection } from "./api";
+import { colorForKind, colorForRelationship, genericIcon, iconForKind } from "./kinds";
 import { useSettings } from "./settings";
 
 cytoscape.use(dagre);
 cytoscape.use(fcose);
 
 // Vertices of a regular heptagon with a single vertex pointing straight up,
-// normalized to the [-1, 1] node bounding box. This matches the 7-sided
-// Kubernetes badge silhouette so status / selection outlines trace the icon's
-// shape instead of sitting as a circle cutting across it.
-const K8S_BADGE_POINTS =
-  "0 -1 0.782 -0.623 0.975 0.223 0.434 0.901 -0.434 0.901 -0.975 0.223 -0.782 -0.623";
-
 // Class applied to synthetic compound "namespace" parent nodes so they can be
 // excluded from selection, fading and menus.
 const GROUP_CLASS = "namespace-group";
@@ -95,8 +91,9 @@ function toElements(graph: Graph, groupByNamespace: boolean): ElementDefinition[
     // `status` (e.g. CrashLoopBackOff) over the coarse `phase`.
     const statusColor = phaseColor(n.properties?.status ?? n.properties?.phase);
     if (statusColor) data.statusColor = statusColor;
-    const icon = iconForKind(n.kind);
-    if (icon) data.icon = icon;
+    // Use the kind's official icon, falling back to the generic Kubernetes
+    // badge so resources without a dedicated icon still render as a badge.
+    data.icon = iconForKind(n.kind) ?? genericIcon;
 
     if (groupByNamespace) {
       data.parent = n.namespace ? GROUP_PREFIX + n.namespace : CLUSTER_GROUP_ID;
@@ -114,6 +111,7 @@ function toElements(graph: Graph, groupByNamespace: boolean): ElementDefinition[
         target: e.target,
         label: e.type,
         edgeColor: colorForRelationship(e.type),
+        manual: e.manual ? 1 : 0,
       },
     });
   }
@@ -131,6 +129,14 @@ interface Props {
   maxDistance: number | null;
   // Called when the user picks "YAML" from a node's right-click menu.
   onShowYaml: (node: GraphNode) => void;
+  // Called when the user completes an "Add Link" gesture from one node to
+  // another, with the source and target node ids.
+  onAddLink: (sourceId: string, targetId: string) => void;
+  // Called when the user deletes a user-created link via its context menu.
+  onDeleteLink: (edge: GraphEdge) => void;
+  // Called whenever the set of selected (real) nodes changes, with their ids.
+  // Lets the inspector highlight every selected resource in its list view.
+  onSelectedIdsChange?: (ids: string[]) => void;
   // When true, resources are grouped into compound nodes by namespace.
   groupByNamespace: boolean;
   // When false, edge (relationship-type) labels are hidden.
@@ -140,6 +146,12 @@ interface Props {
 }
 
 // Context menu anchored at a viewport position for a right-clicked node.
+interface EdgeMenu {
+  x: number;
+  y: number;
+  edge: GraphEdge;
+}
+
 interface NodeMenu {
   x: number;
   y: number;
@@ -152,6 +164,9 @@ export function GraphView({
   selectedId,
   maxDistance,
   onShowYaml,
+  onAddLink,
+  onDeleteLink,
+  onSelectedIdsChange,
   groupByNamespace,
   showEdgeLabels,
   exportName,
@@ -160,6 +175,8 @@ export function GraphView({
   const cyRef = useRef<Core | null>(null);
   // Right-click context menu state (null = closed).
   const [menu, setMenu] = useState<NodeMenu | null>(null);
+  // Right-click context menu for a user-created (manual) edge (null = closed).
+  const [edgeMenu, setEdgeMenu] = useState<EdgeMenu | null>(null);
   // Whether a reference grid is overlaid on the display. Persisted across
   // sessions via settings.
   const { settings, update } = useSettings();
@@ -170,6 +187,33 @@ export function GraphView({
   // Tracks whether the view is currently zoomed into a distance subgraph, so we
   // can zoom back out when the filter is cleared.
   const fittedSubgraphRef = useRef(false);
+  // Id of the node a link is being drawn from (null = not linking). A ref mirror
+  // lets the canvas event handlers, registered once, read the live value.
+  const [linkingSourceId, setLinkingSourceId] = useState<string | null>(null);
+  const linkingRef = useRef<string | null>(null);
+  // Ref mirror of onSelectedIdsChange so the once-registered cytoscape handler
+  // always calls the latest callback without rebuilding the graph.
+  const selectedIdsCbRef = useRef(onSelectedIdsChange);
+  selectedIdsCbRef.current = onSelectedIdsChange;
+  // Ref mirror of the latest graph so the once-registered canvas event handlers
+  // (tap, context menu, YAML) read current data without being rebuilt on every
+  // poll.
+  const graphRef = useRef(graph);
+  graphRef.current = graph;
+
+  // A signature of the graph's *structure* (which nodes/edges exist and whether
+  // they're grouped). The expensive rebuild + layout only re-runs when this
+  // changes; polled updates that keep the same topology are reconciled in place
+  // (see the data-sync effect below) so node positions are preserved.
+  const structuralKey = useMemo(() => {
+    const nodeIds = graph.nodes.map((n) => n.id).sort().join(",");
+    const edgeIds = graph.edges
+      .filter((e) => e.id)
+      .map((e) => e.id)
+      .sort()
+      .join(",");
+    return `${groupByNamespace ? "g" : "f"}|${nodeIds}|${edgeIds}`;
+  }, [graph, groupByNamespace]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -181,7 +225,7 @@ export function GraphView({
       // unmodified drag). Selecting multiple nodes lets them be moved together.
       boxSelectionEnabled: true,
       selectionType: "single",
-      elements: toElements(graph, groupByNamespace),
+      elements: toElements(graphRef.current, groupByNamespace),
       style: [
         {
           selector: "node",
@@ -197,29 +241,28 @@ export function GraphView({
             height: 28,
           },
         },
-        // Nodes with an official Kubernetes icon render the icon instead of the
-        // solid color circle. The node is shaped as the 7-sided Kubernetes
-        // badge so a status / selection outline traces the icon's silhouette,
-        // and the glyph is inset so that outline reads as a ring around it
-        // rather than a border cutting across the icon.
+        // Nodes with an official Kubernetes icon render as a circular disc with
+        // the icon inset inside it. The disc carries a ring border that conveys
+        // state (a neutral default, a health color for status-bearing nodes, or
+        // white when selected); insetting the glyph leaves room for that ring to
+        // sit cleanly around it rather than cutting across the icon.
         {
           selector: "node[icon]",
           style: {
-            shape: "polygon",
-            "shape-polygon-points": K8S_BADGE_POINTS,
+            shape: "ellipse",
+            "background-color": "#252a33",
+            "background-opacity": 1,
             "background-image": "data(icon)",
-            // Inset the glyph within the (larger) node so the heptagon outline
-            // has room to sit around it. background-clip:none keeps the icon
-            // from being clipped to the node shape.
             "background-fit": "none",
-            "background-width": "80%",
-            "background-height": "80%",
+            "background-width": "66%",
+            "background-height": "66%",
             "background-position-x": "50%",
             "background-position-y": "50%",
             "background-clip": "none",
-            "background-opacity": 0,
-            width: 38,
-            height: 38,
+            "border-width": 1.5,
+            "border-color": "#3c4350",
+            width: 34,
+            height: 34,
           },
         },
         {
@@ -246,15 +289,15 @@ export function GraphView({
             "text-rotation": "autorotate",
           },
         },
-        // Status-bearing nodes (e.g. Pods) get a health-colored outline that
-        // follows the node shape (a heptagon ring for icon nodes).
+        // Status-bearing nodes (e.g. Pods) get a health-colored ring border.
         {
           selector: "node[statusColor]",
-          style: { "border-width": 2.5, "border-color": "data(statusColor)", "border-opacity": 0.95 },
+          style: { "border-width": 3, "border-color": "data(statusColor)", "border-opacity": 1 },
         },
+        // Selection takes precedence over the health ring: a bright white ring.
         {
           selector: "node:selected",
-          style: { "border-width": 2.5, "border-color": "#fff" },
+          style: { "border-width": 3, "border-color": "#fff", "border-opacity": 1 },
         },
         // Edges whose labels are toggled off hide just the relationship text
         // while keeping the line, arrow and color.
@@ -262,14 +305,48 @@ export function GraphView({
           selector: "edge.no-label",
           style: { "text-opacity": 0, "text-background-opacity": 0 },
         },
-        // A selected edge is highlighted (brighter, thicker).
+        // The transient node tracking the cursor while drawing a new link. It is
+        // invisible and ignores pointer events so taps fall through to the real
+        // node beneath it.
+        {
+          selector: ".link-ghost",
+          style: { width: 1, height: 1, "background-opacity": 0, "border-width": 0, label: "", events: "no" },
+        },
+        // The dashed arrow drawn from the source node to the cursor.
+        {
+          selector: ".link-ghost-edge",
+          style: {
+            width: 2,
+            "line-color": "#16a3b8",
+            "line-style": "dashed",
+            "target-arrow-color": "#16a3b8",
+            "target-arrow-shape": "triangle",
+            "curve-style": "straight",
+            label: "",
+            events: "no",
+          },
+        },
+        // A selected edge keeps its relationship color; a thin white "outline"
+        // edge is drawn just behind it (added by the select/unselect handler)
+        // so both the line and the arrowhead get a white stroke. Both are forced
+        // straight so the outline overlaps the edge exactly.
         {
           selector: "edge:selected",
+          style: { "curve-style": "straight", "z-index": 10 },
+        },
+        {
+          selector: ".edge-outline",
           style: {
+            "curve-style": "straight",
             "line-color": "#fff",
             "target-arrow-color": "#fff",
-            color: "#fff",
-            width: 3,
+            "target-arrow-shape": "triangle",
+            // Slightly wider than the 1.5px edge -> a thin white stroke; the
+            // arrowhead scales with width, so it frames the real arrow too.
+            width: 3.5,
+            label: "",
+            events: "no",
+            "z-index": 9,
           },
         },
         // Compound parent nodes used to group resources by namespace.
@@ -338,22 +415,28 @@ export function GraphView({
     });
 
     cy.on("tap", "node", (evt) => {
+      if (linkingRef.current) return; // handled by the linking effect
       if (evt.target.hasClass(GROUP_CLASS)) return;
       setMenu(null);
-      const found = graph.nodes.find((n) => n.id === evt.target.id());
+      setEdgeMenu(null);
+      const found = graphRef.current.nodes.find((n) => n.id === evt.target.id());
       onSelect(found ? { type: "node", node: found } : null);
     });
     cy.on("tap", "edge", (evt) => {
+      if (linkingRef.current) return;
       setMenu(null);
-      const edge = graph.edges.find((e) => e.id === evt.target.id());
+      setEdgeMenu(null);
+      const edge = graphRef.current.edges.find((e) => e.id === evt.target.id());
       if (!edge) return;
-      const source = graph.nodes.find((n) => n.id === edge.source);
-      const target = graph.nodes.find((n) => n.id === edge.target);
+      const source = graphRef.current.nodes.find((n) => n.id === edge.source);
+      const target = graphRef.current.nodes.find((n) => n.id === edge.target);
       onSelect({ type: "edge", edge, source, target });
     });
     cy.on("tap", (evt) => {
+      if (linkingRef.current) return; // handled by the linking effect
       if (evt.target === cy) {
         setMenu(null);
+        setEdgeMenu(null);
         onSelect(null);
       }
     });
@@ -361,22 +444,63 @@ export function GraphView({
     // Track how many real nodes are selected so the alignment tools can appear
     // for multi-selections (e.g. via Shift box-select).
     const updateSelectedCount = () => {
-      setSelectedCount(cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS)).length);
+      const sel = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
+      setSelectedCount(sel.length);
+      selectedIdsCbRef.current?.(sel.map((n) => n.id()));
     };
     cy.on("select unselect", "node", updateSelectedCount);
+
+    // Maintain a white "outline" edge behind each selected edge so the
+    // selection reads as a thin stroke around the line and arrow (cytoscape's
+    // underlay/line-outline don't cover the arrowhead).
+    const OUTLINE_CLASS = "edge-outline";
+    const syncEdgeOutlines = () => {
+      cy.edges(`.${OUTLINE_CLASS}`).remove();
+      cy.edges(":selected").forEach((e) => {
+        cy.add({
+          group: "edges",
+          data: {
+            id: `__outline__${e.id()}`,
+            source: e.source().id(),
+            target: e.target().id(),
+          },
+          classes: OUTLINE_CLASS,
+          selectable: false,
+        });
+      });
+    };
+    cy.on("select unselect", "edge", syncEdgeOutlines);
 
     // Right-click a node to open a context menu at the cursor. Clicking the
     // background (or panning/zooming) dismisses it.
     cy.on("cxttap", "node", (evt) => {
-      const found = graph.nodes.find((n) => n.id === evt.target.id());
+      if (linkingRef.current) return;
+      const found = graphRef.current.nodes.find((n) => n.id === evt.target.id());
       if (!found) return;
       const oe = evt.originalEvent as MouseEvent;
+      setEdgeMenu(null);
       setMenu({ x: oe.clientX, y: oe.clientY, node: found });
     });
-    cy.on("cxttap", (evt) => {
-      if (evt.target === cy) setMenu(null);
+    // Right-click a user-created (manual) edge to delete it. Derived edges have
+    // no menu.
+    cy.on("cxttap", "edge", (evt) => {
+      if (linkingRef.current) return;
+      const edge = graphRef.current.edges.find((e) => e.id === evt.target.id());
+      if (!edge || !edge.manual) return;
+      const oe = evt.originalEvent as MouseEvent;
+      setMenu(null);
+      setEdgeMenu({ x: oe.clientX, y: oe.clientY, edge });
     });
-    cy.on("viewport", () => setMenu(null));
+    cy.on("cxttap", (evt) => {
+      if (evt.target === cy) {
+        setMenu(null);
+        setEdgeMenu(null);
+      }
+    });
+    cy.on("viewport", () => {
+      setMenu(null);
+      setEdgeMenu(null);
+    });
 
     // Cursor feedback: a "grabbing" cursor while dragging the canvas (pan) or a
     // node, and a "pointer" cursor when hovering a selectable node.
@@ -394,6 +518,17 @@ export function GraphView({
       if (evt.target.hasClass(GROUP_CLASS)) return;
       cy.boxSelectionEnabled(true);
       if (!dragging) el.style.cursor = "";
+    });
+    // Edges are clickable (select / inspect / right-click menu), so show a
+    // pointer on hover. Outline/ghost edges have events disabled and never fire
+    // these. Skip while panning/dragging or aiming a new link (crosshair).
+    cy.on("mouseover", "edge", () => {
+      if (dragging || linkingRef.current) return;
+      el.style.cursor = "pointer";
+    });
+    cy.on("mouseout", "edge", () => {
+      if (dragging || linkingRef.current) return;
+      el.style.cursor = "";
     });
     cy.on("grab", "node", () => {
       dragging = true;
@@ -571,6 +706,7 @@ export function GraphView({
 
     // Keyboard shortcuts acting on the currently selected node(s):
     //   Arrow keys  nudge the selection (hold Shift for a larger step)
+    //   L           starts an "Add Link" gesture from the single selected node
     //   Ctrl/Cmd-C  centers it in the view
     //   Ctrl/Cmd-Y  opens its YAML manifest modal
     const ARROW_DELTAS: Record<string, [number, number]> = {
@@ -607,6 +743,19 @@ export function GraphView({
         return;
       }
 
+      // L (no modifiers): start linking from the single selected node, mirroring
+      // the "Add Link" context-menu action. A plain key avoids clashing with
+      // browser shortcuts (Ctrl-N/Ctrl-L are reserved). No effect with zero or
+      // multiple nodes selected, or while a link is already being drawn.
+      if (e.key.toLowerCase() === "l" && !(e.ctrlKey || e.metaKey || e.altKey)) {
+        if (linkingRef.current) return;
+        const selectedNodes = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
+        if (selectedNodes.length !== 1) return;
+        e.preventDefault();
+        setLinkingSourceId(selectedNodes.first().id());
+        return;
+      }
+
       if (!(e.ctrlKey || e.metaKey)) return;
       const key = e.key.toLowerCase();
       if (key !== "c" && key !== "y") return;
@@ -616,7 +765,7 @@ export function GraphView({
       if (key === "c") {
         cy.animate({ center: { eles: selected }, duration: 200 });
       } else {
-        const found = graph.nodes.find((n) => n.id === selected.first().id());
+        const found = graphRef.current.nodes.find((n) => n.id === selected.first().id());
         if (found) onShowYaml(found);
       }
     };
@@ -624,6 +773,8 @@ export function GraphView({
 
     const container = containerRef.current;
     cyRef.current = cy;
+    // Dev-only handle for debugging / e2e tests; stripped from production builds.
+    if (import.meta.env.DEV) (window as unknown as { __cy?: Core }).__cy = cy;
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keydown", trackShift);
@@ -634,7 +785,40 @@ export function GraphView({
       cy.destroy();
       cyRef.current = null;
     };
-  }, [graph, onSelect, onShowYaml, groupByNamespace]);
+    // graph is intentionally read via graphRef (not a dep): only structural
+    // changes (structuralKey) rebuild the canvas; data updates are reconciled
+    // in place by the effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [structuralKey, onSelect, onShowYaml, groupByNamespace]);
+
+  // Reconcile polled data into the existing canvas without a rebuild/relayout:
+  // patch the mutable data (labels, kind/status colors, icons) of nodes and
+  // edges that already exist. Added/removed elements change structuralKey and
+  // are handled by the rebuild effect above, so here we only update in place.
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    cy.batch(() => {
+      for (const n of graph.nodes) {
+        const el = cy.getElementById(n.id);
+        if (el.empty()) continue;
+        el.data("label", `${n.kind}\n${n.name}`);
+        el.data("color", colorForKind(n.kind));
+        el.data("icon", iconForKind(n.kind) ?? genericIcon);
+        const statusColor = phaseColor(n.properties?.status ?? n.properties?.phase);
+        if (statusColor) el.data("statusColor", statusColor);
+        else el.removeData("statusColor");
+      }
+      for (const e of graph.edges) {
+        if (!e.id) continue;
+        const el = cy.getElementById(e.id);
+        if (el.empty()) continue;
+        el.data("label", e.type);
+        el.data("edgeColor", colorForRelationship(e.type));
+        el.data("manual", e.manual ? 1 : 0);
+      }
+    });
+  }, [graph]);
 
   // Fade nodes/edges that are more than `maxDistance` hops from the selected
   // node. Runs without rebuilding the graph so selecting/adjusting stays cheap.
@@ -699,6 +883,81 @@ export function GraphView({
     if (!cy) return;
     cy.edges().toggleClass("no-label", !showEdgeLabels);
   }, [graph, showEdgeLabels]);
+
+  // "Add Link" gesture: while linkingSourceId is set, draw a dashed arrow from
+  // the source node to the cursor. Tapping another node creates the link;
+  // tapping empty space (or pressing Escape) cancels without changes.
+  useEffect(() => {
+    const cy = cyRef.current;
+    const el = containerRef.current;
+    if (!cy || !el || !linkingSourceId) {
+      linkingRef.current = null;
+      return;
+    }
+    const source = cy.getElementById(linkingSourceId);
+    if (source.empty()) {
+      setLinkingSourceId(null);
+      return;
+    }
+    linkingRef.current = linkingSourceId;
+    el.style.cursor = "crosshair";
+    // Don't box-select or pan while aiming the link.
+    cy.boxSelectionEnabled(false);
+
+    const GHOST = "__link_ghost__";
+    const GHOST_EDGE = "__link_ghost_edge__";
+    cy.add({
+      group: "nodes",
+      data: { id: GHOST },
+      position: { ...source.position() },
+      classes: "link-ghost",
+      selectable: false,
+      grabbable: false,
+    });
+    cy.add({
+      group: "edges",
+      data: { id: GHOST_EDGE, source: linkingSourceId, target: GHOST },
+      classes: "link-ghost-edge",
+    });
+
+    const onMove = (evt: cytoscape.EventObject) => {
+      const g = cy.getElementById(GHOST);
+      if (g.nonempty()) g.position(evt.position);
+    };
+    cy.on("mousemove", onMove);
+
+    const finish = (targetId: string | null) => {
+      if (targetId && targetId !== linkingSourceId) onAddLink(linkingSourceId, targetId);
+      setLinkingSourceId(null);
+    };
+    const onTapNode = (evt: cytoscape.EventObject) => {
+      const t = evt.target as NodeSingular;
+      if (t.hasClass(GROUP_CLASS) || t.id() === GHOST) return;
+      finish(t.id());
+    };
+    const onTapBg = (evt: cytoscape.EventObject) => {
+      if (evt.target === cy) finish(null);
+    };
+    cy.on("tap", "node", onTapNode);
+    cy.on("tap", onTapBg);
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLinkingSourceId(null);
+    };
+    window.addEventListener("keydown", onKey);
+
+    return () => {
+      cy.off("mousemove", onMove);
+      cy.off("tap", "node", onTapNode);
+      cy.off("tap", onTapBg);
+      window.removeEventListener("keydown", onKey);
+      cy.getElementById(GHOST_EDGE).remove();
+      cy.getElementById(GHOST).remove();
+      cy.boxSelectionEnabled(true);
+      el.style.cursor = "";
+      linkingRef.current = null;
+    };
+  }, [linkingSourceId, onAddLink]);
 
   // Reflect an externally-driven selection (e.g. clicking a resource in the
   // inspector list) onto the canvas: select and center the node. A node picked
@@ -792,6 +1051,11 @@ export function GraphView({
     <>
       <div ref={containerRef} className="graph-canvas" />
       {showGrid && <div className="graph-grid-overlay" aria-hidden />}
+      {linkingSourceId && (
+        <div className="link-hint">
+          Click a target node to link it · Esc to cancel
+        </div>
+      )}
       <Group gap={6} className="graph-controls">
         {selectedCount >= 2 && (
           <>
@@ -914,8 +1178,55 @@ export function GraphView({
             >
               YAML
             </Menu.Item>
+            <Menu.Item
+              leftSection={<IconLink size={16} stroke={1.5} />}
+              rightSection={
+                <Text size="xs" c="dimmed">
+                  L
+                </Text>
+              }
+              onClick={() => {
+                setLinkingSourceId(menu.node.id);
+                setMenu(null);
+              }}
+            >
+              Add Link
+            </Menu.Item>
             {/* Edit is not implemented yet. */}
             <Menu.Item leftSection={<IconPencil size={16} stroke={1.5} />}>Edit</Menu.Item>
+          </Menu.Dropdown>
+        </Menu>
+      )}
+      {edgeMenu && (
+        <Menu
+          opened
+          onClose={() => setEdgeMenu(null)}
+          position="bottom-start"
+          shadow="md"
+          width={160}
+          withinPortal
+        >
+          <Menu.Target>
+            <div
+              style={{ position: "fixed", left: edgeMenu.x, top: edgeMenu.y, width: 1, height: 1 }}
+            />
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Label>
+              <Text size="xs" truncate>
+                {edgeMenu.edge.type} link
+              </Text>
+            </Menu.Label>
+            <Menu.Item
+              color="red"
+              leftSection={<IconTrash size={16} stroke={1.5} />}
+              onClick={() => {
+                onDeleteLink(edgeMenu.edge);
+                setEdgeMenu(null);
+              }}
+            >
+              Delete
+            </Menu.Item>
           </Menu.Dropdown>
         </Menu>
       )}

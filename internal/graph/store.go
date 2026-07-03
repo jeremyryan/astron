@@ -56,6 +56,25 @@ type Store interface {
 	Close(ctx context.Context) error
 }
 
+// LinkStore is an optional capability for stores that support user-created
+// ("manual") links between two existing nodes. Manual links are flagged so the
+// projector's Sync mark-and-sweep pruning does not remove them on the next
+// reconcile. It is kept separate from Store so the feature stays additive.
+type LinkStore interface {
+	// AddManualLink merges a relationship of relType from the node identified by
+	// fromID to the node identified by toID (the node IDs as returned by
+	// ReadGraph), within the projection. The link is marked manual so periodic
+	// re-syncs do not prune it. It returns an error if either endpoint does not
+	// exist in the projection.
+	AddManualLink(ctx context.Context, projection ProjectionID, fromID, toID, relType string) error
+
+	// DeleteManualLink removes a manual relationship of relType between the two
+	// nodes (by node ID) within the projection. Only links flagged manual are
+	// removed, so projector-derived edges are never affected. It is idempotent:
+	// deleting a link that is absent is not an error.
+	DeleteManualLink(ctx context.Context, projection ProjectionID, fromID, toID, relType string) error
+}
+
 // NodeEmbedding pairs a node's identity with the embedding vector derived from
 // its textual "resource card", plus the metadata needed to detect staleness.
 type NodeEmbedding struct {

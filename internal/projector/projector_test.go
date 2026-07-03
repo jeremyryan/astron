@@ -158,6 +158,29 @@ func TestNodeForNonPodHasNoStatus(t *testing.T) {
 	}
 }
 
+func TestNodeForHTTPRouteHostnames(t *testing.T) {
+	o := newObj("default", "route", nil)
+	o.SetKind("HTTPRoute")
+	o.SetAPIVersion("gateway.networking.k8s.io/v1")
+	if err := unstructured.SetNestedStringSlice(o.Object, []string{"a.example.com", "b.example.com"}, "spec", "hostnames"); err != nil {
+		t.Fatal(err)
+	}
+
+	props := nodeFor(o).Properties
+	hostnames, ok := props["hostnames"].([]string)
+	if !ok {
+		t.Fatalf("hostnames property = %T, want []string", props["hostnames"])
+	}
+	if len(hostnames) != 2 || hostnames[0] != "a.example.com" || hostnames[1] != "b.example.com" {
+		t.Errorf("hostnames = %v, want [a.example.com b.example.com]", hostnames)
+	}
+
+	// A Pod has no hostnames property.
+	if _, ok := nodeFor(newObj("default", "p", nil)).Properties["hostnames"]; ok {
+		t.Error("non-HTTPRoute object should not have a hostnames property")
+	}
+}
+
 func TestInScope(t *testing.T) {
 	spec := gamerav1alpha1.GraphProjectionSpec{
 		Scope: gamerav1alpha1.ProjectionScope{

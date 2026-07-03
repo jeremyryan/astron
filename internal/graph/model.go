@@ -87,6 +87,9 @@ type Relationship struct {
 	To Ref
 	// Properties are additional scalar attributes stored on the edge.
 	Properties map[string]any
+	// Manual is true when the edge was created by a user (via the UI) rather than
+	// derived by the relationship engine.
+	Manual bool
 }
 
 // ProjectionID identifies the GraphProjection that owns a set of nodes and

@@ -240,3 +240,13 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
+### Third-party assets
+
+The web UI bundles the official Kubernetes resource icons from
+[`kubernetes/community`](https://github.com/kubernetes/community/tree/master/icons)
+(Apache-2.0) to represent resource kinds. See [`NOTICE`](./NOTICE) and
+[`web/src/assets/k8s/ATTRIBUTION.md`](./web/src/assets/k8s/ATTRIBUTION.md) for
+details. "Kubernetes" and the Kubernetes logo are trademarks of The Linux
+Foundation, used here descriptively and subject to the
+[CNCF/LF trademark guidelines](https://www.linuxfoundation.org/legal/trademark-usage).
+

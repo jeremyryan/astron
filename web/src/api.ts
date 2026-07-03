@@ -24,6 +24,8 @@ export interface GraphEdge {
   target: string;
   type: string;
   properties?: Record<string, unknown>;
+  // True for user-created links, which can be deleted from the UI.
+  manual?: boolean;
 }
 
 export interface Graph {
@@ -140,5 +142,38 @@ export async function deleteView(namespace: string, name: string): Promise<void>
   await sendJSON<void>(
     "DELETE",
     `/api/views/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
+  );
+}
+
+// ----- Links (user-created edges) -----
+
+// createLink adds a user-defined edge between two nodes (by their graph node
+// ids) within a projection. The backend defaults the relationship type to a
+// Custom link.
+export async function createLink(
+  namespace: string,
+  name: string,
+  from: string,
+  to: string,
+): Promise<void> {
+  await sendJSON<void>(
+    "POST",
+    `/api/projections/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/links`,
+    { from, to },
+  );
+}
+
+// deleteLink removes a user-created edge between two nodes within a projection.
+export async function deleteLink(
+  namespace: string,
+  name: string,
+  from: string,
+  to: string,
+  type: string,
+): Promise<void> {
+  const params = new URLSearchParams({ from, to, type });
+  await sendJSON<void>(
+    "DELETE",
+    `/api/projections/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/links?${params.toString()}`,
   );
 }
