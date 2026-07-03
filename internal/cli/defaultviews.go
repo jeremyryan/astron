@@ -116,13 +116,52 @@ func hiddenKindsFor(view defaultViewCategory) []string {
 	return hidden
 }
 
+// defaultViewResourceName derives a GraphView's resource name from the
+// projection and the view (e.g. "web-compute").
+func defaultViewResourceName(projection string, view defaultViewCategory) string {
+	return fmt.Sprintf("%s-%s", projection, strings.ToLower(view.displayName))
+}
+
+// parseViewSelection parses a --views selection into the chosen built-in view
+// categories. The special value "defaults" selects all views; otherwise a
+// comma-separated list of view names (case-insensitive) is expected. An empty
+// string selects no views. Duplicates are removed and unknown names error.
+func parseViewSelection(value string) ([]defaultViewCategory, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	if strings.EqualFold(value, "defaults") {
+		return append([]defaultViewCategory(nil), defaultViewCategories...), nil
+	}
+	seen := map[string]bool{}
+	var out []defaultViewCategory
+	for _, part := range strings.Split(value, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		cat, ok := lookupDefaultView(part)
+		if !ok {
+			return nil, fmt.Errorf("unknown view %q: must be 'defaults' or a comma-separated list of %s",
+				part, strings.Join(defaultViewNames(), ", "))
+		}
+		if seen[cat.displayName] {
+			continue
+		}
+		seen[cat.displayName] = true
+		out = append(out, cat)
+	}
+	return out, nil
+}
+
 // buildDefaultView constructs the View to create for a built-in view name,
 // filtering the given projection. The GraphView's resource name is derived from
 // the projection and the view (e.g. "web-compute").
 func buildDefaultView(namespace, projection string, view defaultViewCategory) View {
 	return View{
 		Namespace:   namespace,
-		Name:        fmt.Sprintf("%s-%s", projection, strings.ToLower(view.displayName)),
+		Name:        defaultViewResourceName(projection, view),
 		DisplayName: view.displayName,
 		Description: view.description,
 		ProjectionRef: ViewProjectionRef{
