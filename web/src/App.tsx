@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ActionIcon,
+  Anchor,
   AppShell,
   Box,
+  Button,
   Group,
   Loader,
   NavLink,
@@ -15,6 +17,8 @@ import {
   UnstyledButton,
 } from "@mantine/core";
 import {
+  createLink,
+  deleteLink,
   getGraph,
   listProjections,
   listViews,
@@ -37,9 +41,12 @@ import {
 import { YamlModal } from "./YamlModal";
 import { SettingsModal } from "./SettingsModal";
 import { useSettings } from "./settings";
-import { colorForRelationship, iconForKind } from "./kinds";
+import { colorForRelationship, iconForKindOrGeneric } from "./kinds";
 import {
+  IconArrowLeft,
   IconBookmark,
+  IconChevronLeft,
+  IconChevronRight,
   IconHierarchy2,
   IconSettings,
   IconTag,
@@ -156,6 +163,36 @@ function ProjectionList({
 // backend) and should be rendered as individual entries rather than raw JSON.
 const MAP_PROPS = new Set(["labels", "annotations"]);
 
+// Properties hidden from the resource details panel: internal/noisy fields, or
+// values rendered by a dedicated section (e.g. hostnames).
+const HIDDEN_PROPS = new Set(["resourceVersion", "hostnames"]);
+
+// formatTimestamp renders an RFC3339 timestamp as 'MM/DD/YYYY HH:MM' in local
+// time, falling back to the raw value when it can't be parsed.
+function formatTimestamp(value: string): string {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getMonth() + 1)}/${pad(d.getDate())}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// nodeHostnames extracts an HTTPRoute's hostnames, which the backend stores as a
+// string list (or, in some transports, a JSON-encoded array).
+function nodeHostnames(node: GraphNode): string[] {
+  const raw = node.properties?.hostnames;
+  if (Array.isArray(raw)) return raw.map(String);
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.map(String);
+    } catch {
+      // not JSON; fall through
+    }
+    return raw ? [raw] : [];
+  }
+  return [];
+}
+
 // asKeyValues parses a property value into sorted key/value entries when it
 // represents an object (either an object or a JSON-encoded string). Returns null
 // when the value is not a map.
@@ -259,9 +296,11 @@ function groupResources(nodes: GraphNode[]) {
 function ResourceList({
   nodes,
   onSelect,
+  selectedIds,
 }: {
   nodes: GraphNode[];
   onSelect: (node: GraphNode) => void;
+  selectedIds: Set<string>;
 }) {
   const groups = useMemo(() => groupResources(nodes), [nodes]);
   if (nodes.length === 0)
@@ -287,11 +326,11 @@ function ResourceList({
             {g.namespace}
           </Text>
           {g.kinds.map((k) => {
-            const icon = iconForKind(k.kind);
+            const icon = iconForKindOrGeneric(k.kind);
             return (
               <Stack gap={2} key={k.kind}>
                 <Group gap={6} wrap="nowrap" align="center">
-                  {icon && <img src={icon} width={14} height={14} alt="" />}
+                  <img src={icon} width={14} height={14} alt="" />
                   <Text size="xs" fw={600}>
                     {k.kind}
                   </Text>
@@ -303,7 +342,11 @@ function ResourceList({
                   {k.nodes.map((n) => (
                     <UnstyledButton
                       key={n.id}
-                      className="resource-link"
+                      className={
+                        selectedIds.has(n.id)
+                          ? "resource-link resource-link-selected"
+                          : "resource-link"
+                      }
                       onClick={() => onSelect(n)}
                       title={n.name}
                     >
@@ -328,13 +371,14 @@ function NodeDetails({ node }: { node: GraphNode | null }) {
       </Text>
     );
   const props = Object.entries(node.properties ?? {});
-  const scalarProps = props.filter(([k]) => !MAP_PROPS.has(k));
+  const scalarProps = props.filter(([k]) => !MAP_PROPS.has(k) && !HIDDEN_PROPS.has(k));
   const mapProps = props.filter(([k]) => MAP_PROPS.has(k));
-  const icon = iconForKind(node.kind);
+  const hostnames = nodeHostnames(node);
+  const icon = iconForKindOrGeneric(node.kind);
   return (
     <Stack gap="md">
       <Group gap={8} wrap="nowrap" align="center">
-        {icon && <img src={icon} width={22} height={22} alt="" />}
+        <img src={icon} width={22} height={22} alt="" />
         <Title order={3} size="h4">
           {node.kind}{" "}
           <Text span c="dimmed" size="sm" fw={400}>
@@ -346,9 +390,38 @@ function NodeDetails({ node }: { node: GraphNode | null }) {
         <Field label="Name" value={node.name} />
         {node.namespace && <Field label="Namespace" value={node.namespace} />}
         {scalarProps.map(([k, v]) => (
-          <Field key={k} label={k} value={typeof v === "string" ? v : JSON.stringify(v)} />
+          <Field
+            key={k}
+            label={k}
+            value={
+              k === "creationTimestamp"
+                ? formatTimestamp(String(v))
+                : typeof v === "string"
+                  ? v
+                  : JSON.stringify(v)
+            }
+          />
         ))}
       </Stack>
+      {hostnames.length > 0 && (
+        <Stack gap={4}>
+          <Text size="xs" c="dimmed" tt="uppercase" style={{ letterSpacing: "0.05em" }}>
+            Hostnames
+          </Text>
+          {hostnames.map((h) => (
+            <Anchor
+              key={h}
+              href={`https://${h}`}
+              target="_blank"
+              rel="noreferrer"
+              size="sm"
+              style={{ wordBreak: "break-word" }}
+            >
+              {h}
+            </Anchor>
+          ))}
+        </Stack>
+      )}
       {mapProps.map(([k, v]) => (
         <KeyValueSection key={k} title={k} value={v} />
       ))}
@@ -490,9 +563,27 @@ function GraphPanel({
   onActiveViewChange: (v: View | null) => void;
 }) {
   const { settings, update } = useSettings();
+  const queryClient = useQueryClient();
   // The currently inspected element (node or edge), or null.
   const [selection, setSelection] = useState<GraphSelection | null>(null);
   const selectedNode = selection?.type === "node" ? selection.node : null;
+  // Ids of all nodes selected on the canvas (supports box-select), used to
+  // highlight them in the resource list.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // When true, the inspector shows the resource list even if a node/edge is
+  // selected (the user navigated "Back" from the detail view).
+  const [showResourceList, setShowResourceList] = useState(false);
+  // Whether the inspector panel is collapsed to a thin strip.
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  // Whether the left filters panel is collapsed to a thin strip.
+  const [filtersCollapsed, setFiltersCollapsed] = useState(false);
+  // Selecting/inspecting an element returns from the list to the detail view.
+  // Memoized so its identity stays stable: GraphView rebuilds its canvas when
+  // onSelect changes, so an inline function here would relayout on every render.
+  const handleSelect = useCallback((sel: GraphSelection | null) => {
+    setSelection(sel);
+    if (sel) setShowResourceList(false);
+  }, []);
   // Node whose YAML manifest is shown in the modal (null = closed).
   const [yamlNode, setYamlNode] = useState<GraphNode | null>(null);
   // Kinds the user has hidden. Empty = show everything (the default).
@@ -638,6 +729,8 @@ function GraphPanel({
         onUpdateLabel={updateLabel}
         onRemoveLabel={removeLabel}
         onChangeLabelMode={setLabelMode}
+        collapsed={filtersCollapsed}
+        onToggleCollapse={() => setFiltersCollapsed((v) => !v)}
         viewControls={
           <ViewControls
             projection={projection}
@@ -674,12 +767,32 @@ function GraphPanel({
         {filteredGraph && (
           <GraphView
             graph={filteredGraph}
-            onSelect={setSelection}
+            onSelect={handleSelect}
+            onSelectedIdsChange={(ids) => setSelectedIds(new Set(ids))}
             selectedId={selectedNode?.id ?? null}
             maxDistance={maxDistance}
             onShowYaml={setYamlNode}
             groupByNamespace={groupByNamespace}
             showEdgeLabels={showEdgeLabels}
+            onAddLink={(from, to) => {
+              createLink(projection.namespace, projection.name, from, to)
+                .then(() =>
+                  queryClient.invalidateQueries({ queryKey: ["graph", projection.uid] }),
+                )
+                .catch(() => {
+                  // Surfacing failures in the UI can come later; for now the
+                  // graph simply won't gain the edge.
+                });
+            }}
+            onDeleteLink={(edge) => {
+              deleteLink(projection.namespace, projection.name, edge.source, edge.target, edge.type)
+                .then(() =>
+                  queryClient.invalidateQueries({ queryKey: ["graph", projection.uid] }),
+                )
+                .catch(() => {
+                  // Best-effort; the edge stays if the delete fails.
+                });
+            }}
             exportName={`${projection.namespace}-${projection.name}`}
           />
         )}
@@ -692,18 +805,69 @@ function GraphPanel({
         )}
       </div>
       <YamlModal node={yamlNode} onClose={() => setYamlNode(null)} />
-      <ScrollArea component="aside" className="inspector" type="scroll">
-        {selection?.type === "edge" ? (
-          <EdgeDetails selection={selection} />
-        ) : selectedNode ? (
-          <NodeDetails node={selectedNode} />
-        ) : (
-          <ResourceList
-            nodes={filteredGraph?.nodes ?? []}
-            onSelect={(node) => setSelection({ type: "node", node })}
-          />
-        )}
-      </ScrollArea>
+      {inspectorCollapsed ? (
+        <aside className="inspector inspector-collapsed">
+          <Tooltip label="Expand panel" position="left">
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              onClick={() => setInspectorCollapsed(false)}
+              aria-label="Expand panel"
+            >
+              <IconChevronLeft size={18} />
+            </ActionIcon>
+          </Tooltip>
+        </aside>
+      ) : (
+        (() => {
+          const showDetails =
+            !showResourceList && (selection?.type === "edge" || !!selectedNode);
+          return (
+            <aside className="inspector">
+              <div className="inspector-header">
+                {showDetails ? (
+                  <Button
+                    variant="subtle"
+                    color="gray"
+                    size="compact-sm"
+                    leftSection={<IconArrowLeft size={16} />}
+                    onClick={() => setShowResourceList(true)}
+                  >
+                    Back
+                  </Button>
+                ) : (
+                  <span />
+                )}
+                <Tooltip label="Collapse panel" position="left">
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    onClick={() => setInspectorCollapsed(true)}
+                    aria-label="Collapse panel"
+                  >
+                    <IconChevronRight size={18} />
+                  </ActionIcon>
+                </Tooltip>
+              </div>
+              <ScrollArea className="inspector-body" type="scroll">
+                <Box p={14}>
+                  {showDetails && selection?.type === "edge" ? (
+                    <EdgeDetails selection={selection} />
+                  ) : showDetails ? (
+                    <NodeDetails node={selectedNode} />
+                  ) : (
+                    <ResourceList
+                      nodes={filteredGraph?.nodes ?? []}
+                      selectedIds={selectedIds}
+                      onSelect={(node) => handleSelect({ type: "node", node })}
+                    />
+                  )}
+                </Box>
+              </ScrollArea>
+            </aside>
+          );
+        })()
+      )}
     </div>
   );
 }

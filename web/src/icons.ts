@@ -13,6 +13,8 @@ export {
   IconPlus,
   IconX,
   IconChevronRight,
+  IconChevronLeft,
+  IconArrowLeft,
   IconDeviceFloppy,
   IconTrash,
   IconBookmark,
@@ -28,4 +30,5 @@ export {
   IconCheck,
   IconZoomIn,
   IconZoomOut,
+  IconLink,
 } from "@tabler/icons-react";

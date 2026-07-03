@@ -60,6 +60,8 @@ type edgeDTO struct {
 	Target     string         `json:"target"`
 	Type       string         `json:"type"`
 	Properties map[string]any `json:"properties,omitempty"`
+	// Manual is true for user-created links (addable/removable from the UI).
+	Manual bool `json:"manual,omitempty"`
 }
 
 // graphDTO is the API representation of a projection's full graph.
@@ -159,6 +161,7 @@ func graphToDTO(data graph.GraphData) graphDTO {
 			Target:     r.To.ID(),
 			Type:       r.Type,
 			Properties: r.Properties,
+			Manual:     r.Manual,
 		})
 	}
 	return out

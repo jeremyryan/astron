@@ -57,6 +57,7 @@ export const RELATIONSHIP_COLORS: Record<string, string> = {
   BINDS: "#1abc9c", // PersistentVolume <-> PersistentVolumeClaim
   ROUTES: "#f1c40f", // Ingress / HTTPRoute -> Service
   DEFINES: "#e84393", // CRD -> its instances
+  CUSTOM: "#16a3b8", // user-created link
 };
 
 export function colorForRelationship(type: string): string {
@@ -92,8 +93,17 @@ export const KIND_ICONS: Record<string, string> = {
   Service: svc,
 };
 
-// iconForKind returns the official icon for a kind, or a generic fallback icon
-// for kinds without a dedicated one. It always returns a usable icon URL.
-export function iconForKind(kind: string): string {
-  return KIND_ICONS[kind] ?? GENERIC_ICON;
+// genericIcon is the official Kubernetes badge shape/color with no inner glyph.
+// Use it as a fallback for resource kinds that don't have a dedicated icon yet,
+// so they still read as Kubernetes resources rather than a plain colored dot.
+export const genericIcon = generic;
+
+export function iconForKind(kind: string): string | undefined {
+  return KIND_ICONS[kind];
+}
+
+// iconForKindOrGeneric returns the kind's dedicated icon, falling back to the
+// generic Kubernetes badge so callers always have a badge to render.
+export function iconForKindOrGeneric(kind: string): string {
+  return KIND_ICONS[kind] ?? generic;
 }
