@@ -25,6 +25,8 @@ import (
 	"github.com/project-gamera/gamera/internal/rag"
 )
 
+const uidPod = "u-pod"
+
 // retrievalStore is a graph.Store + graph.VectorStore + graph.QueryStore
 // returning a fixed graph and a fixed, ordered set of vector hits.
 type retrievalStore struct {
@@ -67,14 +69,14 @@ func (s *retrievalStore) ReadOnlyQuery(_ context.Context, _ graph.ProjectionID, 
 // web-svc SELECTS Pod web-1; plus an unrelated Pod other-1.
 func sampleGraph() graph.GraphData {
 	deploy := graph.Node{Ref: graph.Ref{APIVersion: "apps/v1", Kind: "Deployment", Namespace: "shop", Name: "web", UID: "u-deploy"}}
-	pod := graph.Node{Ref: graph.Ref{APIVersion: "v1", Kind: "Pod", Namespace: "shop", Name: "web-1", UID: "u-pod"}}
+	pod := graph.Node{Ref: graph.Ref{APIVersion: "v1", Kind: "Pod", Namespace: "shop", Name: "web-1", UID: uidPod}}
 	svc := graph.Node{Ref: graph.Ref{APIVersion: "v1", Kind: "Service", Namespace: "shop", Name: "web-svc", UID: "u-svc"}}
 	other := graph.Node{Ref: graph.Ref{APIVersion: "v1", Kind: "Pod", Namespace: "shop", Name: "other-1", UID: "u-other"}}
 	return graph.GraphData{
 		Nodes: []graph.Node{deploy, pod, svc, other},
 		Relationships: []graph.Relationship{
-			{Type: "OWNS", From: graph.Ref{UID: "u-deploy"}, To: graph.Ref{UID: "u-pod"}},
-			{Type: "SELECTS", From: graph.Ref{UID: "u-svc"}, To: graph.Ref{UID: "u-pod"}},
+			{Type: "OWNS", From: graph.Ref{UID: "u-deploy"}, To: graph.Ref{UID: uidPod}},
+			{Type: "SELECTS", From: graph.Ref{UID: "u-svc"}, To: graph.Ref{UID: uidPod}},
 		},
 	}
 }
@@ -88,6 +90,7 @@ func newRetrievalProjector(store *retrievalStore, embEnabled bool) *Projector {
 	return New(opts)
 }
 
+//nolint:unparam // uid is fixed (uidPod) in current tests but kept for generality
 func hit(uid string, score float64) graph.VectorHit {
 	return graph.VectorHit{Node: graph.Node{Ref: graph.Ref{UID: uid}}, Score: score}
 }
@@ -108,19 +111,19 @@ func TestSearchRequiresEmbedding(t *testing.T) {
 }
 
 func TestSearchExpandsAroundSeed(t *testing.T) {
-	store := &retrievalStore{data: sampleGraph(), hits: []graph.VectorHit{hit("u-pod", 0.9)}}
+	store := &retrievalStore{data: sampleGraph(), hits: []graph.VectorHit{hit(uidPod, 0.9)}}
 	p := newRetrievalProjector(store, true)
 
 	r, err := p.Search(context.Background(), "web pod", SearchOptions{TopK: 1, Hops: 1})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	if len(r.Seeds) != 1 || r.Seeds[0].Ref.UID != "u-pod" || r.Seeds[0].Score != 0.9 {
+	if len(r.Seeds) != 1 || r.Seeds[0].Ref.UID != uidPod || r.Seeds[0].Score != 0.9 {
 		t.Fatalf("unexpected seeds: %+v", r.Seeds)
 	}
 	// 1 hop from the Pod reaches the Deployment and Service, but not other-1.
 	gotNodes := nodeUIDs(r.Subgraph)
-	want := idSet("u-pod", "u-deploy", "u-svc")
+	want := idSet(uidPod, "u-deploy", "u-svc")
 	if !sameSet(gotNodes, want) {
 		t.Fatalf("subgraph nodes = %v, want %v", gotNodes, want)
 	}
@@ -133,14 +136,14 @@ func TestSearchExpandsAroundSeed(t *testing.T) {
 }
 
 func TestSearchHopsZeroReturnsSeedOnly(t *testing.T) {
-	store := &retrievalStore{data: sampleGraph(), hits: []graph.VectorHit{hit("u-pod", 0.9)}}
+	store := &retrievalStore{data: sampleGraph(), hits: []graph.VectorHit{hit(uidPod, 0.9)}}
 	p := newRetrievalProjector(store, true)
 
 	r, err := p.Search(context.Background(), "web pod", SearchOptions{TopK: 1, Hops: 0})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	if got := nodeUIDs(r.Subgraph); !sameSet(got, idSet("u-pod")) {
+	if got := nodeUIDs(r.Subgraph); !sameSet(got, idSet(uidPod)) {
 		t.Fatalf("hops=0 subgraph = %v, want just the seed", got)
 	}
 	if len(r.Subgraph.Relationships) != 0 {
@@ -149,7 +152,7 @@ func TestSearchHopsZeroReturnsSeedOnly(t *testing.T) {
 }
 
 func TestSearchEdgeTypeFilterLimitsExpansion(t *testing.T) {
-	store := &retrievalStore{data: sampleGraph(), hits: []graph.VectorHit{hit("u-pod", 0.9)}}
+	store := &retrievalStore{data: sampleGraph(), hits: []graph.VectorHit{hit(uidPod, 0.9)}}
 	p := newRetrievalProjector(store, true)
 
 	// Only follow OWNS: from the Pod we should reach the Deployment but not the
@@ -158,7 +161,7 @@ func TestSearchEdgeTypeFilterLimitsExpansion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	if got := nodeUIDs(r.Subgraph); !sameSet(got, idSet("u-pod", "u-deploy")) {
+	if got := nodeUIDs(r.Subgraph); !sameSet(got, idSet(uidPod, "u-deploy")) {
 		t.Fatalf("OWNS-only subgraph = %v, want pod+deploy", got)
 	}
 	for _, e := range r.Subgraph.Relationships {
@@ -177,10 +180,10 @@ func TestNeighborhoodResolvesByIdentityWithoutEmbedding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Neighborhood: %v", err)
 	}
-	if len(r.Seeds) != 1 || r.Seeds[0].Ref.UID != "u-pod" {
+	if len(r.Seeds) != 1 || r.Seeds[0].Ref.UID != uidPod {
 		t.Fatalf("expected the seed resolved to u-pod, got %+v", r.Seeds)
 	}
-	if got := nodeUIDs(r.Subgraph); !sameSet(got, idSet("u-pod", "u-deploy", "u-svc")) {
+	if got := nodeUIDs(r.Subgraph); !sameSet(got, idSet(uidPod, "u-deploy", "u-svc")) {
 		t.Fatalf("neighborhood = %v", got)
 	}
 }

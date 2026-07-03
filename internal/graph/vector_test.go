@@ -23,6 +23,11 @@ import (
 	"testing"
 )
 
+const (
+	kindPod = "Pod"
+	nameWeb = "web"
+)
+
 func TestVectorIndexCypherValidation(t *testing.T) {
 	if _, err := vectorIndexCypher(0, "cosine"); err == nil {
 		t.Error("expected error for non-positive dimensions")
@@ -51,7 +56,7 @@ func TestVectorIndexCypherValidation(t *testing.T) {
 
 func TestEmbeddingRowKeyAndParams(t *testing.T) {
 	e := NodeEmbedding{
-		Ref:      Ref{UID: "u1", Kind: "Pod", Name: "web"},
+		Ref:      Ref{UID: "u1", Kind: kindPod, Name: nameWeb},
 		Vector:   []float32{0.1, 0.2, 0.3},
 		Card:     "Pod web ...",
 		CardHash: "deadbeef",
@@ -86,7 +91,7 @@ func TestVectorSearchCypherFilters(t *testing.T) {
 		}
 	}
 
-	filtered := vectorSearchCypher(VectorFilter{Kinds: []string{"Pod"}, Namespaces: []string{"shop"}})
+	filtered := vectorSearchCypher(VectorFilter{Kinds: []string{kindPod}, Namespaces: []string{"shop"}})
 	if !strings.Contains(filtered, "node.kind IN $kinds") {
 		t.Errorf("expected kind filter clause:\n%s", filtered)
 	}
@@ -98,8 +103,8 @@ func TestVectorSearchCypherFilters(t *testing.T) {
 func TestNodeFromPropsHidesVectorBookkeeping(t *testing.T) {
 	props := map[string]any{
 		"apiVersion":           "v1",
-		"kind":                 "Pod",
-		"name":                 "web",
+		"kind":                 kindPod,
+		"name":                 nameWeb,
 		"phase":                "Running",
 		embeddingProperty:      []float32{0.1, 0.2},
 		cardProperty:           "Pod web is Running.",
@@ -108,7 +113,7 @@ func TestNodeFromPropsHidesVectorBookkeeping(t *testing.T) {
 	}
 	node := nodeFromProps(props)
 
-	if node.Ref.Kind != "Pod" || node.Ref.Name != "web" {
+	if node.Ref.Kind != kindPod || node.Ref.Name != nameWeb {
 		t.Errorf("identity not reconstructed: %+v", node.Ref)
 	}
 	if node.Properties["phase"] != "Running" {
@@ -148,7 +153,7 @@ func TestVectorStoreIntegration(t *testing.T) {
 	defer func() { _ = store.DeleteProjection(ctx, proj) }()
 
 	// Seed two nodes, attach 3-dim embeddings, then search near the first.
-	pod := Node{Ref: Ref{APIVersion: "v1", Kind: "Pod", Namespace: "shop", Name: "web", UID: "u-web"}}
+	pod := Node{Ref: Ref{APIVersion: "v1", Kind: kindPod, Namespace: "shop", Name: nameWeb, UID: "u-web"}}
 	svc := Node{Ref: Ref{APIVersion: "v1", Kind: "Service", Namespace: "shop", Name: "api", UID: "u-api"}}
 	if _, err := store.Sync(ctx, proj, []Node{pod, svc}, nil); err != nil {
 		t.Fatalf("Sync: %v", err)
@@ -168,7 +173,7 @@ func TestVectorStoreIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VectorSearch: %v", err)
 	}
-	if len(hits) != 1 || hits[0].Node.Ref.Name != "web" {
+	if len(hits) != 1 || hits[0].Node.Ref.Name != nameWeb {
 		t.Fatalf("expected nearest hit to be Pod web, got %+v", hits)
 	}
 

@@ -110,9 +110,9 @@ func printGraphTable(cmd *cobra.Command, g Graph, gopts *graphOptions) error {
 	if !gopts.edgesOnly {
 		sortNodes(g.Nodes)
 		tw := newTabWriter(w)
-		fmt.Fprintln(tw, "KIND\tNAMESPACE\tNAME")
+		_, _ = fmt.Fprintln(tw, "KIND\tNAMESPACE\tNAME")
 		for _, n := range g.Nodes {
-			fmt.Fprintf(tw, "%s\t%s\t%s\n", dash(n.Kind), dash(n.Namespace), n.Name)
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", dash(n.Kind), dash(n.Namespace), n.Name)
 		}
 		if err := tw.Flush(); err != nil {
 			return err
@@ -120,15 +120,15 @@ func printGraphTable(cmd *cobra.Command, g Graph, gopts *graphOptions) error {
 	}
 
 	if !gopts.edgesOnly && !gopts.nodesOnly {
-		fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w)
 	}
 
 	if !gopts.nodesOnly {
 		sortEdges(g.Edges, byID)
 		tw := newTabWriter(w)
-		fmt.Fprintln(tw, "TYPE\tFROM\tTO")
+		_, _ = fmt.Fprintln(tw, "TYPE\tFROM\tTO")
 		for _, e := range g.Edges {
-			fmt.Fprintf(tw, "%s\t%s\t%s\n",
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n",
 				e.Type, nodeLabel(byID, e.Source), nodeLabel(byID, e.Target))
 		}
 		if err := tw.Flush(); err != nil {

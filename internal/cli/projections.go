@@ -55,9 +55,9 @@ func newProjectionsListCmd(opts *options) *cobra.Command {
 			}
 
 			tw := newTabWriter(cmd.OutOrStdout())
-			fmt.Fprintln(tw, "NAMESPACE\tNAME\tPHASE\tNODES\tEDGES")
+			_, _ = fmt.Fprintln(tw, "NAMESPACE\tNAME\tPHASE\tNODES\tEDGES")
 			for _, p := range projections {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\n",
+				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\n",
 					p.Namespace, p.Name, dash(p.Phase), p.NodeCount, p.RelationshipCount)
 			}
 			return tw.Flush()
