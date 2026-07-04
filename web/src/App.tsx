@@ -651,18 +651,16 @@ function GraphPanel({
     return { nodes, edges };
   }, [data, hiddenKinds, hiddenNamespaces, labelFilters, labelMode]);
 
-  // The graph actually drawn: the filtered graph minus any individually-hidden
-  // nodes (and the edges touching them). The resource list still shows the full
-  // filtered set so hidden nodes can be toggled back on.
-  const visibleGraph = useMemo<Graph | undefined>(() => {
+  // Edges whose endpoints are both visible, used only for the relationship
+  // legend. The full filtered graph (including individually-hidden nodes) is
+  // handed to the GraphView, which hides those nodes in place — removing them
+  // from the data would change the node set and force a relayout.
+  const visibleEdgeTypesSource = useMemo(() => {
     if (!filteredGraph) return undefined;
-    if (hiddenNodeIds.size === 0) return filteredGraph;
-    const nodes = filteredGraph.nodes.filter((n) => !hiddenNodeIds.has(n.id));
-    const visibleIds = new Set(nodes.map((n) => n.id));
-    const edges = filteredGraph.edges.filter(
-      (e) => visibleIds.has(e.source) && visibleIds.has(e.target),
+    if (hiddenNodeIds.size === 0) return filteredGraph.edges;
+    return filteredGraph.edges.filter(
+      (e) => !hiddenNodeIds.has(e.source) && !hiddenNodeIds.has(e.target),
     );
-    return { nodes, edges };
   }, [filteredGraph, hiddenNodeIds]);
 
   const toggleNodeVisibility = (id: string) =>
@@ -676,9 +674,9 @@ function GraphPanel({
   // Distinct relationship types currently visible, for the color legend.
   const edgeTypes = useMemo(() => {
     const set = new Set<string>();
-    visibleGraph?.edges.forEach((e) => set.add(e.type));
+    visibleEdgeTypesSource?.forEach((e) => set.add(e.type));
     return [...set].sort();
-  }, [visibleGraph]);
+  }, [visibleEdgeTypesSource]);
 
   const toggleKind = (kind: string) =>
     setHiddenKinds((prev) => {
@@ -814,9 +812,9 @@ function GraphPanel({
             {(error as Error).message}
           </Text>
         )}
-        {visibleGraph && (
+        {filteredGraph && (
           <GraphView
-            graph={visibleGraph}
+            graph={filteredGraph}
             onToggleVisibility={toggleNodeVisibility}
             hiddenIds={hiddenNodeIds}
             onSelect={handleSelect}

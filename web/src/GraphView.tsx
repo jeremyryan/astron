@@ -309,6 +309,13 @@ export function GraphView({
         },
         // Edges whose labels are toggled off hide just the relationship text
         // while keeping the line, arrow and color.
+        // Individually-hidden nodes (and, implicitly, their incident edges) are
+        // removed from rendering and layout via display:none, which keeps their
+        // position so toggling them back on doesn't disturb the layout.
+        {
+          selector: "node.hidden",
+          style: { display: "none" },
+        },
         {
           selector: "edge.no-label",
           style: { "text-opacity": 0, "text-background-opacity": 0 },
@@ -891,6 +898,20 @@ export function GraphView({
     if (!cy) return;
     cy.edges().toggleClass("no-label", !showEdgeLabels);
   }, [graph, showEdgeLabels]);
+
+  // Apply per-node visibility without rebuilding: hidden nodes get display:none
+  // (which also hides their edges) rather than being removed, so unaffected
+  // nodes keep their positions. Re-runs after a rebuild (graph dep).
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    cy.batch(() => {
+      cy.nodes().forEach((n) => {
+        if (n.hasClass(GROUP_CLASS)) return;
+        n.toggleClass("hidden", hiddenIds.has(n.id()));
+      });
+    });
+  }, [graph, hiddenIds]);
 
   // "Add Link" gesture: while linkingSourceId is set, draw a dashed arrow from
   // the source node to the cursor. Tapping another node creates the link;
