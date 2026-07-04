@@ -3,6 +3,8 @@ import { ActionIcon, Divider, Group, Menu, Text, Tooltip } from "@mantine/core";
 import {
   IconCode,
   IconDownload,
+  IconEye,
+  IconEyeOff,
   IconGrid3x3,
   IconLink,
   IconTrash,
@@ -134,6 +136,10 @@ interface Props {
   onAddLink: (sourceId: string, targetId: string) => void;
   // Called when the user deletes a user-created link via its context menu.
   onDeleteLink: (edge: GraphEdge) => void;
+  // Toggles whether an individual node is drawn (mirrors the resource list's
+  // per-node visibility toggle). hiddenIds is used to label the menu item.
+  onToggleVisibility: (id: string) => void;
+  hiddenIds: Set<string>;
   // Called whenever the set of selected (real) nodes changes, with their ids.
   // Lets the inspector highlight every selected resource in its list view.
   onSelectedIdsChange?: (ids: string[]) => void;
@@ -166,6 +172,8 @@ export function GraphView({
   onShowYaml,
   onAddLink,
   onDeleteLink,
+  onToggleVisibility,
+  hiddenIds,
   onSelectedIdsChange,
   groupByNamespace,
   showEdgeLabels,
@@ -301,6 +309,13 @@ export function GraphView({
         },
         // Edges whose labels are toggled off hide just the relationship text
         // while keeping the line, arrow and color.
+        // Individually-hidden nodes (and, implicitly, their incident edges) are
+        // removed from rendering and layout via display:none, which keeps their
+        // position so toggling them back on doesn't disturb the layout.
+        {
+          selector: "node.hidden",
+          style: { display: "none" },
+        },
         {
           selector: "edge.no-label",
           style: { "text-opacity": 0, "text-background-opacity": 0 },
@@ -884,6 +899,20 @@ export function GraphView({
     cy.edges().toggleClass("no-label", !showEdgeLabels);
   }, [graph, showEdgeLabels]);
 
+  // Apply per-node visibility without rebuilding: hidden nodes get display:none
+  // (which also hides their edges) rather than being removed, so unaffected
+  // nodes keep their positions. Re-runs after a rebuild (graph dep).
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    cy.batch(() => {
+      cy.nodes().forEach((n) => {
+        if (n.hasClass(GROUP_CLASS)) return;
+        n.toggleClass("hidden", hiddenIds.has(n.id()));
+      });
+    });
+  }, [graph, hiddenIds]);
+
   // "Add Link" gesture: while linkingSourceId is set, draw a dashed arrow from
   // the source node to the cursor. Tapping another node creates the link;
   // tapping empty space (or pressing Escape) cancels without changes.
@@ -1191,6 +1220,21 @@ export function GraphView({
               }}
             >
               Add Link
+            </Menu.Item>
+            <Menu.Item
+              leftSection={
+                hiddenIds.has(menu.node.id) ? (
+                  <IconEye size={16} stroke={1.5} />
+                ) : (
+                  <IconEyeOff size={16} stroke={1.5} />
+                )
+              }
+              onClick={() => {
+                onToggleVisibility(menu.node.id);
+                setMenu(null);
+              }}
+            >
+              {hiddenIds.has(menu.node.id) ? "View" : "Hide"}
             </Menu.Item>
             {/* Edit is not implemented yet. */}
             <Menu.Item leftSection={<IconPencil size={16} stroke={1.5} />}>Edit</Menu.Item>
