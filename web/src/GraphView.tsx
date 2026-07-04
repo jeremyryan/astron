@@ -3,6 +3,8 @@ import { ActionIcon, Divider, Group, Menu, Text, Tooltip } from "@mantine/core";
 import {
   IconCode,
   IconDownload,
+  IconEye,
+  IconEyeOff,
   IconGrid3x3,
   IconLink,
   IconTrash,
@@ -134,6 +136,10 @@ interface Props {
   onAddLink: (sourceId: string, targetId: string) => void;
   // Called when the user deletes a user-created link via its context menu.
   onDeleteLink: (edge: GraphEdge) => void;
+  // Toggles whether an individual node is drawn (mirrors the resource list's
+  // per-node visibility toggle). hiddenIds is used to label the menu item.
+  onToggleVisibility: (id: string) => void;
+  hiddenIds: Set<string>;
   // Called whenever the set of selected (real) nodes changes, with their ids.
   // Lets the inspector highlight every selected resource in its list view.
   onSelectedIdsChange?: (ids: string[]) => void;
@@ -166,6 +172,8 @@ export function GraphView({
   onShowYaml,
   onAddLink,
   onDeleteLink,
+  onToggleVisibility,
+  hiddenIds,
   onSelectedIdsChange,
   groupByNamespace,
   showEdgeLabels,
@@ -1191,6 +1199,21 @@ export function GraphView({
               }}
             >
               Add Link
+            </Menu.Item>
+            <Menu.Item
+              leftSection={
+                hiddenIds.has(menu.node.id) ? (
+                  <IconEye size={16} stroke={1.5} />
+                ) : (
+                  <IconEyeOff size={16} stroke={1.5} />
+                )
+              }
+              onClick={() => {
+                onToggleVisibility(menu.node.id);
+                setMenu(null);
+              }}
+            >
+              {hiddenIds.has(menu.node.id) ? "View" : "Hide"}
             </Menu.Item>
             {/* Edit is not implemented yet. */}
             <Menu.Item leftSection={<IconPencil size={16} stroke={1.5} />}>Edit</Menu.Item>

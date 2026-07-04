@@ -817,6 +817,8 @@ function GraphPanel({
         {visibleGraph && (
           <GraphView
             graph={visibleGraph}
+            onToggleVisibility={toggleNodeVisibility}
+            hiddenIds={hiddenNodeIds}
             onSelect={handleSelect}
             onSelectedIdsChange={(ids) => setSelectedIds(new Set(ids))}
             selectedId={selectedNode?.id ?? null}
