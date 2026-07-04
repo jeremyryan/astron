@@ -361,13 +361,33 @@ func (p *Projector) scopedGVKs() []schema.GroupVersionKind {
 	}
 	gvks := make([]schema.GroupVersionKind, 0, len(resources)+1)
 	seen := map[schema.GroupVersionKind]bool{}
-	for _, r := range resources {
-		gvk := schema.GroupVersionKind{Group: r.Group, Version: r.Version, Kind: r.Kind}
-		if seen[gvk] {
-			continue
+	seenGK := map[schema.GroupKind]bool{}
+	addGVK := func(gvk schema.GroupVersionKind) {
+		if gvk.Kind == "" || seen[gvk] {
+			return
 		}
 		seen[gvk] = true
+		seenGK[gvk.GroupKind()] = true
 		gvks = append(gvks, gvk)
+	}
+	for _, r := range resources {
+		addGVK(schema.GroupVersionKind{Group: r.Group, Version: r.Version, Kind: r.Kind})
+	}
+	// Also capture the endpoint kinds referenced by relationship rules. Without
+	// this, a rule that names a kind absent from scope.resources (e.g. a
+	// ServiceAccount -> Pod rule with ServiceAccount not listed) derives edges to
+	// an unwatched kind; those edges have no node to attach to and are silently
+	// dropped when written. Kinds already covered by scope.resources are skipped
+	// to avoid registering a duplicate informer for the same resource.
+	addEndpoint := func(sel gamerav1alpha1.ResourceSelector) {
+		if sel.Kind == "" || seenGK[schema.GroupKind{Group: sel.Group, Kind: sel.Kind}] {
+			return
+		}
+		addGVK(schema.GroupVersionKind{Group: sel.Group, Version: sel.Version, Kind: sel.Kind})
+	}
+	for _, rule := range p.opts.Spec.Relationships {
+		addEndpoint(rule.From)
+		addEndpoint(rule.To)
 	}
 	// When CRDs are captured, also watch CustomResourceDefinition objects.
 	if p.crdInclude && !seen[crdGVK] {

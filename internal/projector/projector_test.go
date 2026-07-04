@@ -382,3 +382,39 @@ func TestScopedGVKsExplicit(t *testing.T) {
 		t.Errorf("expected only Pod, got %+v", gvks)
 	}
 }
+
+func TestScopedGVKsCapturesRelationshipEndpoints(t *testing.T) {
+	// A rule references ServiceAccount, which is not listed under resources.
+	// scopedGVKs must still watch it so RUNS edges have nodes to attach to.
+	spec := gamerav1alpha1.GraphProjectionSpec{
+		Scope: gamerav1alpha1.ProjectionScope{
+			Resources: []gamerav1alpha1.ResourceSelector{{Version: "v1", Kind: "Pod"}},
+		},
+		Relationships: []gamerav1alpha1.RelationshipRule{{
+			Name: "sa-runs-pod", Type: "RUNS", Strategy: gamerav1alpha1.ServiceAccountStrategy,
+			From: gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "ServiceAccount"},
+			To:   gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "Pod"},
+		}},
+	}
+	p := New(Options{Spec: spec})
+	gvks := p.scopedGVKs()
+
+	kinds := map[string]bool{}
+	for _, g := range gvks {
+		kinds[g.Kind] = true
+	}
+	if !kinds["ServiceAccount"] {
+		t.Errorf("expected ServiceAccount to be captured from the rule endpoint, got %+v", gvks)
+	}
+	// Pod is listed once under resources and referenced by the rule; it must not
+	// be duplicated.
+	pods := 0
+	for _, g := range gvks {
+		if g.Kind == "Pod" {
+			pods++
+		}
+	}
+	if pods != 1 {
+		t.Errorf("expected Pod exactly once (no duplicate informer), got %d in %+v", pods, gvks)
+	}
+}
