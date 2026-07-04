@@ -47,6 +47,8 @@ import {
   IconBookmark,
   IconChevronLeft,
   IconChevronRight,
+  IconEye,
+  IconEyeOff,
   IconHierarchy2,
   IconSettings,
   IconTag,
@@ -297,10 +299,14 @@ function ResourceList({
   nodes,
   onSelect,
   selectedIds,
+  hiddenIds,
+  onToggleVisibility,
 }: {
   nodes: GraphNode[];
   onSelect: (node: GraphNode) => void;
   selectedIds: Set<string>;
+  hiddenIds: Set<string>;
+  onToggleVisibility: (id: string) => void;
 }) {
   const groups = useMemo(() => groupResources(nodes), [nodes]);
   if (nodes.length === 0)
@@ -339,20 +345,36 @@ function ResourceList({
                   </Text>
                 </Group>
                 <Stack gap={0} pl={20}>
-                  {k.nodes.map((n) => (
-                    <UnstyledButton
-                      key={n.id}
-                      className={
-                        selectedIds.has(n.id)
-                          ? "resource-link resource-link-selected"
-                          : "resource-link"
-                      }
-                      onClick={() => onSelect(n)}
-                      title={n.name}
-                    >
-                      {n.name}
-                    </UnstyledButton>
-                  ))}
+                  {k.nodes.map((n) => {
+                    const hidden = hiddenIds.has(n.id);
+                    return (
+                      <Group key={n.id} gap={2} wrap="nowrap" align="center">
+                        <UnstyledButton
+                          className={
+                            (selectedIds.has(n.id)
+                              ? "resource-link resource-link-selected"
+                              : "resource-link") + (hidden ? " resource-link-hidden" : "")
+                          }
+                          style={{ flex: 1, minWidth: 0 }}
+                          onClick={() => onSelect(n)}
+                          title={n.name}
+                        >
+                          {n.name}
+                        </UnstyledButton>
+                        <Tooltip label={hidden ? "Show in graph" : "Hide from graph"} position="left">
+                          <ActionIcon
+                            variant="subtle"
+                            color="gray"
+                            size="sm"
+                            onClick={() => onToggleVisibility(n.id)}
+                            aria-label={hidden ? "Show in graph" : "Hide from graph"}
+                          >
+                            {hidden ? <IconEyeOff size={14} /> : <IconEye size={14} />}
+                          </ActionIcon>
+                        </Tooltip>
+                      </Group>
+                    );
+                  })}
                 </Stack>
               </Stack>
             );
@@ -590,6 +612,9 @@ function GraphPanel({
   const [hiddenKinds, setHiddenKinds] = useState<Set<string>>(new Set());
   // Namespaces the user has hidden ("" = cluster-scoped). Empty = show all.
   const [hiddenNamespaces, setHiddenNamespaces] = useState<Set<string>>(new Set());
+  // Individual node ids the user has hidden from the graph via the resource
+  // list. They remain listed (so they can be shown again), just not drawn.
+  const [hiddenNodeIds, setHiddenNodeIds] = useState<Set<string>>(new Set());
   // Max hops from the selected node to keep visible; null = all (no fading).
   const [maxDistance, setMaxDistance] = useState<number | null>(null);
   // Whether to group resources into compound nodes by namespace.
@@ -626,12 +651,34 @@ function GraphPanel({
     return { nodes, edges };
   }, [data, hiddenKinds, hiddenNamespaces, labelFilters, labelMode]);
 
+  // The graph actually drawn: the filtered graph minus any individually-hidden
+  // nodes (and the edges touching them). The resource list still shows the full
+  // filtered set so hidden nodes can be toggled back on.
+  const visibleGraph = useMemo<Graph | undefined>(() => {
+    if (!filteredGraph) return undefined;
+    if (hiddenNodeIds.size === 0) return filteredGraph;
+    const nodes = filteredGraph.nodes.filter((n) => !hiddenNodeIds.has(n.id));
+    const visibleIds = new Set(nodes.map((n) => n.id));
+    const edges = filteredGraph.edges.filter(
+      (e) => visibleIds.has(e.source) && visibleIds.has(e.target),
+    );
+    return { nodes, edges };
+  }, [filteredGraph, hiddenNodeIds]);
+
+  const toggleNodeVisibility = (id: string) =>
+    setHiddenNodeIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
   // Distinct relationship types currently visible, for the color legend.
   const edgeTypes = useMemo(() => {
     const set = new Set<string>();
-    filteredGraph?.edges.forEach((e) => set.add(e.type));
+    visibleGraph?.edges.forEach((e) => set.add(e.type));
     return [...set].sort();
-  }, [filteredGraph]);
+  }, [visibleGraph]);
 
   const toggleKind = (kind: string) =>
     setHiddenKinds((prev) => {
@@ -690,6 +737,9 @@ function GraphPanel({
     setLabelMode((f.labelMode as LabelMatchMode) ?? "any");
     setMaxDistance(f.maxDistance ?? null);
     setGroupByNamespace(f.groupByNamespace ?? true);
+    // Per-node visibility is transient, not part of a saved view; reset it when
+    // the projection/view changes so hidden nodes don't carry over.
+    setHiddenNodeIds(new Set());
   };
 
   // Keep the panel filters in sync with the navbar selection: apply a view's
@@ -764,9 +814,9 @@ function GraphPanel({
             {(error as Error).message}
           </Text>
         )}
-        {filteredGraph && (
+        {visibleGraph && (
           <GraphView
-            graph={filteredGraph}
+            graph={visibleGraph}
             onSelect={handleSelect}
             onSelectedIdsChange={(ids) => setSelectedIds(new Set(ids))}
             selectedId={selectedNode?.id ?? null}
@@ -859,7 +909,9 @@ function GraphPanel({
                     <ResourceList
                       nodes={filteredGraph?.nodes ?? []}
                       selectedIds={selectedIds}
+                      hiddenIds={hiddenNodeIds}
                       onSelect={(node) => handleSelect({ type: "node", node })}
+                      onToggleVisibility={toggleNodeVisibility}
                     />
                   )}
                 </Box>
