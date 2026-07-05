@@ -120,6 +120,10 @@ build: manifests generate fmt vet ## Build manager binary (embeds web/dist).
 build-cli: fmt vet ## Build the gamera CLI client binary.
 	go build -o bin/gamera ./cmd/cli
 
+.PHONY: openapi
+openapi: ## Generate the OpenAPI 3 spec (docs/openapi.yaml) from the API types.
+	go run ./hack/openapi -o docs/openapi.yaml
+
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd

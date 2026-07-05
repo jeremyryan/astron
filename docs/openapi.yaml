@@ -1,0 +1,927 @@
+components:
+  schemas:
+    ApiAnswerDTO:
+      properties:
+        answer:
+          type: string
+        question:
+          type: string
+        retrieval:
+          $ref: '#/components/schemas/ApiRetrievalDTO'
+      type: object
+    ApiCardDTO:
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+        name:
+          type: string
+        namespace:
+          type: string
+        text:
+          type: string
+      type: object
+    ApiCreateLinkReq:
+      properties:
+        from:
+          type: string
+        to:
+          type: string
+        type:
+          type: string
+      type: object
+    ApiEdgeDTO:
+      properties:
+        id:
+          type: string
+        manual:
+          type: boolean
+        properties:
+          additionalProperties: {}
+          type: object
+        source:
+          type: string
+        target:
+          type: string
+        type:
+          type: string
+      type: object
+    ApiErrorResponse:
+      properties:
+        error:
+          type: string
+      type: object
+    ApiGraphDTO:
+      properties:
+        edges:
+          items:
+            $ref: '#/components/schemas/ApiEdgeDTO'
+          nullable: true
+          type: array
+        nodes:
+          items:
+            $ref: '#/components/schemas/ApiNodeDTO'
+          nullable: true
+          type: array
+      type: object
+    ApiHealthResponse:
+      properties:
+        status:
+          type: string
+      type: object
+    ApiLabelFilterDTO:
+      properties:
+        key:
+          type: string
+        value:
+          type: string
+      type: object
+    ApiLinkResponse:
+      properties:
+        from:
+          type: string
+        to:
+          type: string
+        type:
+          type: string
+      type: object
+    ApiNodeDTO:
+      properties:
+        apiVersion:
+          type: string
+        id:
+          type: string
+        kind:
+          type: string
+        name:
+          type: string
+        namespace:
+          type: string
+        properties:
+          additionalProperties: {}
+          type: object
+      type: object
+    ApiProjectionDTO:
+      properties:
+        name:
+          type: string
+        namespace:
+          type: string
+        nodeCount:
+          format: int64
+          type: integer
+        phase:
+          type: string
+        relationshipCount:
+          format: int64
+          type: integer
+        uid:
+          type: string
+      type: object
+    ApiProjectionRefDTO:
+      properties:
+        name:
+          type: string
+        namespace:
+          type: string
+      type: object
+    ApiRagNeighborhoodReq:
+      properties:
+        apiVersion:
+          type: string
+        edgeTypes:
+          items:
+            type: string
+          nullable: true
+          type: array
+        hops:
+          nullable: true
+          type: integer
+        kind:
+          type: string
+        name:
+          type: string
+        namespace:
+          type: string
+      type: object
+    ApiRagQuestionReq:
+      properties:
+        edgeTypes:
+          items:
+            type: string
+          nullable: true
+          type: array
+        hops:
+          nullable: true
+          type: integer
+        question:
+          type: string
+        topK:
+          type: integer
+      type: object
+    ApiRagSearchReq:
+      properties:
+        edgeTypes:
+          items:
+            type: string
+          nullable: true
+          type: array
+        hops:
+          nullable: true
+          type: integer
+        kinds:
+          items:
+            type: string
+          nullable: true
+          type: array
+        namespaces:
+          items:
+            type: string
+          nullable: true
+          type: array
+        query:
+          type: string
+        topK:
+          type: integer
+      type: object
+    ApiRetrievalDTO:
+      properties:
+        cards:
+          items:
+            $ref: '#/components/schemas/ApiCardDTO'
+          nullable: true
+          type: array
+        query:
+          type: string
+        seeds:
+          items:
+            $ref: '#/components/schemas/ApiSeedDTO'
+          nullable: true
+          type: array
+        subgraph:
+          $ref: '#/components/schemas/ApiGraphDTO'
+      type: object
+    ApiSeedDTO:
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+        name:
+          type: string
+        score:
+          format: double
+          type: number
+      type: object
+    ApiUpdateViewReq:
+      properties:
+        description:
+          type: string
+        displayName:
+          type: string
+        filters:
+          $ref: '#/components/schemas/ApiViewFiltersDTO'
+        name:
+          type: string
+        namespace:
+          type: string
+        projectionRef:
+          $ref: '#/components/schemas/ApiProjectionRefDTO'
+        uid:
+          type: string
+      type: object
+    ApiViewDTO:
+      properties:
+        description:
+          type: string
+        displayName:
+          type: string
+        filters:
+          $ref: '#/components/schemas/ApiViewFiltersDTO'
+        name:
+          type: string
+        namespace:
+          type: string
+        projectionRef:
+          $ref: '#/components/schemas/ApiProjectionRefDTO'
+        uid:
+          type: string
+      type: object
+    ApiViewFiltersDTO:
+      properties:
+        groupByNamespace:
+          nullable: true
+          type: boolean
+        hiddenKinds:
+          items:
+            type: string
+          type: array
+        hiddenNamespaces:
+          items:
+            type: string
+          type: array
+        labelFilters:
+          items:
+            $ref: '#/components/schemas/ApiLabelFilterDTO'
+          type: array
+        labelMode:
+          type: string
+        maxDistance:
+          nullable: true
+          type: integer
+      type: object
+    ProjectorQueryResult:
+      properties:
+        cypher:
+          type: string
+        question:
+          type: string
+        rows:
+          items:
+            additionalProperties: {}
+            type: object
+          nullable: true
+          type: array
+      type: object
+info:
+  description: 'HTTP API for Project Gamera: read the projected Kubernetes resource
+    graph, run GraphRAG retrieval, manage manual links and saved views.'
+  title: Gamera API
+  version: v1alpha1
+openapi: 3.0.3
+paths:
+  /api/healthz:
+    get:
+      operationId: getHealth
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiHealthResponse'
+          description: OK
+      summary: Liveness/readiness probe
+      tags:
+      - system
+  /api/projections:
+    get:
+      operationId: listProjections
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ApiProjectionDTO'
+                type: array
+          description: OK
+      summary: List all GraphProjections
+      tags:
+      - projections
+  /api/projections/{namespace}/{name}/graph:
+    get:
+      operationId: getGraph
+      parameters:
+      - description: Projection namespace
+        in: path
+        name: namespace
+        required: true
+        schema:
+          description: Projection namespace
+          type: string
+      - description: Projection name
+        in: path
+        name: name
+        required: true
+        schema:
+          description: Projection name
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiGraphDTO'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Internal Server Error
+      summary: Get a projection's full node/edge graph
+      tags:
+      - projections
+  /api/projections/{namespace}/{name}/links:
+    delete:
+      operationId: deleteLink
+      parameters:
+      - description: Source node id
+        in: query
+        name: from
+        required: true
+        schema:
+          description: Source node id
+          type: string
+      - description: Target node id
+        in: query
+        name: to
+        required: true
+        schema:
+          description: Target node id
+          type: string
+      - description: Relationship type (defaults to the manual-link type)
+        in: query
+        name: type
+        schema:
+          description: Relationship type (defaults to the manual-link type)
+          type: string
+      - description: Projection namespace
+        in: path
+        name: namespace
+        required: true
+        schema:
+          description: Projection namespace
+          type: string
+      - description: Projection name
+        in: path
+        name: name
+        required: true
+        schema:
+          description: Projection name
+          type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+      summary: Delete a user-defined edge between two nodes
+      tags:
+      - links
+    post:
+      operationId: createLink
+      parameters:
+      - description: Projection namespace
+        in: path
+        name: namespace
+        required: true
+        schema:
+          description: Projection namespace
+          type: string
+      - description: Projection name
+        in: path
+        name: name
+        required: true
+        schema:
+          description: Projection name
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiCreateLinkReq'
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiLinkResponse'
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+      summary: Create a user-defined edge between two nodes
+      tags:
+      - links
+  /api/projections/{namespace}/{name}/rag/answer:
+    post:
+      operationId: ragAnswer
+      parameters:
+      - description: Projection namespace
+        in: path
+        name: namespace
+        required: true
+        schema:
+          description: Projection namespace
+          type: string
+      - description: Projection name
+        in: path
+        name: name
+        required: true
+        schema:
+          description: Projection name
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiRagQuestionReq'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiAnswerDTO'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Internal Server Error
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+      summary: Retrieval-augmented answer to a natural-language question
+      tags:
+      - graphrag
+  /api/projections/{namespace}/{name}/rag/neighborhood:
+    post:
+      operationId: ragNeighborhood
+      parameters:
+      - description: Projection namespace
+        in: path
+        name: namespace
+        required: true
+        schema:
+          description: Projection namespace
+          type: string
+      - description: Projection name
+        in: path
+        name: name
+        required: true
+        schema:
+          description: Projection name
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiRagNeighborhoodReq'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiRetrievalDTO'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Internal Server Error
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+      summary: 'Structural retrieval: subgraph around a named resource'
+      tags:
+      - graphrag
+  /api/projections/{namespace}/{name}/rag/query:
+    post:
+      operationId: ragQuery
+      parameters:
+      - description: Projection namespace
+        in: path
+        name: namespace
+        required: true
+        schema:
+          description: Projection namespace
+          type: string
+      - description: Projection name
+        in: path
+        name: name
+        required: true
+        schema:
+          description: Projection name
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiRagQuestionReq'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectorQueryResult'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Internal Server Error
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+      summary: 'Text-to-Cypher: answer a question with a guarded read-only query'
+      tags:
+      - graphrag
+  /api/projections/{namespace}/{name}/rag/search:
+    post:
+      operationId: ragSearch
+      parameters:
+      - description: Projection namespace
+        in: path
+        name: namespace
+        required: true
+        schema:
+          description: Projection namespace
+          type: string
+      - description: Projection name
+        in: path
+        name: name
+        required: true
+        schema:
+          description: Projection name
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiRagSearchReq'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiRetrievalDTO'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Internal Server Error
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+      summary: Hybrid (vector + graph) retrieval for a query
+      tags:
+      - graphrag
+  /api/resource:
+    get:
+      operationId: getResourceYAML
+      parameters:
+      - description: Resource apiVersion, e.g. apps/v1
+        in: query
+        name: apiVersion
+        required: true
+        schema:
+          description: Resource apiVersion, e.g. apps/v1
+          type: string
+      - description: Resource kind, e.g. Deployment
+        in: query
+        name: kind
+        required: true
+        schema:
+          description: Resource kind, e.g. Deployment
+          type: string
+      - description: Resource name
+        in: query
+        name: name
+        required: true
+        schema:
+          description: Resource name
+          type: string
+      - description: Resource namespace (namespaced kinds only)
+        in: query
+        name: namespace
+        schema:
+          description: Resource namespace (namespaced kinds only)
+          type: string
+      responses:
+        "200":
+          content:
+            application/yaml:
+              schema:
+                type: string
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Internal Server Error
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+      summary: Fetch a live cluster resource as YAML
+      tags:
+      - resources
+  /api/views:
+    get:
+      operationId: listViews
+      parameters:
+      - description: Filter to views referencing this projection namespace
+        in: query
+        name: projectionNamespace
+        schema:
+          description: Filter to views referencing this projection namespace
+          type: string
+      - description: Filter to views referencing this projection name
+        in: query
+        name: projectionName
+        schema:
+          description: Filter to views referencing this projection name
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ApiViewDTO'
+                type: array
+          description: OK
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Internal Server Error
+      summary: List saved GraphViews, optionally filtered by projection
+      tags:
+      - views
+    post:
+      operationId: createView
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiViewDTO'
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiViewDTO'
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Request
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Internal Server Error
+      summary: Create a GraphView (saved filter set)
+      tags:
+      - views
+  /api/views/{namespace}/{name}:
+    delete:
+      operationId: deleteView
+      parameters:
+      - description: View namespace
+        in: path
+        name: namespace
+        required: true
+        schema:
+          description: View namespace
+          type: string
+      - description: View name
+        in: path
+        name: name
+        required: true
+        schema:
+          description: View name
+          type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Internal Server Error
+      summary: Delete a GraphView
+      tags:
+      - views
+    put:
+      operationId: updateView
+      parameters:
+      - description: View namespace
+        in: path
+        name: namespace
+        required: true
+        schema:
+          description: View namespace
+          type: string
+      - description: View name
+        in: path
+        name: name
+        required: true
+        schema:
+          description: View name
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiUpdateViewReq'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiViewDTO'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Internal Server Error
+      summary: Replace an existing GraphView's spec
+      tags:
+      - views

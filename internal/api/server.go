@@ -68,6 +68,7 @@ func NewServer(c client.Client, projectors *projector.Manager, dyn dynamic.Inter
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/healthz", s.handleHealth)
+	mux.HandleFunc("GET /api/openapi.json", s.handleOpenAPI)
 	mux.HandleFunc("GET /api/projections", s.handleListProjections)
 	mux.HandleFunc("GET /api/projections/{namespace}/{name}/graph", s.handleGraph)
 	mux.HandleFunc("POST /api/projections/{namespace}/{name}/rag/search", s.handleRAGSearch)
