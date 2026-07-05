@@ -215,18 +215,14 @@ export function GraphView({
   const graphRef = useRef(graph);
   graphRef.current = graph;
 
-  // A signature of the graph's *structure* (which nodes/edges exist and whether
-  // they're grouped). The expensive rebuild + layout only re-runs when this
-  // changes; polled updates that keep the same topology are reconciled in place
-  // (see the data-sync effect below) so node positions are preserved.
+  // A signature of the graph's *structure* that warrants a full relayout: which
+  // nodes exist and whether they're grouped. Edges are deliberately excluded so
+  // that adding/removing a link (or a derived edge appearing on a poll) is
+  // reconciled in place — added/removed without moving any nodes — by the
+  // data-sync effect below. Only node changes trigger the expensive rebuild.
   const structuralKey = useMemo(() => {
     const nodeIds = graph.nodes.map((n) => n.id).sort().join(",");
-    const edgeIds = graph.edges
-      .filter((e) => e.id)
-      .map((e) => e.id)
-      .sort()
-      .join(",");
-    return `${groupByNamespace ? "g" : "f"}|${nodeIds}|${edgeIds}`;
+    return `${groupByNamespace ? "g" : "f"}|${nodeIds}`;
   }, [graph, groupByNamespace]);
 
   useEffect(() => {
@@ -890,10 +886,11 @@ export function GraphView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [structuralKey, onSelect, onShowYaml, groupByNamespace]);
 
-  // Reconcile polled data into the existing canvas without a rebuild/relayout:
-  // patch the mutable data (labels, kind/status colors, icons) of nodes and
-  // edges that already exist. Added/removed elements change structuralKey and
-  // are handled by the rebuild effect above, so here we only update in place.
+  // Reconcile the latest data into the existing canvas without a rebuild or
+  // relayout. Node data (labels, kind/status colors, icons) is patched in place;
+  // node add/remove is handled by the rebuild effect above (structuralKey).
+  // Edges, however, are reconciled here — added, removed and patched in place —
+  // so creating or deleting a link (custom or derived) never moves any nodes.
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy) return;
@@ -908,13 +905,36 @@ export function GraphView({
         if (statusColor) el.data("statusColor", statusColor);
         else el.removeData("statusColor");
       }
+
+      // Desired edges: those with an id whose endpoints are present as nodes.
+      const nodeIds = new Set(graph.nodes.map((n) => n.id));
+      const wantEdges = new Map<string, GraphEdge>();
       for (const e of graph.edges) {
-        if (!e.id) continue;
-        const el = cy.getElementById(e.id);
-        if (el.empty()) continue;
-        el.data("label", e.type);
-        el.data("edgeColor", colorForRelationship(e.type));
-        el.data("manual", e.manual ? 1 : 0);
+        if (e.id && nodeIds.has(e.source) && nodeIds.has(e.target)) wantEdges.set(e.id, e);
+      }
+      // Remove real edges (skip the transient outline/ghost helpers) that are no
+      // longer present.
+      cy.edges().forEach((el) => {
+        if (el.hasClass("edge-outline") || el.id().startsWith("__")) return;
+        if (!wantEdges.has(el.id())) el.remove();
+      });
+      // Add new edges; patch data on existing ones.
+      for (const [id, e] of wantEdges) {
+        const el = cy.getElementById(id);
+        const data = {
+          id,
+          source: e.source,
+          target: e.target,
+          label: e.type,
+          edgeColor: colorForRelationship(e.type),
+          manual: e.manual ? 1 : 0,
+        };
+        if (el.empty()) cy.add({ group: "edges", data });
+        else {
+          el.data("label", data.label);
+          el.data("edgeColor", data.edgeColor);
+          el.data("manual", data.manual);
+        }
       }
     });
   }, [graph]);
