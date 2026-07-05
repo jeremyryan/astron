@@ -217,25 +217,23 @@ export function FilterPanel({
   const visibleNamespaces = namespaces.filter((n) => !hiddenNamespaces.has(n.namespace)).length;
   const nsFiltering = hiddenNamespaces.size > 0;
 
-  if (collapsed) {
-    return (
-      <Box component="aside" className="filters filters-collapsed">
-        <Tooltip label="Expand filters" position="right">
-          <ActionIcon
-            variant="subtle"
-            color="gray"
-            onClick={onToggleCollapse}
-            aria-label="Expand filters"
-          >
-            <IconChevronRight size={18} />
-          </ActionIcon>
-        </Tooltip>
-      </Box>
-    );
-  }
-
   return (
-    <Box component="aside" className="filters">
+    <Box component="aside" className={collapsed ? "filters filters-collapsed" : "filters"}>
+      {collapsed ? (
+        <div className="filters-collapsed-inner">
+          <Tooltip label="Expand filters" position="right">
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              onClick={onToggleCollapse}
+              aria-label="Expand filters"
+            >
+              <IconChevronRight size={18} />
+            </ActionIcon>
+          </Tooltip>
+        </div>
+      ) : (
+        <div className="filters-scroll">
       <Stack gap="lg">
         <Group gap={6} align="center" justify="space-between" wrap="nowrap">
           <Group gap={6} align="center">
@@ -471,6 +469,8 @@ export function FilterPanel({
           />
         </FilterSection>
       </Stack>
+        </div>
+      )}
     </Box>
   );
 }

@@ -883,16 +883,18 @@ function GraphPanel({
       <YamlModal node={yamlNode} onClose={() => setYamlNode(null)} />
       {inspectorCollapsed ? (
         <aside className="inspector inspector-collapsed">
-          <Tooltip label="Expand panel" position="left">
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              onClick={() => setInspectorCollapsed(false)}
-              aria-label="Expand panel"
-            >
-              <IconChevronLeft size={18} />
-            </ActionIcon>
-          </Tooltip>
+          <div className="inspector-collapsed-inner">
+            <Tooltip label="Expand panel" position="left">
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                onClick={() => setInspectorCollapsed(false)}
+                aria-label="Expand panel"
+              >
+                <IconChevronLeft size={18} />
+              </ActionIcon>
+            </Tooltip>
+          </div>
         </aside>
       ) : (
         (() => {
@@ -900,6 +902,7 @@ function GraphPanel({
             !showResourceList && (selection?.type === "edge" || !!selectedNode);
           return (
             <aside className="inspector">
+              <div className="inspector-panel">
               <div className="inspector-header">
                 {showDetails ? (
                   <Button
@@ -942,6 +945,7 @@ function GraphPanel({
                   )}
                 </Box>
               </ScrollArea>
+              </div>
             </aside>
           );
         })()
