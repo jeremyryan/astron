@@ -66,8 +66,8 @@ type generateOptions struct {
 	withRelationships bool
 	// views selects default GraphViews to generate alongside the projection:
 	// "defaults" (all) or a comma-separated list, e.g. "compute,persistence".
-	views             string
-	exclude           []string
+	views   string
+	exclude []string
 	// allResources includes every namespaced kind that has instances, rather
 	// than just the standard common set.
 	allResources bool
