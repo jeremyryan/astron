@@ -133,7 +133,7 @@ func TestUpdateProjectionResources(t *testing.T) {
 	if err := updateProjectionResources(cmd, dyn, demoNS, "web", add, remove); err != nil {
 		t.Fatalf("updateProjectionResources: %v", err)
 	}
-	if !strings.Contains(out.String(), "updated in namespace demo (+1/-1 resources, 2 total)") {
+	if !strings.Contains(out.String(), "updated in namespace demo (resources +1/-1, relationships +0/-0)") {
 		t.Errorf("unexpected confirmation: %q", out.String())
 	}
 
@@ -149,6 +149,86 @@ func TestUpdateProjectionResources(t *testing.T) {
 	}
 	if !kinds["Pod"] || !kinds["Deployment"] || kinds["Service"] {
 		t.Fatalf("unexpected resources after update: %v", kinds)
+	}
+}
+
+func TestApplyRelationshipChangesAddAndRemove(t *testing.T) {
+	// Adding Service (with Pod already present) should pull in service-selects-pod.
+	existingRels := []gamerav1alpha1.RelationshipRule{}
+	updated := []gamerav1alpha1.ResourceSelector{{Version: "v1", Kind: "Pod"}, {Version: "v1", Kind: "Service"}}
+	rels, added, removed := applyRelationshipChanges(existingRels, updated,
+		map[string]bool{"Service": true}, nil)
+	if added != 1 || removed != 0 {
+		t.Fatalf("expected +1/-0 relationships, got +%d/-%d (%+v)", added, removed, rels)
+	}
+	if len(rels) != 1 || rels[0].Name != "service-selects-pod" {
+		t.Fatalf("expected service-selects-pod, got %+v", rels)
+	}
+
+	// Removing Service should drop the relationship referencing it.
+	updatedAfterRemove := []gamerav1alpha1.ResourceSelector{{Version: "v1", Kind: "Pod"}}
+	rels2, added2, removed2 := applyRelationshipChanges(rels, updatedAfterRemove,
+		nil, map[string]bool{"Service": true})
+	if added2 != 0 || removed2 != 1 {
+		t.Fatalf("expected +0/-1 relationships, got +%d/-%d (%+v)", added2, removed2, rels2)
+	}
+	if len(rels2) != 0 {
+		t.Fatalf("expected no relationships after removing Service, got %+v", rels2)
+	}
+}
+
+func TestApplyRelationshipChangesPreservesUnrelated(t *testing.T) {
+	custom := gamerav1alpha1.RelationshipRule{
+		Name: "custom", Type: "LINKS", Strategy: gamerav1alpha1.CustomStrategy,
+		From: gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "Pod"},
+		To:   gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "Pod"},
+	}
+	updated := []gamerav1alpha1.ResourceSelector{{Version: "v1", Kind: "Pod"}, {Group: "apps", Version: "v1", Kind: "Deployment"}}
+	// Removing ConfigMap (referenced by nothing here) must not touch the custom rule.
+	rels, added, removed := applyRelationshipChanges([]gamerav1alpha1.RelationshipRule{custom}, updated,
+		nil, map[string]bool{"ConfigMap": true})
+	if added != 0 || removed != 0 || len(rels) != 1 || rels[0].Name != "custom" {
+		t.Fatalf("custom rule should be preserved: +%d/-%d %+v", added, removed, rels)
+	}
+}
+
+func TestUpdateProjectionResourcesReconcilesRelationships(t *testing.T) {
+	scheme := runtime.NewScheme()
+	gvrToListKind := map[schema.GroupVersionResource]string{graphProjectionGVR: "GraphProjectionList"}
+	existing := projectionWithResources(demoNS, "web", map[string]any{"version": "v1", "kind": "Pod"})
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, existing)
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	// Add Service: service-selects-pod relationship should be added.
+	add := []gamerav1alpha1.ResourceSelector{{Version: "v1", Kind: "Service"}}
+	if err := updateProjectionResources(cmd, dyn, demoNS, "web", add, nil); err != nil {
+		t.Fatalf("updateProjectionResources: %v", err)
+	}
+	if !strings.Contains(out.String(), "relationships +1/-0") {
+		t.Errorf("expected one relationship added, got: %q", out.String())
+	}
+	got, _ := dyn.Resource(graphProjectionGVR).Namespace(demoNS).Get(context.Background(), "web", metav1.GetOptions{})
+	rels, _, _ := unstructured.NestedSlice(got.Object, "spec", "relationships")
+	if len(rels) != 1 {
+		t.Fatalf("expected 1 relationship, got %d: %v", len(rels), rels)
+	}
+
+	// Now remove Service: the relationship should be removed again.
+	out.Reset()
+	if err := updateProjectionResources(cmd, dyn, demoNS, "web", nil, map[string]bool{"Service": true}); err != nil {
+		t.Fatalf("updateProjectionResources remove: %v", err)
+	}
+	if !strings.Contains(out.String(), "relationships +0/-1") {
+		t.Errorf("expected one relationship removed, got: %q", out.String())
+	}
+	got, _ = dyn.Resource(graphProjectionGVR).Namespace(demoNS).Get(context.Background(), "web", metav1.GetOptions{})
+	rels, _, _ = unstructured.NestedSlice(got.Object, "spec", "relationships")
+	if len(rels) != 0 {
+		t.Fatalf("expected relationships removed, got %v", rels)
 	}
 }
 

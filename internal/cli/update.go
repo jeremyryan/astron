@@ -50,6 +50,10 @@ func newProjectionsUpdateCmd(opts *options) *cobra.Command {
 		Short:   "Add or remove resource types on an existing GraphProjection",
 		Long: "update modifies the scope.resources allow-list of an existing\n" +
 			"GraphProjection, adding and/or removing one or more resource types.\n\n" +
+			"Adding a resource type also adds the well-known relationships defined for\n" +
+			"it (when the other endpoint is present), and removing a resource type\n" +
+			"removes the relationships that reference it. Custom relationships are left\n" +
+			"untouched unless they reference a removed kind.\n\n" +
 			"Resource types are given as \"[group/]version/Kind\" (e.g. apps/v1/Deployment\n" +
 			"or v1/Pod) for --add; --remove may use the same form or just the Kind.\n" +
 			"Both flags accept a comma-separated list and may be repeated.\n\n" +
@@ -123,25 +127,90 @@ func updateProjectionResources(cmd *cobra.Command, dyn dynamic.Interface, namesp
 	if err != nil {
 		return fmt.Errorf("reading resources of GraphProjection %s/%s: %w", namespace, name, err)
 	}
+	existingRels, err := readRelationshipRules(obj)
+	if err != nil {
+		return fmt.Errorf("reading relationships of GraphProjection %s/%s: %w", namespace, name, err)
+	}
 
 	updated, added, removed := applyResourceChanges(existing, add, removeKinds)
-	if added == 0 && removed == 0 {
+
+	// Reconcile the well-known relationships: adding a kind pulls in the
+	// relationships defined for it, removing a kind drops the relationships that
+	// reference it.
+	addedKinds := newlyAddedKinds(existing, add)
+	updatedRels, relsAdded, relsRemoved := applyRelationshipChanges(existingRels, updated, addedKinds, removeKinds)
+
+	if added == 0 && removed == 0 && relsAdded == 0 && relsRemoved == 0 {
 		_, ferr := fmt.Fprintf(cmd.OutOrStdout(),
 			"graphprojection.gamera.gamera.io/%s unchanged in namespace %s\n", name, namespace)
 		return ferr
 	}
 
-	if err := writeResourceSelectors(obj, updated); err != nil {
-		return fmt.Errorf("updating resources of GraphProjection %s/%s: %w", namespace, name, err)
+	if added != 0 || removed != 0 {
+		if err := writeResourceSelectors(obj, updated); err != nil {
+			return fmt.Errorf("updating resources of GraphProjection %s/%s: %w", namespace, name, err)
+		}
+	}
+	if relsAdded != 0 || relsRemoved != 0 {
+		if err := writeRelationshipRules(obj, updatedRels); err != nil {
+			return fmt.Errorf("updating relationships of GraphProjection %s/%s: %w", namespace, name, err)
+		}
 	}
 	if _, err := ri.Update(ctx, obj, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("updating GraphProjection %s/%s: %w", namespace, name, err)
 	}
 
 	_, err = fmt.Fprintf(cmd.OutOrStdout(),
-		"graphprojection.gamera.gamera.io/%s updated in namespace %s (+%d/-%d resources, %d total)\n",
-		name, namespace, added, removed, len(updated))
+		"graphprojection.gamera.gamera.io/%s updated in namespace %s (resources +%d/-%d, relationships +%d/-%d)\n",
+		name, namespace, added, removed, relsAdded, relsRemoved)
 	return err
+}
+
+// newlyAddedKinds returns the set of kinds from add that were not already
+// present in existing (i.e. genuinely new resource types, not group/version
+// overrides of an existing kind).
+func newlyAddedKinds(existing, add []gamerav1alpha1.ResourceSelector) map[string]bool {
+	present := make(map[string]bool, len(existing))
+	for _, r := range existing {
+		present[r.Kind] = true
+	}
+	out := map[string]bool{}
+	for _, a := range add {
+		if !present[a.Kind] {
+			out[a.Kind] = true
+		}
+	}
+	return out
+}
+
+// applyRelationshipChanges reconciles the projection's relationship rules for a
+// resource-type change. It drops every rule that references a removed kind, and
+// adds the well-known rules (derived from the updated resource set) that involve
+// a newly added kind and are not already present. Custom rules that do not
+// reference a removed kind are preserved.
+func applyRelationshipChanges(existing []gamerav1alpha1.RelationshipRule, updatedResources []gamerav1alpha1.ResourceSelector, addedKinds, removeKinds map[string]bool) (result []gamerav1alpha1.RelationshipRule, added, removed int) {
+	out := make([]gamerav1alpha1.RelationshipRule, 0, len(existing))
+	present := map[string]bool{}
+	for _, r := range existing {
+		if removeKinds[r.From.Kind] || removeKinds[r.To.Kind] {
+			removed++
+			continue
+		}
+		out = append(out, r)
+		present[r.Name] = true
+	}
+	for _, cand := range buildRelationships(updatedResources) {
+		if !addedKinds[cand.From.Kind] && !addedKinds[cand.To.Kind] {
+			continue
+		}
+		if present[cand.Name] {
+			continue
+		}
+		out = append(out, cand)
+		present[cand.Name] = true
+		added++
+	}
+	return out, added, removed
 }
 
 // applyResourceChanges returns the resource list after removing the given kinds
@@ -215,6 +284,73 @@ func writeResourceSelectors(obj *unstructured.Unstructured, selectors []gamerav1
 		raw = append(raw, m)
 	}
 	return unstructured.SetNestedSlice(obj.Object, raw, "spec", "scope", "resources")
+}
+
+// readRelationshipRules reads spec.relationships from an unstructured
+// GraphProjection into a typed slice.
+func readRelationshipRules(obj *unstructured.Unstructured) ([]gamerav1alpha1.RelationshipRule, error) {
+	raw, found, err := unstructured.NestedSlice(obj.Object, "spec", "relationships")
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, nil
+	}
+	out := make([]gamerav1alpha1.RelationshipRule, 0, len(raw))
+	for _, item := range raw {
+		m, ok := item.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("unexpected relationship entry %T", item)
+		}
+		name, _, _ := unstructured.NestedString(m, "name")
+		typ, _, _ := unstructured.NestedString(m, "type")
+		strategy, _, _ := unstructured.NestedString(m, "strategy")
+		out = append(out, gamerav1alpha1.RelationshipRule{
+			Name:     name,
+			Type:     typ,
+			Strategy: gamerav1alpha1.RelationshipStrategy(strategy),
+			From:     selectorFromNested(m, "from"),
+			To:       selectorFromNested(m, "to"),
+		})
+	}
+	return out, nil
+}
+
+// selectorFromNested reads a nested {group,version,kind} object under key from m.
+func selectorFromNested(m map[string]any, key string) gamerav1alpha1.ResourceSelector {
+	group, _, _ := unstructured.NestedString(m, key, "group")
+	version, _, _ := unstructured.NestedString(m, key, "version")
+	kind, _, _ := unstructured.NestedString(m, key, "kind")
+	return gamerav1alpha1.ResourceSelector{Group: group, Version: version, Kind: kind}
+}
+
+// writeRelationshipRules writes the typed slice back to spec.relationships on the
+// unstructured object.
+func writeRelationshipRules(obj *unstructured.Unstructured, rules []gamerav1alpha1.RelationshipRule) error {
+	raw := make([]any, 0, len(rules))
+	for _, r := range rules {
+		raw = append(raw, map[string]any{
+			"name":     r.Name,
+			"type":     r.Type,
+			"strategy": string(r.Strategy),
+			"from":     selectorToMap(r.From),
+			"to":       selectorToMap(r.To),
+		})
+	}
+	return unstructured.SetNestedSlice(obj.Object, raw, "spec", "relationships")
+}
+
+// selectorToMap renders a ResourceSelector as an unstructured map, omitting empty
+// group/version fields.
+func selectorToMap(s gamerav1alpha1.ResourceSelector) map[string]any {
+	m := map[string]any{"kind": s.Kind}
+	if s.Group != "" {
+		m["group"] = s.Group
+	}
+	if s.Version != "" {
+		m["version"] = s.Version
+	}
+	return m
 }
 
 // parseResourceSelectors parses a list of "[group/]version/Kind" (or "Kind")
