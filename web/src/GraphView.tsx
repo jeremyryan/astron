@@ -121,6 +121,51 @@ function toElements(graph: Graph, groupByNamespace: boolean): ElementDefinition[
   return elements;
 }
 
+// LayoutParams are the user-tunable fcose knobs surfaced in the settings modal.
+interface LayoutParams {
+  repulsion: number;
+  edgeLength: number;
+  gravity: number;
+}
+
+// buildLayout constructs the fcose layout options, injecting the user-tunable
+// repulsion / ideal edge length / gravity. The rest of the tuning (separation,
+// iterations, compound gravity) is kept fixed per layout mode.
+function buildLayout(grouped: boolean, p: LayoutParams): cytoscape.LayoutOptions {
+  const common = {
+    name: "fcose",
+    quality: "proof",
+    animate: false,
+    randomize: true,
+    idealEdgeLength: p.edgeLength,
+    nodeRepulsion: p.repulsion,
+    gravity: p.gravity,
+    nodeDimensionsIncludeLabels: true,
+  };
+  const opts = grouped
+    ? {
+        // Grouped by namespace: spread nodes and boxes apart with more
+        // iterations to reduce crossing / overlapping links.
+        ...common,
+        nodeSeparation: 130,
+        edgeElasticity: 0.5,
+        gravityRange: 3.8,
+        gravityCompound: 1.2,
+        nestingFactor: 0.1,
+        numIter: 4000,
+        padding: 20,
+      }
+    : {
+        // Force-directed, packing the many small disconnected trees across the
+        // canvas so the 2D space is used.
+        ...common,
+        packComponents: true,
+        nodeSeparation: 75,
+        padding: 30,
+      };
+  return opts as unknown as cytoscape.LayoutOptions;
+}
+
 interface Props {
   graph: Graph;
   // Called when the selection changes: a node, an edge, or null (cleared).
@@ -214,6 +259,20 @@ export function GraphView({
   // poll.
   const graphRef = useRef(graph);
   graphRef.current = graph;
+  // User-tunable layout parameters from settings. A ref mirror lets the once-
+  // built layout read the latest without adding them as rebuild dependencies.
+  const layoutParams = useMemo(
+    () => ({
+      repulsion: settings.layoutRepulsion,
+      edgeLength: settings.layoutEdgeLength,
+      gravity: settings.layoutGravity,
+    }),
+    [settings.layoutRepulsion, settings.layoutEdgeLength, settings.layoutGravity],
+  );
+  const layoutParamsRef = useRef(layoutParams);
+  layoutParamsRef.current = layoutParams;
+  const groupByNamespaceRef = useRef(groupByNamespace);
+  groupByNamespaceRef.current = groupByNamespace;
 
   // A signature of the graph's *structure* that warrants a full relayout: which
   // nodes exist and whether they're grouped. Edges are deliberately excluded so
@@ -405,42 +464,7 @@ export function GraphView({
           style: { opacity: 0.08 },
         },
       ],
-      layout: groupByNamespace
-        ? ({
-            name: "fcose",
-            quality: "proof",
-            animate: false,
-            randomize: true,
-            // Spread nodes (and namespace boxes) apart with longer edges and
-            // more iterations, which settles into layouts with fewer crossing
-            // and overlapping links.
-            nodeSeparation: 130,
-            idealEdgeLength: 110,
-            nodeRepulsion: 8000,
-            edgeElasticity: 0.5,
-            gravity: 0.2,
-            gravityRange: 3.8,
-            gravityCompound: 1.2,
-            nestingFactor: 0.1,
-            numIter: 4000,
-            padding: 20,
-            nodeDimensionsIncludeLabels: true,
-          } as unknown as cytoscape.LayoutOptions)
-        : // Force-directed rather than a strict dagre hierarchy: a cluster graph
-          // is mostly many small, disconnected source -> target trees, which
-          // dagre packs into a couple of cramped rows. fcose spreads them
-          // organically across the canvas and packs the disconnected components
-          // so the available 2D space is used.
-          ({
-            name: "fcose",
-            quality: "proof",
-            animate: false,
-            packComponents: true,
-            nodeSeparation: 75,
-            idealEdgeLength: 80,
-            padding: 30,
-            nodeDimensionsIncludeLabels: true,
-          } as unknown as cytoscape.LayoutOptions),
+      layout: buildLayout(groupByNamespace, layoutParamsRef.current),
     });
 
     // Tap counting for a node: cytoscape has no native double/triple click, so
@@ -944,6 +968,19 @@ export function GraphView({
       }
     });
   }, [graph]);
+
+  // Re-run the layout when the user changes a layout parameter in settings. The
+  // initial layout runs at canvas creation, so skip the first invocation.
+  const firstLayoutRef = useRef(true);
+  useEffect(() => {
+    if (firstLayoutRef.current) {
+      firstLayoutRef.current = false;
+      return;
+    }
+    const cy = cyRef.current;
+    if (!cy) return;
+    cy.layout(buildLayout(groupByNamespaceRef.current, layoutParams)).run();
+  }, [layoutParams]);
 
   // Fade nodes/edges that are more than `maxDistance` hops from the selected
   // node. Runs without rebuilding the graph so selecting/adjusting stays cheap.
