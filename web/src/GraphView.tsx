@@ -523,9 +523,9 @@ export function GraphView({
     let dragging = false;
     cy.on("mouseover", "node", (evt) => {
       if (evt.target.hasClass(GROUP_CLASS)) return;
-      // Disable box-select while hovering a node so Shift+drag moves (and
-      // 45°-constrains) the node rather than starting a selection box. Shift+drag
-      // on the background still box-selects.
+      // Disable box-select while hovering a node so Shift+drag moves the node
+      // (pulling its connected neighbours along) rather than starting a selection
+      // box. Shift+drag on the background still box-selects.
       cy.boxSelectionEnabled(false);
       if (!dragging) el.style.cursor = "pointer";
     });
@@ -571,10 +571,9 @@ export function GraphView({
     // Catch releases that happen outside the canvas during a pan/drag.
     window.addEventListener("mouseup", endDrag);
 
-    // Shift-constrained dragging: while Shift is held, the drag is locked to the
-    // nearest 45° axis (horizontal, vertical or diagonal) measured from each
-    // node's position when the drag began. The grabbed node's constrained delta
-    // is applied to every node moving with it so the group stays rigid.
+    // Shift-drag "pull": while Shift is held, dragging a node keeps its link
+    // lengths fixed by translating each directly-connected neighbour by the same
+    // delta, so the neighbours follow the node instead of the links stretching.
     let shiftDown = false;
     const trackShift = (e: KeyboardEvent) => {
       shiftDown = e.shiftKey;
@@ -583,7 +582,7 @@ export function GraphView({
     window.addEventListener("keyup", trackShift);
 
     let dragState:
-      | { grabbedId: string; start: { x: number; y: number }; ids: string[] }
+      | { grabbedId: string; last: { x: number; y: number }; followerIds: string[] }
       | null = null;
 
     cy.on("grab", "node", (evt) => {
@@ -592,37 +591,41 @@ export function GraphView({
         dragState = null;
         return;
       }
-      // Nodes that move together: the selection if the grabbed node belongs to
-      // it, otherwise just the grabbed node.
+      // Nodes that move together under cytoscape's own drag: the selection if the
+      // grabbed node belongs to it, otherwise just the grabbed node.
       const selected = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
       const moving = grabbed.selected() && selected.nonempty() ? selected : grabbed;
-      const ids = (moving.toArray() as NodeSingular[]).map((n) => n.id());
-      dragState = { grabbedId: grabbed.id(), start: { ...grabbed.position() }, ids };
+      const movingIds = new Set((moving.toArray() as NodeSingular[]).map((n) => n.id()));
+      // Followers pulled along on Shift+drag: the directly-connected neighbours
+      // of the moving nodes that aren't themselves being dragged.
+      const followerIds = [
+        ...new Set(
+          (moving.neighborhood().nodes().toArray() as NodeSingular[])
+            .filter((n) => !n.hasClass(GROUP_CLASS) && !movingIds.has(n.id()))
+            .map((n) => n.id()),
+        ),
+      ];
+      dragState = { grabbedId: grabbed.id(), last: { ...grabbed.position() }, followerIds };
     });
 
     cy.on("drag", "node", (evt) => {
-      if (!shiftDown || !dragState) return;
+      if (!dragState) return;
       // Cytoscape fires "drag" per moving node; act once, off the grabbed node.
       if ((evt.target as NodeSingular).id() !== dragState.grabbedId) return;
       const grabbed = cy.getElementById(dragState.grabbedId);
-      const free = grabbed.position();
-      const dx = free.x - dragState.start.x;
-      const dy = free.y - dragState.start.y;
-      if (dx === 0 && dy === 0) return;
-      // Lock to the nearest 45° axis and project the drag onto it.
-      const STEP = Math.PI / 4;
-      const axis = Math.round(Math.atan2(dy, dx) / STEP) * STEP;
-      const proj = dx * Math.cos(axis) + dy * Math.sin(axis);
-      const cx = dragState.start.x + proj * Math.cos(axis);
-      const cy2 = dragState.start.y + proj * Math.sin(axis);
-      const corrX = cx - free.x;
-      const corrY = cy2 - free.y;
-      if (corrX === 0 && corrY === 0) return;
-      // Same correction for every moving node keeps the group rigid.
-      for (const id of dragState.ids) {
+      const pos = grabbed.position();
+      const dx = pos.x - dragState.last.x;
+      const dy = pos.y - dragState.last.y;
+      // Always track the latest position so toggling Shift mid-drag never causes
+      // the followers to jump by an accumulated delta.
+      dragState.last = { x: pos.x, y: pos.y };
+      if (!shiftDown || (dx === 0 && dy === 0)) return;
+      // Translate every follower by the grabbed node's delta, keeping the link
+      // between them the same length.
+      for (const id of dragState.followerIds) {
         const n = cy.getElementById(id);
         const p = n.position();
-        n.position({ x: p.x + corrX, y: p.y + corrY });
+        n.position({ x: p.x + dx, y: p.y + dy });
       }
     });
 
