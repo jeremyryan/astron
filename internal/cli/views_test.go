@@ -24,8 +24,11 @@ import (
 	"testing"
 )
 
-// projWeb is a projection name reused across these tests.
-const projWeb = "web"
+// Values reused across the views tests.
+const (
+	projWeb = "web"
+	podKind = "Pod"
+)
 
 // viewsServer returns a test server serving a fixed set of GraphViews from
 // /api/views, honoring the projectionName/projectionNamespace query filters the
@@ -142,7 +145,7 @@ func TestBuildDefaultViewHiddenKinds(t *testing.T) {
 		hidden[k] = true
 	}
 	// Compute view hides networking + persistence kinds, not its own.
-	if hidden["Pod"] || hidden["Deployment"] {
+	if hidden[podKind] || hidden["Deployment"] {
 		t.Errorf("compute view must not hide compute kinds: %v", v.Filters.HiddenKinds)
 	}
 	if !hidden["Service"] || !hidden["PersistentVolumeClaim"] || !hidden["ConfigMap"] {
@@ -157,7 +160,7 @@ func TestDefaultViewsKeepPodsVisible(t *testing.T) {
 			t.Fatalf("default view %q did not resolve", name)
 		}
 		for _, k := range hiddenKindsFor(cat) {
-			if k == "Pod" {
+			if k == podKind {
 				t.Errorf("%s view must keep Pods visible, but hides them: %v", name, hiddenKindsFor(cat))
 			}
 		}
