@@ -49,6 +49,7 @@ import {
   IconChevronRight,
   IconEye,
   IconEyeOff,
+  IconFileCode,
   IconHierarchy2,
   IconSettings,
   IconTag,
@@ -953,17 +954,33 @@ export default function App() {
               Kubernetes Cluster Graph
             </Text>
           </Group>
-          <Tooltip label="Settings" position="bottom" withArrow>
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              size="lg"
-              aria-label="Settings"
-              onClick={() => setSettingsOpen(true)}
-            >
-              <IconSettings size={20} stroke={1.5} />
-            </ActionIcon>
-          </Tooltip>
+          <Group gap={4} align="center" wrap="nowrap">
+            <Tooltip label="API reference" position="bottom" withArrow>
+              <ActionIcon
+                component="a"
+                href="/api/docs"
+                target="_blank"
+                rel="noopener noreferrer"
+                variant="subtle"
+                color="gray"
+                size="lg"
+                aria-label="API reference"
+              >
+                <IconFileCode size={20} stroke={1.5} />
+              </ActionIcon>
+            </Tooltip>
+            <Tooltip label="Settings" position="bottom" withArrow>
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                size="lg"
+                aria-label="Settings"
+                onClick={() => setSettingsOpen(true)}
+              >
+                <IconSettings size={20} stroke={1.5} />
+              </ActionIcon>
+            </Tooltip>
+          </Group>
         </Group>
       </AppShell.Header>
 

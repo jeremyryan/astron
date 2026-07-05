@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Gamera API — Reference</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background: #1b1e24;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Redoc renders the OpenAPI document served at /api/openapi.json.
+         The bundle is served locally (no CDN) so this works offline. -->
+    <redoc spec-url="/api/openapi.json" theme='{"colors":{"primary":{"main":"#326ce5"}}}'></redoc>
+    <script src="/api/redoc.standalone.js"></script>
+  </body>
+</html>

@@ -5,6 +5,11 @@ from the Go request/response types**, so it stays in sync with the code.
 
 ## Where to get it
 
+- **Rendered reference (Redoc):** open `GET /api/docs` in a browser for a
+  human-readable API reference. The page and its Redoc bundle are embedded and
+  served locally (no CDN), so it works offline. The UI header also links to it
+  (the "API reference" icon).
+
 - **Live, from a running operator:** `GET /api/openapi.json` returns the spec as
   JSON. For example, with the UI/API port-forwarded to `localhost:8082`:
 
