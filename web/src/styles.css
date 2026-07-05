@@ -43,15 +43,35 @@ body {
   width: 230px;
   border-right: 1px solid var(--border);
   background: var(--panel);
+  overflow: hidden;
+  flex: 0 0 auto;
+  transition: width 200ms ease;
+}
+
+/* Inner scroll area holds the expanded content at a fixed width, so the panel
+   clips cleanly during the collapse/expand width animation rather than
+   reflowing its contents. */
+.filters-scroll {
+  width: 230px;
+  height: 100%;
   padding: 12px;
   overflow-y: auto;
+  box-sizing: border-box;
 }
 
 /* Collapsed strip: just the expand button. */
 .filters-collapsed {
-  width: auto;
+  width: 38px;
+}
+
+.filters-collapsed-inner {
   padding: 8px 4px;
-  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .filters {
+    transition: none;
+  }
 }
 
 .graph-area {
@@ -171,8 +191,25 @@ body {
   border-left: 1px solid var(--border);
   background: var(--panel);
   display: flex;
+  overflow: hidden;
+  flex: 0 0 auto;
+  transition: width 200ms ease;
+}
+
+/* Fixed-width inner panel so the content clips cleanly during the
+   collapse/expand width animation instead of reflowing. */
+.inspector-panel {
+  width: 300px;
+  height: 100%;
+  display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inspector {
+    transition: none;
+  }
 }
 
 /* Header row holding the Back / collapse controls. */
@@ -193,9 +230,29 @@ body {
 
 /* Collapsed strip: just the expand button. */
 .inspector-collapsed {
-  width: auto;
-  align-items: center;
+  width: 38px;
+}
+
+.inspector-collapsed-inner {
+  display: flex;
+  justify-content: center;
   padding: 8px 4px;
+  width: 38px;
+}
+
+/* Clickable kind header in the resource browser that expands/collapses the
+   resources of that kind. */
+.resource-kind-header {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border-radius: 4px;
+  padding: 1px 4px;
+  cursor: pointer;
+}
+
+.resource-kind-header:hover {
+  background: rgba(255, 255, 255, 0.06);
 }
 
 /* A resource hidden from the graph via the list's visibility toggle. */
