@@ -912,10 +912,16 @@ export function GraphView({
       for (const e of graph.edges) {
         if (e.id && nodeIds.has(e.source) && nodeIds.has(e.target)) wantEdges.set(e.id, e);
       }
-      // Remove real edges (skip the transient outline/ghost helpers) that are no
-      // longer present.
+      // Remove real edges that are no longer present, along with any orphaned
+      // selection-outline edge (id "__outline__<edgeId>") whose edge is gone —
+      // otherwise deleting a selected link leaves its highlight behind.
       cy.edges().forEach((el) => {
-        if (el.hasClass("edge-outline") || el.id().startsWith("__")) return;
+        if (el.hasClass("edge-outline")) {
+          const realId = el.id().slice("__outline__".length);
+          if (!wantEdges.has(realId)) el.remove();
+          return;
+        }
+        if (el.id().startsWith("__")) return; // transient link-ghost edge
         if (!wantEdges.has(el.id())) el.remove();
       });
       // Add new edges; patch data on existing ones.
