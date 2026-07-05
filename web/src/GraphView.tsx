@@ -15,6 +15,7 @@ import {
   IconPencil,
   IconZoomIn,
   IconZoomOut,
+  IconMaximize,
 } from "./icons";
 import cytoscape, { type Core, type ElementDefinition, type NodeSingular } from "cytoscape";
 import dagre from "cytoscape-dagre";
@@ -1079,6 +1080,15 @@ export function GraphView({
     cy.zoom({ level: cy.zoom() * factor, renderedPosition: center });
   };
 
+  // Reset the view to fit every (visible) node within the display area, undoing
+  // any manual pan/zoom or distance-filter framing.
+  const fitView = () => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    fittedSubgraphRef.current = false;
+    cy.animate({ fit: { eles: cy.elements(), padding: 30 }, duration: 250 });
+  };
+
   // Export the current graph as a PNG and trigger a download. Uses Cytoscape's
   // built-in raster export (full graph, 2x scale, on the app background).
   const exportPng = () => {
@@ -1172,6 +1182,16 @@ export function GraphView({
             onClick={() => zoomBy(1 / 1.2)}
           >
             <IconZoomOut size={18} stroke={1.5} />
+          </ActionIcon>
+        </Tooltip>
+        <Tooltip label="Fit all nodes to view" position="bottom" withArrow>
+          <ActionIcon
+            variant="default"
+            size="lg"
+            aria-label="Fit all nodes to view"
+            onClick={fitView}
+          >
+            <IconMaximize size={18} stroke={1.5} />
           </ActionIcon>
         </Tooltip>
         <Divider orientation="vertical" />
