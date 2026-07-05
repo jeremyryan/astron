@@ -198,6 +198,21 @@ body {
   padding: 8px 4px;
 }
 
+/* Clickable kind header in the resource browser that expands/collapses the
+   resources of that kind. */
+.resource-kind-header {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border-radius: 4px;
+  padding: 1px 4px;
+  cursor: pointer;
+}
+
+.resource-kind-header:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
 /* A resource hidden from the graph via the list's visibility toggle. */
 .resource-link-hidden {
   color: var(--muted);

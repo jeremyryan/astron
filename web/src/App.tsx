@@ -310,6 +310,15 @@ function ResourceList({
   onToggleVisibility: (id: string) => void;
 }) {
   const groups = useMemo(() => groupResources(nodes), [nodes]);
+  // Kind sections the user has collapsed, keyed by "<namespace>/<kind>".
+  const [collapsedKinds, setCollapsedKinds] = useState<Set<string>>(new Set());
+  const toggleKindCollapsed = (key: string) =>
+    setCollapsedKinds((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   if (nodes.length === 0)
     return (
       <Text size="sm" c="dimmed">
@@ -334,18 +343,34 @@ function ResourceList({
           </Text>
           {g.kinds.map((k) => {
             const icon = iconForKindOrGeneric(k.kind);
+            const kindKey = `${g.namespace}/${k.kind}`;
+            const collapsed = collapsedKinds.has(kindKey);
             return (
               <Stack gap={2} key={k.kind}>
-                <Group gap={6} wrap="nowrap" align="center">
-                  <img src={icon} width={14} height={14} alt="" />
-                  <Text size="xs" fw={600}>
-                    {k.kind}
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    {k.nodes.length}
-                  </Text>
-                </Group>
-                <Stack gap={0} pl={20}>
+                <UnstyledButton
+                  className="resource-kind-header"
+                  onClick={() => toggleKindCollapsed(kindKey)}
+                  aria-expanded={!collapsed}
+                >
+                  <Group gap={6} wrap="nowrap" align="center">
+                    <IconChevronRight
+                      size={12}
+                      style={{
+                        transition: "transform 150ms ease",
+                        transform: collapsed ? "none" : "rotate(90deg)",
+                        flex: "0 0 auto",
+                      }}
+                    />
+                    <img src={icon} width={14} height={14} alt="" />
+                    <Text size="xs" fw={600}>
+                      {k.kind}
+                    </Text>
+                    <Text size="xs" c="dimmed">
+                      {k.nodes.length}
+                    </Text>
+                  </Group>
+                </UnstyledButton>
+                <Stack gap={0} pl={20} display={collapsed ? "none" : undefined}>
                   {k.nodes.map((n) => {
                     const hidden = hiddenIds.has(n.id);
                     return (
