@@ -27,6 +27,7 @@ var (
 	configMap      = gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "ConfigMap"}
 	secret         = gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "Secret"}
 	serviceAccount = gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "ServiceAccount"}
+	pvc            = gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "PersistentVolumeClaim"}
 
 	deployment  = gamerav1alpha1.ResourceSelector{Group: "apps", Version: "v1", Kind: "Deployment"}
 	replicaSet  = gamerav1alpha1.ResourceSelector{Group: "apps", Version: "v1", Kind: "ReplicaSet"}
@@ -69,6 +70,8 @@ func buildRelationships(selectors []gamerav1alpha1.ResourceSelector) []gamerav1a
 		// Configuration mounts (ConfigMap/Secret consumed by a Pod).
 		{"configmap-mounts-pod", "MOUNTS", gamerav1alpha1.VolumeMountStrategy, configMap, pod},
 		{"secret-mounts-pod", "MOUNTS", gamerav1alpha1.VolumeMountStrategy, secret, pod},
+		// Storage mounts (PersistentVolumeClaim consumed by a Pod via a volume).
+		{"pvc-mounts-pod", "MOUNTS", gamerav1alpha1.VolumeMountStrategy, pvc, pod},
 		// Traffic routing (Ingress/HTTPRoute forward to a Service via backendRefs).
 		{"ingress-routes-service", "ROUTES", gamerav1alpha1.ServiceBackendStrategy, ingress, service},
 		{"httproute-routes-service", "ROUTES", gamerav1alpha1.ServiceBackendStrategy, httpRoute, service},

@@ -137,6 +137,25 @@ func TestBuildRelationshipsGatedOnKinds(t *testing.T) {
 	if len(rules) != 0 {
 		t.Fatalf("expected no rules without Pod, got %+v", rules)
 	}
+
+	// PVC and Pod present: the pvc-mounts-pod MOUNTS rule should be emitted so
+	// PVCs get linked to the Pods that mount them.
+	rules = buildRelationships([]gamerav1alpha1.ResourceSelector{pvc, pod})
+	var pvcRule *gamerav1alpha1.RelationshipRule
+	for i := range rules {
+		if rules[i].Name == "pvc-mounts-pod" {
+			pvcRule = &rules[i]
+		}
+	}
+	if pvcRule == nil {
+		t.Fatalf("expected pvc-mounts-pod rule, got %+v", rules)
+	}
+	if pvcRule.Type != "MOUNTS" || pvcRule.Strategy != gamerav1alpha1.VolumeMountStrategy {
+		t.Errorf("unexpected pvc-mounts-pod rule: %+v", *pvcRule)
+	}
+	if pvcRule.From.Kind != "PersistentVolumeClaim" || pvcRule.To.Kind != "Pod" {
+		t.Errorf("unexpected pvc-mounts-pod endpoints: %+v", *pvcRule)
+	}
 }
 
 func TestBuildManifest(t *testing.T) {
