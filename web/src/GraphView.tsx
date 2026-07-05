@@ -140,6 +140,10 @@ interface Props {
   // per-node visibility toggle). hiddenIds is used to label the menu item.
   onToggleVisibility: (id: string) => void;
   hiddenIds: Set<string>;
+  // Request to additively select a node on the canvas (Ctrl/Cmd-click in the
+  // resource list) without centering or opening its details. The nonce makes
+  // repeated requests for the same node re-trigger.
+  additiveSelect: { id: string; nonce: number } | null;
   // Called whenever the set of selected (real) nodes changes, with their ids.
   // Lets the inspector highlight every selected resource in its list view.
   onSelectedIdsChange?: (ids: string[]) => void;
@@ -174,6 +178,7 @@ export function GraphView({
   onDeleteLink,
   onToggleVisibility,
   hiddenIds,
+  additiveSelect,
   onSelectedIdsChange,
   groupByNamespace,
   showEdgeLabels,
@@ -1008,6 +1013,17 @@ export function GraphView({
       cy.animate({ center: { eles: node }, duration: 250 });
     }
   }, [selectedId, maxDistance]);
+
+  // Additive selection from the resource list (Ctrl/Cmd-click): add the node to
+  // the canvas selection without clearing others, centering, or opening its
+  // details — so several nodes can be gathered into a multi-selection.
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy || !additiveSelect) return;
+    const node = cy.getElementById(additiveSelect.id);
+    if (node.empty()) return;
+    node.select();
+  }, [additiveSelect]);
 
   // Align the currently selected nodes onto a common axis: "horizontal" puts
   // them in a row (shared Y = their average), "vertical" in a column (shared X).
