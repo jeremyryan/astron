@@ -435,13 +435,76 @@ export function GraphView({
           } as unknown as cytoscape.LayoutOptions),
     });
 
+    // Tap counting for a node: cytoscape has no native double/triple click, so
+    // we count taps on the same node within a short window. 1 = normal select
+    // (details), 2 = also select its direct neighbours, 3 = select its entire
+    // connected component (everything transitively linked to it).
+    let tapCount = 0;
+    let tapNodeId: string | null = null;
+    let tapTimer: ReturnType<typeof setTimeout> | null = null;
+    const resetTapCount = () => {
+      tapCount = 0;
+      tapNodeId = null;
+    };
     cy.on("tap", "node", (evt) => {
       if (linkingRef.current) return; // handled by the linking effect
-      if (evt.target.hasClass(GROUP_CLASS)) return;
+      const target = evt.target as NodeSingular;
+      if (target.hasClass(GROUP_CLASS)) return;
       setMenu(null);
       setEdgeMenu(null);
-      const found = graphRef.current.nodes.find((n) => n.id === evt.target.id());
-      onSelect(found ? { type: "node", node: found } : null);
+
+      const id = target.id();
+      if (id !== tapNodeId) {
+        tapNodeId = id;
+        tapCount = 0;
+      }
+      tapCount += 1;
+      if (tapTimer) clearTimeout(tapTimer);
+      tapTimer = setTimeout(resetTapCount, 350);
+
+      if (tapCount === 1) {
+        const found = graphRef.current.nodes.find((n) => n.id === id);
+        onSelect(found ? { type: "node", node: found } : null);
+        return;
+      }
+
+      let ids: string[];
+      if (tapCount === 2) {
+        // Double click: the node and its directly-connected neighbours.
+        ids = (target.closedNeighborhood().nodes().toArray() as NodeSingular[])
+          .filter((n) => !n.hasClass(GROUP_CLASS))
+          .map((n) => n.id());
+      } else {
+        // Triple click: the whole connected component (BFS over the undirected
+        // neighbourhood, i.e. everything reachable through any links).
+        const within = new Set<string>([id]);
+        let frontier: string[] = [id];
+        while (frontier.length > 0) {
+          const next: string[] = [];
+          for (const nid of frontier) {
+            cy.getElementById(nid)
+              .neighborhood()
+              .nodes()
+              .forEach((nb) => {
+                if (nb.hasClass(GROUP_CLASS) || within.has(nb.id())) return;
+                within.add(nb.id());
+                next.push(nb.id());
+              });
+          }
+          frontier = next;
+        }
+        ids = [...within];
+        resetTapCount();
+      }
+
+      // Defer so cytoscape's own tap-selection (applied after this event fires)
+      // doesn't clobber the multi-selection we're about to set.
+      setTimeout(() => {
+        cy.batch(() => {
+          cy.elements().unselect();
+          ids.forEach((i) => cy.getElementById(i).select());
+        });
+      }, 0);
     });
     cy.on("tap", "edge", (evt) => {
       if (linkingRef.current) return;
