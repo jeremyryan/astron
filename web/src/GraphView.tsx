@@ -414,7 +414,19 @@ export function GraphView({
             name: "fcose",
             quality: "proof",
             animate: false,
-            nodeSeparation: 75,
+            randomize: true,
+            // Spread nodes (and namespace boxes) apart with longer edges and
+            // more iterations, which settles into layouts with fewer crossing
+            // and overlapping links.
+            nodeSeparation: 130,
+            idealEdgeLength: 110,
+            nodeRepulsion: 8000,
+            edgeElasticity: 0.5,
+            gravity: 0.2,
+            gravityRange: 3.8,
+            gravityCompound: 1.2,
+            nestingFactor: 0.1,
+            numIter: 4000,
             padding: 20,
             nodeDimensionsIncludeLabels: true,
           } as unknown as cytoscape.LayoutOptions)
