@@ -40,6 +40,8 @@ spec:
         kind: ConfigMap
       - version: v1
         kind: Secret
+      - version: v1
+        kind: PersistentVolumeClaim
     # Capture CustomResourceDefinitions as graph nodes. When enabled, a DEFINES
     # edge is created from each captured CRD to every captured resource that is
     # an instance of it (the instance kind must also appear under resources).
@@ -75,6 +77,15 @@ spec:
       from:
         version: v1
         kind: ConfigMap
+      to:
+        version: v1
+        kind: Pod
+    - name: pvc-mounts-pod
+      type: MOUNTS
+      strategy: VolumeMount
+      from:
+        version: v1
+        kind: PersistentVolumeClaim
       to:
         version: v1
         kind: Pod
