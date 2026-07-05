@@ -24,7 +24,7 @@ neo4j:
 # release namespace (ownNamespaceOnly: true). Set ownNamespaceOnly: false to
 # project across the whole cluster during development.
 defaultProjection:
-  enabled: true
+  enabled: false
   ownNamespaceOnly: false
 
 
