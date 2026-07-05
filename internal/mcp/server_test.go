@@ -21,10 +21,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // newTestServer returns an MCP server wired to a fake Gamera API plus a handle
@@ -79,6 +82,35 @@ func run(t *testing.T, s *Server, requests ...string) []rpcResponse {
 		resps = append(resps, r)
 	}
 	return resps
+}
+
+// TestServeReturnsOnContextCancelWhileBlockedOnRead verifies that Serve reacts
+// to context cancellation (e.g. Ctrl+C) even while blocked waiting for the next
+// request, rather than hanging until more input or EOF arrives.
+func TestServeReturnsOnContextCancelWhileBlockedOnRead(t *testing.T) {
+	s, _ := newTestServer(t)
+
+	// A pipe whose writer never writes: the scanner blocks indefinitely on read.
+	pr, pw := io.Pipe()
+	defer func() { _ = pw.Close() }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var out bytes.Buffer
+	done := make(chan error, 1)
+	go func() { done <- s.Serve(ctx, pr, &out) }()
+
+	// Let Serve reach the blocking read, then cancel as Ctrl+C would.
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context.Canceled, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve did not return promptly after context cancellation")
+	}
 }
 
 // resultText extracts the first text content from a tools/call result.
