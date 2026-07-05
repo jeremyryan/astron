@@ -78,6 +78,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newProjectionsCmd(opts))
 	cmd.AddCommand(newViewsCmd(opts))
 	cmd.AddCommand(newGraphCmd(opts))
+	cmd.AddCommand(newMCPServerCmd(opts))
 
 	return cmd
 }

@@ -200,9 +200,11 @@ scoping and read-only guarantees.
 
 **Status: Done (stdio).** Implemented in `internal/mcp` (JSON-RPC 2.0 over a
 newline-delimited stdio transport, standard library only) and wired as the
-`gamera mcp-server` subcommand (`cmd/mcp.go`). It reads the API base from
-`--api-base-url` / `$GAMERA_API_URL` (default `http://localhost:8082`) and logs
-to stderr to keep stdout clean for the protocol. Tools shipped:
+`gamera mcp-server` subcommand of the CLI (`internal/cli/mcp.go`, built into the
+`gamera` binary). It reads the API base from `--api-base-url`, falling back to
+the global `--server` flag and then `$GAMERA_API_URL` (default
+`http://localhost:8082`), and logs to stderr to keep stdout clean for the
+protocol. Tools shipped:
 `list_projections`, `search_cluster_graph`, `get_resource_neighborhood`,
 `get_resource_yaml`. (`query_cluster` / read-only Cypher is deferred to Phase 8;
 an SSE/HTTP transport can be added later.)

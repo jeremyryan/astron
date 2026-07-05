@@ -64,13 +64,6 @@ func init() {
 
 // nolint:gocyclo
 func main() {
-	// Subcommand dispatch: "gamera mcp-server" runs the MCP server (a thin
-	// client of the read API) over stdio instead of the operator.
-	if len(os.Args) > 1 && os.Args[1] == mcpServerCommand {
-		runMCPServer(os.Args[2:])
-		return
-	}
-
 	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string

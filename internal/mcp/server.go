@@ -101,39 +101,67 @@ func (s *Server) register(t tool) {
 
 // Serve runs the JSON-RPC loop, reading newline-delimited requests from in and
 // writing responses to out, until in is exhausted or ctx is cancelled.
+//
+// Reads happen on a background goroutine so that a blocking read from in (e.g.
+// stdin waiting for the next request) does not prevent Serve from returning
+// promptly when ctx is cancelled, such as on Ctrl+C (SIGINT).
 func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	scanner := bufio.NewScanner(in)
 	// Allow large messages (graphs can be sizable): up to 16 MiB per line.
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 
+	lines := make(chan []byte)
+	scanErr := make(chan error, 1)
+	go func() {
+		defer close(lines)
+		for scanner.Scan() {
+			// Copy: the scanner reuses its buffer between Scan calls, and the
+			// line is consumed on another goroutine.
+			line := append([]byte(nil), scanner.Bytes()...)
+			select {
+			case lines <- line:
+			case <-ctx.Done():
+				return
+			}
+		}
+		scanErr <- scanner.Err()
+	}()
+
 	enc := json.NewEncoder(out)
-	for scanner.Scan() {
+	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		default:
-		}
+		case line, ok := <-lines:
+			if !ok {
+				// Reader finished: return its error (nil on EOF), if any.
+				select {
+				case err := <-scanErr:
+					return err
+				default:
+					return nil
+				}
+			}
+			line = bytes.TrimSpace(line)
+			if len(line) == 0 {
+				continue
+			}
 
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 {
-			continue
-		}
+			var req rpcRequest
+			if err := json.Unmarshal(line, &req); err != nil {
+				_ = enc.Encode(errorResponse(nil, codeParseError, "parse error"))
+				continue
+			}
 
-		var req rpcRequest
-		if err := json.Unmarshal(line, &req); err != nil {
-			_ = enc.Encode(errorResponse(nil, codeParseError, "parse error"))
-			continue
-		}
-
-		resp, respond := s.handle(ctx, &req)
-		if !respond {
-			continue
-		}
-		if err := enc.Encode(resp); err != nil {
-			return fmt.Errorf("writing response: %w", err)
+			resp, respond := s.handle(ctx, &req)
+			if !respond {
+				continue
+			}
+			if err := enc.Encode(resp); err != nil {
+				return fmt.Errorf("writing response: %w", err)
+			}
 		}
 	}
-	return scanner.Err()
 }
 
 // handle dispatches a single request. The second return value is false for
