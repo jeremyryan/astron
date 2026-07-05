@@ -15,6 +15,7 @@ import {
   IconPencil,
   IconZoomIn,
   IconZoomOut,
+  IconMaximize,
 } from "./icons";
 import cytoscape, { type Core, type ElementDefinition, type NodeSingular } from "cytoscape";
 import dagre from "cytoscape-dagre";
@@ -120,6 +121,51 @@ function toElements(graph: Graph, groupByNamespace: boolean): ElementDefinition[
   return elements;
 }
 
+// LayoutParams are the user-tunable fcose knobs surfaced in the settings modal.
+interface LayoutParams {
+  repulsion: number;
+  edgeLength: number;
+  gravity: number;
+}
+
+// buildLayout constructs the fcose layout options, injecting the user-tunable
+// repulsion / ideal edge length / gravity. The rest of the tuning (separation,
+// iterations, compound gravity) is kept fixed per layout mode.
+function buildLayout(grouped: boolean, p: LayoutParams): cytoscape.LayoutOptions {
+  const common = {
+    name: "fcose",
+    quality: "proof",
+    animate: false,
+    randomize: true,
+    idealEdgeLength: p.edgeLength,
+    nodeRepulsion: p.repulsion,
+    gravity: p.gravity,
+    nodeDimensionsIncludeLabels: true,
+  };
+  const opts = grouped
+    ? {
+        // Grouped by namespace: spread nodes and boxes apart with more
+        // iterations to reduce crossing / overlapping links.
+        ...common,
+        nodeSeparation: 130,
+        edgeElasticity: 0.5,
+        gravityRange: 3.8,
+        gravityCompound: 1.2,
+        nestingFactor: 0.1,
+        numIter: 4000,
+        padding: 20,
+      }
+    : {
+        // Force-directed, packing the many small disconnected trees across the
+        // canvas so the 2D space is used.
+        ...common,
+        packComponents: true,
+        nodeSeparation: 75,
+        padding: 30,
+      };
+  return opts as unknown as cytoscape.LayoutOptions;
+}
+
 interface Props {
   graph: Graph;
   // Called when the selection changes: a node, an edge, or null (cleared).
@@ -140,6 +186,10 @@ interface Props {
   // per-node visibility toggle). hiddenIds is used to label the menu item.
   onToggleVisibility: (id: string) => void;
   hiddenIds: Set<string>;
+  // Request to additively select a node on the canvas (Ctrl/Cmd-click in the
+  // resource list) without centering or opening its details. The nonce makes
+  // repeated requests for the same node re-trigger.
+  additiveSelect: { id: string; nonce: number } | null;
   // Called whenever the set of selected (real) nodes changes, with their ids.
   // Lets the inspector highlight every selected resource in its list view.
   onSelectedIdsChange?: (ids: string[]) => void;
@@ -174,6 +224,7 @@ export function GraphView({
   onDeleteLink,
   onToggleVisibility,
   hiddenIds,
+  additiveSelect,
   onSelectedIdsChange,
   groupByNamespace,
   showEdgeLabels,
@@ -208,19 +259,29 @@ export function GraphView({
   // poll.
   const graphRef = useRef(graph);
   graphRef.current = graph;
+  // User-tunable layout parameters from settings. A ref mirror lets the once-
+  // built layout read the latest without adding them as rebuild dependencies.
+  const layoutParams = useMemo(
+    () => ({
+      repulsion: settings.layoutRepulsion,
+      edgeLength: settings.layoutEdgeLength,
+      gravity: settings.layoutGravity,
+    }),
+    [settings.layoutRepulsion, settings.layoutEdgeLength, settings.layoutGravity],
+  );
+  const layoutParamsRef = useRef(layoutParams);
+  layoutParamsRef.current = layoutParams;
+  const groupByNamespaceRef = useRef(groupByNamespace);
+  groupByNamespaceRef.current = groupByNamespace;
 
-  // A signature of the graph's *structure* (which nodes/edges exist and whether
-  // they're grouped). The expensive rebuild + layout only re-runs when this
-  // changes; polled updates that keep the same topology are reconciled in place
-  // (see the data-sync effect below) so node positions are preserved.
+  // A signature of the graph's *structure* that warrants a full relayout: which
+  // nodes exist and whether they're grouped. Edges are deliberately excluded so
+  // that adding/removing a link (or a derived edge appearing on a poll) is
+  // reconciled in place — added/removed without moving any nodes — by the
+  // data-sync effect below. Only node changes trigger the expensive rebuild.
   const structuralKey = useMemo(() => {
     const nodeIds = graph.nodes.map((n) => n.id).sort().join(",");
-    const edgeIds = graph.edges
-      .filter((e) => e.id)
-      .map((e) => e.id)
-      .sort()
-      .join(",");
-    return `${groupByNamespace ? "g" : "f"}|${nodeIds}|${edgeIds}`;
+    return `${groupByNamespace ? "g" : "f"}|${nodeIds}`;
   }, [graph, groupByNamespace]);
 
   useEffect(() => {
@@ -403,39 +464,79 @@ export function GraphView({
           style: { opacity: 0.08 },
         },
       ],
-      layout: groupByNamespace
-        ? ({
-            name: "fcose",
-            quality: "proof",
-            animate: false,
-            nodeSeparation: 75,
-            padding: 20,
-            nodeDimensionsIncludeLabels: true,
-          } as unknown as cytoscape.LayoutOptions)
-        : // Force-directed rather than a strict dagre hierarchy: a cluster graph
-          // is mostly many small, disconnected source -> target trees, which
-          // dagre packs into a couple of cramped rows. fcose spreads them
-          // organically across the canvas and packs the disconnected components
-          // so the available 2D space is used.
-          ({
-            name: "fcose",
-            quality: "proof",
-            animate: false,
-            packComponents: true,
-            nodeSeparation: 75,
-            idealEdgeLength: 80,
-            padding: 30,
-            nodeDimensionsIncludeLabels: true,
-          } as unknown as cytoscape.LayoutOptions),
+      layout: buildLayout(groupByNamespace, layoutParamsRef.current),
     });
 
+    // Tap counting for a node: cytoscape has no native double/triple click, so
+    // we count taps on the same node within a short window. 1 = normal select
+    // (details), 2 = also select its direct neighbours, 3 = select its entire
+    // connected component (everything transitively linked to it).
+    let tapCount = 0;
+    let tapNodeId: string | null = null;
+    let tapTimer: ReturnType<typeof setTimeout> | null = null;
+    const resetTapCount = () => {
+      tapCount = 0;
+      tapNodeId = null;
+    };
     cy.on("tap", "node", (evt) => {
       if (linkingRef.current) return; // handled by the linking effect
-      if (evt.target.hasClass(GROUP_CLASS)) return;
+      const target = evt.target as NodeSingular;
+      if (target.hasClass(GROUP_CLASS)) return;
       setMenu(null);
       setEdgeMenu(null);
-      const found = graphRef.current.nodes.find((n) => n.id === evt.target.id());
-      onSelect(found ? { type: "node", node: found } : null);
+
+      const id = target.id();
+      if (id !== tapNodeId) {
+        tapNodeId = id;
+        tapCount = 0;
+      }
+      tapCount += 1;
+      if (tapTimer) clearTimeout(tapTimer);
+      tapTimer = setTimeout(resetTapCount, 350);
+
+      if (tapCount === 1) {
+        const found = graphRef.current.nodes.find((n) => n.id === id);
+        onSelect(found ? { type: "node", node: found } : null);
+        return;
+      }
+
+      let ids: string[];
+      if (tapCount === 2) {
+        // Double click: the node and its directly-connected neighbours.
+        ids = (target.closedNeighborhood().nodes().toArray() as NodeSingular[])
+          .filter((n) => !n.hasClass(GROUP_CLASS))
+          .map((n) => n.id());
+      } else {
+        // Triple click: the whole connected component (BFS over the undirected
+        // neighbourhood, i.e. everything reachable through any links).
+        const within = new Set<string>([id]);
+        let frontier: string[] = [id];
+        while (frontier.length > 0) {
+          const next: string[] = [];
+          for (const nid of frontier) {
+            cy.getElementById(nid)
+              .neighborhood()
+              .nodes()
+              .forEach((nb) => {
+                if (nb.hasClass(GROUP_CLASS) || within.has(nb.id())) return;
+                within.add(nb.id());
+                next.push(nb.id());
+              });
+          }
+          frontier = next;
+        }
+        ids = [...within];
+        resetTapCount();
+      }
+
+      // Defer so cytoscape's own tap-selection (applied after this event fires)
+      // doesn't clobber the multi-selection we're about to set.
+      setTimeout(() => {
+        cy.batch(() => {
+          cy.elements().unselect();
+          ids.forEach((i) => cy.getElementById(i).select());
+        });
+      }, 0);
     });
     cy.on("tap", "edge", (evt) => {
       if (linkingRef.current) return;
@@ -809,10 +910,11 @@ export function GraphView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [structuralKey, onSelect, onShowYaml, groupByNamespace]);
 
-  // Reconcile polled data into the existing canvas without a rebuild/relayout:
-  // patch the mutable data (labels, kind/status colors, icons) of nodes and
-  // edges that already exist. Added/removed elements change structuralKey and
-  // are handled by the rebuild effect above, so here we only update in place.
+  // Reconcile the latest data into the existing canvas without a rebuild or
+  // relayout. Node data (labels, kind/status colors, icons) is patched in place;
+  // node add/remove is handled by the rebuild effect above (structuralKey).
+  // Edges, however, are reconciled here — added, removed and patched in place —
+  // so creating or deleting a link (custom or derived) never moves any nodes.
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy) return;
@@ -827,16 +929,58 @@ export function GraphView({
         if (statusColor) el.data("statusColor", statusColor);
         else el.removeData("statusColor");
       }
+
+      // Desired edges: those with an id whose endpoints are present as nodes.
+      const nodeIds = new Set(graph.nodes.map((n) => n.id));
+      const wantEdges = new Map<string, GraphEdge>();
       for (const e of graph.edges) {
-        if (!e.id) continue;
-        const el = cy.getElementById(e.id);
-        if (el.empty()) continue;
-        el.data("label", e.type);
-        el.data("edgeColor", colorForRelationship(e.type));
-        el.data("manual", e.manual ? 1 : 0);
+        if (e.id && nodeIds.has(e.source) && nodeIds.has(e.target)) wantEdges.set(e.id, e);
+      }
+      // Remove real edges that are no longer present, along with any orphaned
+      // selection-outline edge (id "__outline__<edgeId>") whose edge is gone —
+      // otherwise deleting a selected link leaves its highlight behind.
+      cy.edges().forEach((el) => {
+        if (el.hasClass("edge-outline")) {
+          const realId = el.id().slice("__outline__".length);
+          if (!wantEdges.has(realId)) el.remove();
+          return;
+        }
+        if (el.id().startsWith("__")) return; // transient link-ghost edge
+        if (!wantEdges.has(el.id())) el.remove();
+      });
+      // Add new edges; patch data on existing ones.
+      for (const [id, e] of wantEdges) {
+        const el = cy.getElementById(id);
+        const data = {
+          id,
+          source: e.source,
+          target: e.target,
+          label: e.type,
+          edgeColor: colorForRelationship(e.type),
+          manual: e.manual ? 1 : 0,
+        };
+        if (el.empty()) cy.add({ group: "edges", data });
+        else {
+          el.data("label", data.label);
+          el.data("edgeColor", data.edgeColor);
+          el.data("manual", data.manual);
+        }
       }
     });
   }, [graph]);
+
+  // Re-run the layout when the user changes a layout parameter in settings. The
+  // initial layout runs at canvas creation, so skip the first invocation.
+  const firstLayoutRef = useRef(true);
+  useEffect(() => {
+    if (firstLayoutRef.current) {
+      firstLayoutRef.current = false;
+      return;
+    }
+    const cy = cyRef.current;
+    if (!cy) return;
+    cy.layout(buildLayout(groupByNamespaceRef.current, layoutParams)).run();
+  }, [layoutParams]);
 
   // Fade nodes/edges that are more than `maxDistance` hops from the selected
   // node. Runs without rebuilding the graph so selecting/adjusting stays cheap.
@@ -1009,6 +1153,17 @@ export function GraphView({
     }
   }, [selectedId, maxDistance]);
 
+  // Additive selection from the resource list (Ctrl/Cmd-click): add the node to
+  // the canvas selection without clearing others, centering, or opening its
+  // details — so several nodes can be gathered into a multi-selection.
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy || !additiveSelect) return;
+    const node = cy.getElementById(additiveSelect.id);
+    if (node.empty()) return;
+    node.select();
+  }, [additiveSelect]);
+
   // Align the currently selected nodes onto a common axis: "horizontal" puts
   // them in a row (shared Y = their average), "vertical" in a column (shared X).
   const alignSelected = (axis: "horizontal" | "vertical") => {
@@ -1061,6 +1216,15 @@ export function GraphView({
     if (!cy) return;
     const center = { x: cy.width() / 2, y: cy.height() / 2 };
     cy.zoom({ level: cy.zoom() * factor, renderedPosition: center });
+  };
+
+  // Reset the view to fit every (visible) node within the display area, undoing
+  // any manual pan/zoom or distance-filter framing.
+  const fitView = () => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    fittedSubgraphRef.current = false;
+    cy.animate({ fit: { eles: cy.elements(), padding: 30 }, duration: 250 });
   };
 
   // Export the current graph as a PNG and trigger a download. Uses Cytoscape's
@@ -1156,6 +1320,16 @@ export function GraphView({
             onClick={() => zoomBy(1 / 1.2)}
           >
             <IconZoomOut size={18} stroke={1.5} />
+          </ActionIcon>
+        </Tooltip>
+        <Tooltip label="Fit all nodes to view" position="bottom" withArrow>
+          <ActionIcon
+            variant="default"
+            size="lg"
+            aria-label="Fit all nodes to view"
+            onClick={fitView}
+          >
+            <IconMaximize size={18} stroke={1.5} />
           </ActionIcon>
         </Tooltip>
         <Divider orientation="vertical" />

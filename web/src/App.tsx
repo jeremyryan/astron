@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ActionIcon,
@@ -304,7 +304,7 @@ function ResourceList({
   onToggleVisibility,
 }: {
   nodes: GraphNode[];
-  onSelect: (node: GraphNode) => void;
+  onSelect: (node: GraphNode, opts?: { additive?: boolean }) => void;
   selectedIds: Set<string>;
   hiddenIds: Set<string>;
   onToggleVisibility: (id: string) => void;
@@ -382,7 +382,9 @@ function ResourceList({
                               : "resource-link") + (hidden ? " resource-link-hidden" : "")
                           }
                           style={{ flex: 1, minWidth: 0 }}
-                          onClick={() => onSelect(n)}
+                          onClick={(e) =>
+                            onSelect(n, { additive: e.ctrlKey || e.metaKey })
+                          }
                           title={n.name}
                         >
                           {n.name}
@@ -641,6 +643,15 @@ function GraphPanel({
   // Individual node ids the user has hidden from the graph via the resource
   // list. They remain listed (so they can be shown again), just not drawn.
   const [hiddenNodeIds, setHiddenNodeIds] = useState<Set<string>>(new Set());
+  // Ctrl/Cmd-click in the resource list additively selects a node on the canvas
+  // without centering or opening its details. The nonce re-triggers the effect
+  // for repeat clicks on the same node.
+  const [additiveSelect, setAdditiveSelect] = useState<{ id: string; nonce: number } | null>(
+    null,
+  );
+  const additiveSelectCount = useRef(0);
+  const selectNodeAdditively = (id: string) =>
+    setAdditiveSelect({ id, nonce: (additiveSelectCount.current += 1) });
   // Max hops from the selected node to keep visible; null = all (no fading).
   const [maxDistance, setMaxDistance] = useState<number | null>(null);
   // Whether to group resources into compound nodes by namespace.
@@ -843,6 +854,7 @@ function GraphPanel({
             graph={filteredGraph}
             onToggleVisibility={toggleNodeVisibility}
             hiddenIds={hiddenNodeIds}
+            additiveSelect={additiveSelect}
             onSelect={handleSelect}
             onSelectedIdsChange={(ids) => setSelectedIds(new Set(ids))}
             selectedId={selectedNode?.id ?? null}
@@ -939,7 +951,11 @@ function GraphPanel({
                       nodes={filteredGraph?.nodes ?? []}
                       selectedIds={selectedIds}
                       hiddenIds={hiddenNodeIds}
-                      onSelect={(node) => handleSelect({ type: "node", node })}
+                      onSelect={(node, opts) =>
+                        opts?.additive
+                          ? selectNodeAdditively(node.id)
+                          : handleSelect({ type: "node", node })
+                      }
                       onToggleVisibility={toggleNodeVisibility}
                     />
                   )}

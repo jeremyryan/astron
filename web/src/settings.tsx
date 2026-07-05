@@ -19,7 +19,21 @@ export interface Settings {
   showEdgeLabels: boolean;
   // Whether the reference grid is overlaid on the graph display.
   showGrid: boolean;
+  // Graph layout (fcose) tuning. Changing these re-runs the layout.
+  //   layoutRepulsion:  how strongly nodes push each other apart (nodeRepulsion)
+  //   layoutEdgeLength: the ideal length of a link (idealEdgeLength)
+  //   layoutGravity:    how strongly nodes are pulled toward the center (gravity)
+  layoutRepulsion: number;
+  layoutEdgeLength: number;
+  layoutGravity: number;
 }
+
+// Bounds for the layout tuning controls (also used to clamp stored values).
+export const LAYOUT_LIMITS = {
+  layoutRepulsion: { min: 1000, max: 20000, step: 500 },
+  layoutEdgeLength: { min: 40, max: 250, step: 10 },
+  layoutGravity: { min: 0, max: 1, step: 0.05 },
+} as const;
 
 // Preferences small enough to keep in localStorage (everything except the
 // wallpaper image).
@@ -28,6 +42,9 @@ type Prefs = Omit<Settings, "wallpaper">;
 const DEFAULT_PREFS: Prefs = {
   showEdgeLabels: true,
   showGrid: false,
+  layoutRepulsion: 8000,
+  layoutEdgeLength: 100,
+  layoutGravity: 0.2,
 };
 
 const STORAGE_KEY = "gamera.settings";
@@ -46,10 +63,14 @@ function loadPrefs(): { prefs: Prefs; legacyWallpaper: string | null } {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { prefs: DEFAULT_PREFS, legacyWallpaper: null };
     const parsed = JSON.parse(raw) as Partial<Settings>;
+    const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
     return {
       prefs: {
         showEdgeLabels: parsed.showEdgeLabels ?? DEFAULT_PREFS.showEdgeLabels,
         showGrid: parsed.showGrid ?? DEFAULT_PREFS.showGrid,
+        layoutRepulsion: num(parsed.layoutRepulsion, DEFAULT_PREFS.layoutRepulsion),
+        layoutEdgeLength: num(parsed.layoutEdgeLength, DEFAULT_PREFS.layoutEdgeLength),
+        layoutGravity: num(parsed.layoutGravity, DEFAULT_PREFS.layoutGravity),
       },
       legacyWallpaper: parsed.wallpaper ?? null,
     };
@@ -148,12 +169,21 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       const prefs: Prefs = {
         showEdgeLabels: settings.showEdgeLabels,
         showGrid: settings.showGrid,
+        layoutRepulsion: settings.layoutRepulsion,
+        layoutEdgeLength: settings.layoutEdgeLength,
+        layoutGravity: settings.layoutGravity,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
     } catch {
       // ignore persistence failures
     }
-  }, [settings.showEdgeLabels, settings.showGrid]);
+  }, [
+    settings.showEdgeLabels,
+    settings.showGrid,
+    settings.layoutRepulsion,
+    settings.layoutEdgeLength,
+    settings.layoutGravity,
+  ]);
 
   // Persist the wallpaper to IndexedDB whenever it changes (once hydrated).
   useEffect(() => {

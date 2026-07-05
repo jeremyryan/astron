@@ -30,5 +30,6 @@ export {
   IconCheck,
   IconZoomIn,
   IconZoomOut,
+  IconMaximize,
   IconLink,
 } from "@tabler/icons-react";
