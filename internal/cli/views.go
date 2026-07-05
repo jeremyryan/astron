@@ -162,9 +162,9 @@ func runViewsList(cmd *cobra.Command, vopts *viewsListOptions) error {
 	}
 
 	tw := newTabWriter(cmd.OutOrStdout())
-	fmt.Fprintln(tw, "NAMESPACE\tNAME\tPROJECTION\tDISPLAY NAME")
+	_, _ = fmt.Fprintln(tw, "NAMESPACE\tNAME\tPROJECTION\tDISPLAY NAME")
 	for _, v := range views {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
 			v.Namespace, v.Name, projectionLabel(v), dash(v.DisplayName))
 	}
 	return tw.Flush()

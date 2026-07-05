@@ -55,7 +55,7 @@ func newCustom(apiVersion, kind, namespace, name string) *unstructured.Unstructu
 func newObj(namespace, name string, labels map[string]string) *unstructured.Unstructured {
 	o := &unstructured.Unstructured{}
 	o.SetAPIVersion("v1")
-	o.SetKind("Pod")
+	o.SetKind(podKind)
 	o.SetNamespace(namespace)
 	o.SetName(name)
 	o.SetUID(types.UID("uid-" + name))
@@ -74,7 +74,7 @@ func TestNodeFor(t *testing.T) {
 	})
 
 	node := nodeFor(o)
-	if node.Ref.Kind != "Pod" || node.Ref.Name != "web" || node.Ref.UID != "uid-web" {
+	if node.Ref.Kind != podKind || node.Ref.Name != "web" || node.Ref.UID != "uid-web" {
 		t.Fatalf("unexpected ref: %+v", node.Ref)
 	}
 	if node.Properties["resourceVersion"] != "123" {
@@ -373,12 +373,12 @@ func TestCRDEdgesDisabled(t *testing.T) {
 func TestScopedGVKsExplicit(t *testing.T) {
 	spec := gamerav1alpha1.GraphProjectionSpec{
 		Scope: gamerav1alpha1.ProjectionScope{
-			Resources: []gamerav1alpha1.ResourceSelector{{Version: "v1", Kind: "Pod"}},
+			Resources: []gamerav1alpha1.ResourceSelector{{Version: "v1", Kind: podKind}},
 		},
 	}
 	p := New(Options{Spec: spec})
 	gvks := p.scopedGVKs()
-	if len(gvks) != 1 || gvks[0].Kind != "Pod" {
+	if len(gvks) != 1 || gvks[0].Kind != podKind {
 		t.Errorf("expected only Pod, got %+v", gvks)
 	}
 }
@@ -388,12 +388,12 @@ func TestScopedGVKsCapturesRelationshipEndpoints(t *testing.T) {
 	// scopedGVKs must still watch it so RUNS edges have nodes to attach to.
 	spec := gamerav1alpha1.GraphProjectionSpec{
 		Scope: gamerav1alpha1.ProjectionScope{
-			Resources: []gamerav1alpha1.ResourceSelector{{Version: "v1", Kind: "Pod"}},
+			Resources: []gamerav1alpha1.ResourceSelector{{Version: "v1", Kind: podKind}},
 		},
 		Relationships: []gamerav1alpha1.RelationshipRule{{
 			Name: "sa-runs-pod", Type: "RUNS", Strategy: gamerav1alpha1.ServiceAccountStrategy,
 			From: gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "ServiceAccount"},
-			To:   gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "Pod"},
+			To:   gamerav1alpha1.ResourceSelector{Version: "v1", Kind: podKind},
 		}},
 	}
 	p := New(Options{Spec: spec})
@@ -410,7 +410,7 @@ func TestScopedGVKsCapturesRelationshipEndpoints(t *testing.T) {
 	// be duplicated.
 	pods := 0
 	for _, g := range gvks {
-		if g.Kind == "Pod" {
+		if g.Kind == podKind {
 			pods++
 		}
 	}

@@ -24,6 +24,9 @@ import (
 	"testing"
 )
 
+// projWeb is a projection name reused across these tests.
+const projWeb = "web"
+
 // viewsServer returns a test server serving a fixed set of GraphViews from
 // /api/views, honoring the projectionName/projectionNamespace query filters the
 // way the real read API does.
@@ -38,7 +41,7 @@ func viewsServer(t *testing.T) *httptest.Server {
 			ProjectionRef: ViewProjectionRef{Name: "default", Namespace: "gamera"}},
 	}
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/views" {
+		if r.URL.Path != apiViewsPath {
 			http.NotFound(w, r)
 			return
 		}
@@ -127,11 +130,11 @@ func TestBuildDefaultViewHiddenKinds(t *testing.T) {
 	if !ok {
 		t.Fatal("expected 'compute' to resolve to a default view")
 	}
-	v := buildDefaultView("gamera", "web", compute)
+	v := buildDefaultView("gamera", projWeb, compute)
 	if v.Name != "web-compute" || v.DisplayName != "Compute" {
 		t.Fatalf("unexpected view identity: %+v", v)
 	}
-	if v.ProjectionRef.Name != "web" || v.ProjectionRef.Namespace != "gamera" {
+	if v.ProjectionRef.Name != projWeb || v.ProjectionRef.Namespace != "gamera" {
 		t.Fatalf("unexpected projectionRef: %+v", v.ProjectionRef)
 	}
 	hidden := map[string]bool{}
@@ -164,7 +167,7 @@ func TestDefaultViewsKeepPodsVisible(t *testing.T) {
 func TestViewsAddCreatesViews(t *testing.T) {
 	var created []View
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/api/views" {
+		if r.Method != http.MethodPost || r.URL.Path != apiViewsPath {
 			http.NotFound(w, r)
 			return
 		}
@@ -179,7 +182,7 @@ func TestViewsAddCreatesViews(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	out, err := runCmd(t, "--server", srv.URL, "views", "add", "gamera", "web", "Compute", "networking")
+	out, err := runCmd(t, "--server", srv.URL, "views", "add", "gamera", projWeb, "Compute", "networking")
 	if err != nil {
 		t.Fatalf("views add failed: %v", err)
 	}
@@ -191,7 +194,7 @@ func TestViewsAddCreatesViews(t *testing.T) {
 		t.Errorf("unexpected confirmation output:\n%s", out)
 	}
 	for _, v := range created {
-		if v.ProjectionRef.Name != "web" || v.ProjectionRef.Namespace != "gamera" {
+		if v.ProjectionRef.Name != projWeb || v.ProjectionRef.Namespace != "gamera" {
 			t.Errorf("unexpected projectionRef on created view: %+v", v.ProjectionRef)
 		}
 	}
@@ -208,7 +211,7 @@ func TestViewsAddDeduplicates(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := runCmd(t, "--server", srv.URL, "views", "add", "gamera", "web", "compute", "Compute"); err != nil {
+	if _, err := runCmd(t, "--server", srv.URL, "views", "add", "gamera", projWeb, "compute", "Compute"); err != nil {
 		t.Fatalf("views add failed: %v", err)
 	}
 	if count != 1 {
@@ -224,7 +227,7 @@ func TestViewsAddUnknownView(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := runCmd(t, "--server", srv.URL, "views", "add", "gamera", "web", "Bogus")
+	_, err := runCmd(t, "--server", srv.URL, "views", "add", "gamera", projWeb, "Bogus")
 	if err == nil || !strings.Contains(err.Error(), "unknown view") {
 		t.Fatalf("expected unknown-view error, got %v", err)
 	}

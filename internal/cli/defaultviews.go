@@ -136,7 +136,7 @@ func parseViewSelection(value string) ([]defaultViewCategory, error) {
 	}
 	seen := map[string]bool{}
 	var out []defaultViewCategory
-	for _, part := range strings.Split(value, ",") {
+	for part := range strings.SplitSeq(value, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue

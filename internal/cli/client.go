@@ -28,6 +28,9 @@ import (
 	"time"
 )
 
+// apiViewsPath is the read API's Views collection endpoint.
+const apiViewsPath = "/api/views"
+
 // Projection mirrors the read API's projection summary
 // (see internal/api projectionDTO).
 type Projection struct {
@@ -133,7 +136,7 @@ func (c *Client) ListProjections(ctx context.Context) ([]Projection, error) {
 // projectionNamespace and/or projectionName are non-empty, the server narrows
 // the result to views referencing that GraphProjection.
 func (c *Client) ListViews(ctx context.Context, projectionNamespace, projectionName string) ([]View, error) {
-	path := "/api/views"
+	path := apiViewsPath
 	q := url.Values{}
 	if projectionNamespace != "" {
 		q.Set("projectionNamespace", projectionNamespace)
@@ -155,7 +158,7 @@ func (c *Client) ListViews(ctx context.Context, projectionNamespace, projectionN
 // the created object.
 func (c *Client) CreateView(ctx context.Context, v View) (View, error) {
 	var out View
-	if err := c.postJSON(ctx, "/api/views", v, &out); err != nil {
+	if err := c.postJSON(ctx, apiViewsPath, v, &out); err != nil {
 		return View{}, err
 	}
 	return out, nil
