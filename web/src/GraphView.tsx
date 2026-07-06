@@ -182,6 +182,8 @@ interface Props {
   onAddLink: (sourceId: string, targetId: string) => void;
   // Called when the user deletes a user-created link via its context menu.
   onDeleteLink: (edge: GraphEdge) => void;
+  // Called when the user picks "Edit" on a user-created link, to edit its note.
+  onEditLink: (edge: GraphEdge) => void;
   // Toggles whether an individual node is drawn (mirrors the resource list's
   // per-node visibility toggle). hiddenIds is used to label the menu item.
   onToggleVisibility: (id: string) => void;
@@ -222,6 +224,7 @@ export function GraphView({
   onShowYaml,
   onAddLink,
   onDeleteLink,
+  onEditLink,
   onToggleVisibility,
   hiddenIds,
   additiveSelect,
@@ -1438,6 +1441,15 @@ export function GraphView({
                 {edgeMenu.edge.type} link
               </Text>
             </Menu.Label>
+            <Menu.Item
+              leftSection={<IconPencil size={16} stroke={1.5} />}
+              onClick={() => {
+                onEditLink(edgeMenu.edge);
+                setEdgeMenu(null);
+              }}
+            >
+              Edit
+            </Menu.Item>
             <Menu.Item
               color="red"
               leftSection={<IconTrash size={16} stroke={1.5} />}

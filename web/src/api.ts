@@ -163,6 +163,23 @@ export async function createLink(
   );
 }
 
+// updateLink sets (or clears, when note is empty) the free-text note associated
+// with a user-created edge within a projection.
+export async function updateLink(
+  namespace: string,
+  name: string,
+  from: string,
+  to: string,
+  type: string,
+  note: string,
+): Promise<void> {
+  await sendJSON<void>(
+    "PATCH",
+    `/api/projections/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/links`,
+    { from, to, type, note },
+  );
+}
+
 // deleteLink removes a user-created edge between two nodes within a projection.
 export async function deleteLink(
   namespace: string,

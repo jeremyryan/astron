@@ -247,7 +247,12 @@ dependency Gamera doesn't derive automatically.
 Custom links are drawn in the `CUSTOM` (cyan) color and are **persisted** — they
 survive projection re‑syncs and reloads.
 
-**To remove a link:** right‑click a custom link and choose **Delete link**.
+**To annotate a link:** right‑click a custom link and choose **Edit** to open a
+note editor. The note you enter is stored on the relationship, shown in the
+link's details in the Inspector, and — for projections with GraphRAG enabled —
+folded into the endpoints' embeddings so it is searchable.
+
+**To remove a link:** right‑click a custom link and choose **Delete**.
 
 ---
 
