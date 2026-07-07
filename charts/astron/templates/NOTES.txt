@@ -1,14 +1,14 @@
-Project Gamera has been installed.
+Project Astron has been installed.
 
 Release:   {{ .Release.Name }}
 Namespace: {{ .Release.Namespace }}
 
-Operator deployment: {{ include "gamera.fullname" . }}
+Operator deployment: {{ include "astron.fullname" . }}
 
 {{- if .Values.neo4j.enabled }}
 
 A bundled Neo4J instance was deployed as a dependency.
-  Bolt URI:  {{ include "gamera.neo4jUri" . }}
+  Bolt URI:  {{ include "astron.neo4jUri" . }}
   Username:  {{ .Values.connection.username }}
   Password:  (from {{ if .Values.connection.existingSecret }}existing secret "{{ .Values.connection.existingSecret }}"{{ else }}value neo4j.neo4j.password{{ end }})
 
@@ -17,15 +17,15 @@ A bundled Neo4J instance was deployed as a dependency.
 {{- else }}
 
 Using an external Neo4J instance:
-  Bolt URI:  {{ include "gamera.neo4jUri" . | default "(set connection.uri)" }}
-  Credentials secret: {{ include "gamera.credentialsSecretName" . }}
+  Bolt URI:  {{ include "astron.neo4jUri" . | default "(set connection.uri)" }}
+  Credentials secret: {{ include "astron.credentialsSecretName" . }}
 {{- end }}
 
 {{- if .Values.controller.api.enabled }}
 
 To open the web UI locally:
 
-  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "gamera.fullname" . }}-api {{ .Values.service.api.port }}:{{ .Values.service.api.port }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "astron.fullname" . }}-api {{ .Values.service.api.port }}:{{ .Values.service.api.port }}
 
   Then browse to http://localhost:{{ .Values.service.api.port }}
 {{- end }}

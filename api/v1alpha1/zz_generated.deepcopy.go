@@ -307,6 +307,11 @@ func (in *GraphViewFilters) DeepCopyInto(out *GraphViewFilters) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.VisibleKinds != nil {
+		in, out := &in.VisibleKinds, &out.VisibleKinds
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.HiddenNamespaces != nil {
 		in, out := &in.HiddenNamespaces, &out.HiddenNamespaces
 		*out = make([]string, len(*in))

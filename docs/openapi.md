@@ -1,6 +1,6 @@
 # OpenAPI specification
 
-The Gamera HTTP API is described by an OpenAPI 3 document that is **generated
+The Astron HTTP API is described by an OpenAPI 3 document that is **generated
 from the Go request/response types**, so it stays in sync with the code.
 
 ## Where to get it

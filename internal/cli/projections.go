@@ -55,7 +55,7 @@ func newProjectionsRemoveCmd(opts *options) *cobra.Command {
 		Short:   "Delete a GraphProjection from a namespace",
 		Long: "rm deletes the named GraphProjection from the given namespace.\n\n" +
 			"It talks directly to the Kubernetes API (via your kubeconfig), not the\n" +
-			"Gamera read API, so the --server flag does not apply here.",
+			"Astron read API, so the --server flag does not apply here.",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := ropts.kube.restConfig()
@@ -88,7 +88,7 @@ func deleteProjection(cmd *cobra.Command, dyn dynamic.Interface, namespace, name
 		}
 		return fmt.Errorf("deleting GraphProjection %s/%s: %w", namespace, name, err)
 	}
-	_, err := fmt.Fprintf(cmd.OutOrStdout(), "graphprojection.gamera.gamera.io/%s deleted from namespace %s\n", name, namespace)
+	_, err := fmt.Fprintf(cmd.OutOrStdout(), "graphprojection.astron.astron.io/%s deleted from namespace %s\n", name, namespace)
 	return err
 }
 

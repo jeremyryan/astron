@@ -1,18 +1,18 @@
-# Gamera Web UI — User Guide
+# Astron Web UI — User Guide
 
-The Gamera web UI is an interactive tool for exploring and understanding your Kubernetes cluster's resources and their relationships. This guide walks you through the main features and how to use them effectively.
+The Astron web UI is an interactive tool for exploring and understanding your Kubernetes cluster's resources and their relationships. This guide walks you through the main features and how to use them effectively.
 
 ## Getting Started
 
 ### Accessing the UI
 
-Once Gamera is deployed in your cluster, the web UI is available at the address where the Gamera API service is exposed. By default:
+Once Astron is deployed in your cluster, the web UI is available at the address where the Astron API service is exposed. By default:
 
 - **Local development**: `http://localhost:8082` (when running `make dev`)
 - **In a cluster**: Use `kubectl port-forward` to access it:
 
   ```bash
-  kubectl -n gamera port-forward svc/gamera-api 8082:8082
+  kubectl -n astron port-forward svc/astron-api 8082:8082
   # Then open http://localhost:8082
   ```
 
@@ -354,9 +354,9 @@ These settings are persisted in your browser's local storage, so they persist ac
 
 ## Feedback & Support
 
-Found a bug or have a feature request? Open an issue on the [Project Gamera repository](https://github.com/your-org/gamera). Include:
+Found a bug or have a feature request? Open an issue on the [Project Astron repository](https://github.com/your-org/astron). Include:
 
 - Steps to reproduce
 - Screenshots or a short video
-- Your cluster version and Gamera version
+- Your cluster version and Astron version
 - Browser and OS information

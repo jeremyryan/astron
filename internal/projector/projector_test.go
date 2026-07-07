@@ -24,8 +24,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 
-	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
-	"github.com/project-gamera/gamera/internal/relationship"
+	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
+	"github.com/project-astron/astron/internal/relationship"
 )
 
 // newCRD builds a CustomResourceDefinition object in the example.com group that
@@ -182,8 +182,8 @@ func TestNodeForHTTPRouteHostnames(t *testing.T) {
 }
 
 func TestInScope(t *testing.T) {
-	spec := gamerav1alpha1.GraphProjectionSpec{
-		Scope: gamerav1alpha1.ProjectionScope{
+	spec := astronv1alpha1.GraphProjectionSpec{
+		Scope: astronv1alpha1.ProjectionScope{
 			Namespaces:    []string{"prod"},
 			LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"tier": "frontend"}},
 		},
@@ -210,8 +210,8 @@ func TestInScope(t *testing.T) {
 }
 
 func TestInScopeOwnNamespaceOnly(t *testing.T) {
-	spec := gamerav1alpha1.GraphProjectionSpec{
-		Scope: gamerav1alpha1.ProjectionScope{
+	spec := astronv1alpha1.GraphProjectionSpec{
+		Scope: astronv1alpha1.ProjectionScope{
 			OwnNamespaceOnly: true,
 			// namespaces is ignored when ownNamespaceOnly is set.
 			Namespaces: []string{"other"},
@@ -245,14 +245,14 @@ func TestInScopeOwnNamespaceOnly(t *testing.T) {
 }
 
 func TestInScopeNoFilters(t *testing.T) {
-	p := New(Options{Spec: gamerav1alpha1.GraphProjectionSpec{}})
+	p := New(Options{Spec: astronv1alpha1.GraphProjectionSpec{}})
 	if !p.inScope(newObj("anything", "x", nil)) {
 		t.Error("expected object to be in scope when no filters are configured")
 	}
 }
 
 func TestScopedGVKsDefaults(t *testing.T) {
-	p := New(Options{Spec: gamerav1alpha1.GraphProjectionSpec{}})
+	p := New(Options{Spec: astronv1alpha1.GraphProjectionSpec{}})
 	gvks := p.scopedGVKs()
 	if len(gvks) != len(defaultResources()) {
 		t.Errorf("expected default resource set, got %d kinds", len(gvks))
@@ -260,10 +260,10 @@ func TestScopedGVKsDefaults(t *testing.T) {
 }
 
 func TestScopedGVKsIncludesCRDWhenEnabled(t *testing.T) {
-	spec := gamerav1alpha1.GraphProjectionSpec{
-		Scope: gamerav1alpha1.ProjectionScope{
-			Resources: []gamerav1alpha1.ResourceSelector{{Group: "example.com", Version: "v1", Kind: "Widget"}},
-			CRDs:      &gamerav1alpha1.CRDSelection{Include: true},
+	spec := astronv1alpha1.GraphProjectionSpec{
+		Scope: astronv1alpha1.ProjectionScope{
+			Resources: []astronv1alpha1.ResourceSelector{{Group: "example.com", Version: "v1", Kind: "Widget"}},
+			CRDs:      &astronv1alpha1.CRDSelection{Include: true},
 		},
 	}
 	p := New(Options{Spec: spec})
@@ -287,22 +287,22 @@ func TestCRDSelected(t *testing.T) {
 	crdB := newCRD("gadgets.example.com", "Gadget")
 
 	// Not enabled: no CRD captured.
-	p := New(Options{Spec: gamerav1alpha1.GraphProjectionSpec{}})
+	p := New(Options{Spec: astronv1alpha1.GraphProjectionSpec{}})
 	if p.inScope(crdA) {
 		t.Error("expected CRD not captured when crds is unset")
 	}
 
 	// Include all.
-	pAll := New(Options{Spec: gamerav1alpha1.GraphProjectionSpec{
-		Scope: gamerav1alpha1.ProjectionScope{CRDs: &gamerav1alpha1.CRDSelection{Include: true}},
+	pAll := New(Options{Spec: astronv1alpha1.GraphProjectionSpec{
+		Scope: astronv1alpha1.ProjectionScope{CRDs: &astronv1alpha1.CRDSelection{Include: true}},
 	}})
 	if !pAll.inScope(crdA) || !pAll.inScope(crdB) {
 		t.Error("expected all CRDs captured when include is true")
 	}
 
 	// Named list only.
-	pNamed := New(Options{Spec: gamerav1alpha1.GraphProjectionSpec{
-		Scope: gamerav1alpha1.ProjectionScope{CRDs: &gamerav1alpha1.CRDSelection{Names: []string{"widgets.example.com"}}},
+	pNamed := New(Options{Spec: astronv1alpha1.GraphProjectionSpec{
+		Scope: astronv1alpha1.ProjectionScope{CRDs: &astronv1alpha1.CRDSelection{Names: []string{"widgets.example.com"}}},
 	}})
 	if !pNamed.inScope(crdA) {
 		t.Error("expected named CRD to be captured")
@@ -317,10 +317,10 @@ func TestCRDSelectedBypassesOwnNamespaceFilter(t *testing.T) {
 	// ownNamespaceOnly, which otherwise drops cluster-scoped objects.
 	p := New(Options{
 		Namespace: "team-a",
-		Spec: gamerav1alpha1.GraphProjectionSpec{
-			Scope: gamerav1alpha1.ProjectionScope{
+		Spec: astronv1alpha1.GraphProjectionSpec{
+			Scope: astronv1alpha1.ProjectionScope{
 				OwnNamespaceOnly: true,
-				CRDs:             &gamerav1alpha1.CRDSelection{Include: true},
+				CRDs:             &astronv1alpha1.CRDSelection{Include: true},
 			},
 		},
 	})
@@ -336,8 +336,8 @@ func TestCRDEdges(t *testing.T) {
 	pod := newObj("ns1", "p1", nil) // unrelated kind: must not be linked
 	objs := []*unstructured.Unstructured{crd, w1, w2, pod}
 
-	p := New(Options{Spec: gamerav1alpha1.GraphProjectionSpec{
-		Scope: gamerav1alpha1.ProjectionScope{CRDs: &gamerav1alpha1.CRDSelection{Include: true}},
+	p := New(Options{Spec: astronv1alpha1.GraphProjectionSpec{
+		Scope: astronv1alpha1.ProjectionScope{CRDs: &astronv1alpha1.CRDSelection{Include: true}},
 	}})
 	index := relationship.NewMapIndex(objs...)
 	edges := p.crdEdges(objs, index)
@@ -361,7 +361,7 @@ func TestCRDEdges(t *testing.T) {
 }
 
 func TestCRDEdgesDisabled(t *testing.T) {
-	p := New(Options{Spec: gamerav1alpha1.GraphProjectionSpec{}})
+	p := New(Options{Spec: astronv1alpha1.GraphProjectionSpec{}})
 	crd := newCRD("widgets.example.com", "Widget")
 	w1 := newCustom("example.com/v1", "Widget", "ns1", "w1")
 	objs := []*unstructured.Unstructured{crd, w1}
@@ -371,9 +371,9 @@ func TestCRDEdgesDisabled(t *testing.T) {
 }
 
 func TestScopedGVKsExplicit(t *testing.T) {
-	spec := gamerav1alpha1.GraphProjectionSpec{
-		Scope: gamerav1alpha1.ProjectionScope{
-			Resources: []gamerav1alpha1.ResourceSelector{{Version: "v1", Kind: podKind}},
+	spec := astronv1alpha1.GraphProjectionSpec{
+		Scope: astronv1alpha1.ProjectionScope{
+			Resources: []astronv1alpha1.ResourceSelector{{Version: "v1", Kind: podKind}},
 		},
 	}
 	p := New(Options{Spec: spec})
@@ -386,14 +386,14 @@ func TestScopedGVKsExplicit(t *testing.T) {
 func TestScopedGVKsCapturesRelationshipEndpoints(t *testing.T) {
 	// A rule references ServiceAccount, which is not listed under resources.
 	// scopedGVKs must still watch it so RUNS edges have nodes to attach to.
-	spec := gamerav1alpha1.GraphProjectionSpec{
-		Scope: gamerav1alpha1.ProjectionScope{
-			Resources: []gamerav1alpha1.ResourceSelector{{Version: "v1", Kind: podKind}},
+	spec := astronv1alpha1.GraphProjectionSpec{
+		Scope: astronv1alpha1.ProjectionScope{
+			Resources: []astronv1alpha1.ResourceSelector{{Version: "v1", Kind: podKind}},
 		},
-		Relationships: []gamerav1alpha1.RelationshipRule{{
-			Name: "sa-runs-pod", Type: "RUNS", Strategy: gamerav1alpha1.ServiceAccountStrategy,
-			From: gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "ServiceAccount"},
-			To:   gamerav1alpha1.ResourceSelector{Version: "v1", Kind: podKind},
+		Relationships: []astronv1alpha1.RelationshipRule{{
+			Name: "sa-runs-pod", Type: "RUNS", Strategy: astronv1alpha1.ServiceAccountStrategy,
+			From: astronv1alpha1.ResourceSelector{Version: "v1", Kind: "ServiceAccount"},
+			To:   astronv1alpha1.ResourceSelector{Version: "v1", Kind: podKind},
 		}},
 	}
 	p := New(Options{Spec: spec})

@@ -25,8 +25,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
-	"github.com/project-gamera/gamera/internal/graph"
+	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
+	"github.com/project-astron/astron/internal/graph"
 )
 
 // Index provides read access to the set of resources currently in scope for a
@@ -43,34 +43,34 @@ type Index interface {
 // Strategy derives relationships for a single rule against the index.
 type Strategy interface {
 	// Derive returns the edges produced by applying the rule to the index.
-	Derive(rule gamerav1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error)
+	Derive(rule astronv1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error)
 }
 
 // Engine applies a projection's relationship rules to an Index to produce the
 // full set of edges that should exist in the graph.
 type Engine struct {
-	strategies map[gamerav1alpha1.RelationshipStrategy]Strategy
+	strategies map[astronv1alpha1.RelationshipStrategy]Strategy
 }
 
 // NewEngine constructs an Engine with the built-in strategies registered.
 func NewEngine() *Engine {
 	return &Engine{
-		strategies: map[gamerav1alpha1.RelationshipStrategy]Strategy{
-			gamerav1alpha1.OwnerReferenceStrategy: ownerReferenceStrategy{},
-			gamerav1alpha1.LabelSelectorStrategy:  labelSelectorStrategy{},
-			gamerav1alpha1.VolumeMountStrategy:    volumeMountStrategy{},
-			gamerav1alpha1.ClaimRefStrategy:       claimRefStrategy{},
-			gamerav1alpha1.ServiceBackendStrategy: serviceBackendStrategy{},
-			gamerav1alpha1.GatewayParentStrategy:  parentRefStrategy{},
-			gamerav1alpha1.ServiceAccountStrategy: serviceAccountStrategy{},
-			gamerav1alpha1.RoleRefStrategy:        roleRefStrategy{},
-			gamerav1alpha1.BindingSubjectStrategy: bindingSubjectStrategy{},
+		strategies: map[astronv1alpha1.RelationshipStrategy]Strategy{
+			astronv1alpha1.OwnerReferenceStrategy: ownerReferenceStrategy{},
+			astronv1alpha1.LabelSelectorStrategy:  labelSelectorStrategy{},
+			astronv1alpha1.VolumeMountStrategy:    volumeMountStrategy{},
+			astronv1alpha1.ClaimRefStrategy:       claimRefStrategy{},
+			astronv1alpha1.ServiceBackendStrategy: serviceBackendStrategy{},
+			astronv1alpha1.GatewayParentStrategy:  parentRefStrategy{},
+			astronv1alpha1.ServiceAccountStrategy: serviceAccountStrategy{},
+			astronv1alpha1.RoleRefStrategy:        roleRefStrategy{},
+			astronv1alpha1.BindingSubjectStrategy: bindingSubjectStrategy{},
 		},
 	}
 }
 
 // Register adds or overrides a strategy. Used to plug in Custom strategies.
-func (e *Engine) Register(name gamerav1alpha1.RelationshipStrategy, s Strategy) {
+func (e *Engine) Register(name astronv1alpha1.RelationshipStrategy, s Strategy) {
 	e.strategies[name] = s
 }
 
@@ -78,7 +78,7 @@ func (e *Engine) Register(name gamerav1alpha1.RelationshipStrategy, s Strategy) 
 // Errors from individual rules are collected and returned together with the
 // edges that were derived successfully, so a single bad rule does not abort the
 // whole projection.
-func (e *Engine) Derive(rules []gamerav1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
+func (e *Engine) Derive(rules []astronv1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
 	var (
 		edges []graph.Relationship
 		errs  []error
@@ -111,13 +111,13 @@ func refOf(obj *unstructured.Unstructured) graph.Ref {
 }
 
 // selectorGVK resolves a ResourceSelector into a GroupVersionKind.
-func selectorGVK(sel gamerav1alpha1.ResourceSelector) schema.GroupVersionKind {
+func selectorGVK(sel astronv1alpha1.ResourceSelector) schema.GroupVersionKind {
 	return schema.GroupVersionKind{Group: sel.Group, Version: sel.Version, Kind: sel.Kind}
 }
 
 // matchesSelector reports whether an owner reference / object identity matches
 // the kind (and group, when specified) of a ResourceSelector.
-func matchesSelectorKind(sel gamerav1alpha1.ResourceSelector, group, kind string) bool {
+func matchesSelectorKind(sel astronv1alpha1.ResourceSelector, group, kind string) bool {
 	if sel.Kind != kind {
 		return false
 	}

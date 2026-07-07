@@ -69,7 +69,7 @@ by this requeue.
 ## Configuration example
 
 ```yaml
-apiVersion: gamera.gamera.io/v1alpha1
+apiVersion: astron.astron.io/v1alpha1
 kind: GraphProjection
 metadata:
   name: default

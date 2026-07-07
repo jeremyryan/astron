@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package web embeds the built Gamera single-page application so it can be
+// Package web embeds the built Astron single-page application so it can be
 // served directly from the operator binary. Run "npm run build" in this
 // directory to regenerate the contents of dist/.
 package web

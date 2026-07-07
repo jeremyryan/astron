@@ -32,7 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
-	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
+	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
 )
 
 const demoNS = "demo"
@@ -127,21 +127,21 @@ func TestSelectNamespacedKinds(t *testing.T) {
 
 func TestBuildRelationshipsGatedOnKinds(t *testing.T) {
 	// Only Service and Pod present: only the service-selects-pod rule applies.
-	rules := buildRelationships([]gamerav1alpha1.ResourceSelector{service, pod})
+	rules := buildRelationships([]astronv1alpha1.ResourceSelector{service, pod})
 	if len(rules) != 1 || rules[0].Name != "service-selects-pod" {
 		t.Fatalf("expected only service-selects-pod, got %+v", rules)
 	}
 
 	// No Pod present: nothing that targets Pod should be emitted.
-	rules = buildRelationships([]gamerav1alpha1.ResourceSelector{service, configMap})
+	rules = buildRelationships([]astronv1alpha1.ResourceSelector{service, configMap})
 	if len(rules) != 0 {
 		t.Fatalf("expected no rules without Pod, got %+v", rules)
 	}
 
 	// PVC and Pod present: the pvc-mounts-pod MOUNTS rule should be emitted so
 	// PVCs get linked to the Pods that mount them.
-	rules = buildRelationships([]gamerav1alpha1.ResourceSelector{pvc, pod})
-	var pvcRule *gamerav1alpha1.RelationshipRule
+	rules = buildRelationships([]astronv1alpha1.ResourceSelector{pvc, pod})
+	var pvcRule *astronv1alpha1.RelationshipRule
 	for i := range rules {
 		if rules[i].Name == "pvc-mounts-pod" {
 			pvcRule = &rules[i]
@@ -150,7 +150,7 @@ func TestBuildRelationshipsGatedOnKinds(t *testing.T) {
 	if pvcRule == nil {
 		t.Fatalf("expected pvc-mounts-pod rule, got %+v", rules)
 	}
-	if pvcRule.Type != "MOUNTS" || pvcRule.Strategy != gamerav1alpha1.VolumeMountStrategy {
+	if pvcRule.Type != "MOUNTS" || pvcRule.Strategy != astronv1alpha1.VolumeMountStrategy {
 		t.Errorf("unexpected pvc-mounts-pod rule: %+v", *pvcRule)
 	}
 	if pvcRule.From.Kind != "PersistentVolumeClaim" || pvcRule.To.Kind != "Pod" {
@@ -168,11 +168,11 @@ func TestBuildManifest(t *testing.T) {
 		resyncInterval:    "10m",
 		withRelationships: true,
 	}
-	selectors := []gamerav1alpha1.ResourceSelector{pod, service, configMap}
+	selectors := []astronv1alpha1.ResourceSelector{pod, service, configMap}
 
 	m := buildManifest(gopts, demoNS, selectors)
 
-	if m.APIVersion != gamerav1alpha1.GroupVersion.String() {
+	if m.APIVersion != astronv1alpha1.GroupVersion.String() {
 		t.Errorf("unexpected apiVersion: %s", m.APIVersion)
 	}
 	if m.Kind != "GraphProjection" {
@@ -194,14 +194,14 @@ func TestBuildManifest(t *testing.T) {
 
 func TestBuildManifestWithoutRelationships(t *testing.T) {
 	gopts := &generateOptions{options: &options{}, withRelationships: false}
-	m := buildManifest(gopts, demoNS, []gamerav1alpha1.ResourceSelector{pod, service})
+	m := buildManifest(gopts, demoNS, []astronv1alpha1.ResourceSelector{pod, service})
 	if len(m.Spec.Relationships) != 0 {
 		t.Errorf("expected no relationships, got %+v", m.Spec.Relationships)
 	}
 }
 
 func TestWriteManifestToStdout(t *testing.T) {
-	m := buildManifest(&generateOptions{options: &options{}}, demoNS, []gamerav1alpha1.ResourceSelector{pod})
+	m := buildManifest(&generateOptions{options: &options{}}, demoNS, []astronv1alpha1.ResourceSelector{pod})
 	cmd := &cobra.Command{}
 	var out bytes.Buffer
 	cmd.SetOut(&out)
@@ -214,7 +214,7 @@ func TestWriteManifestToStdout(t *testing.T) {
 }
 
 func TestWriteManifestToFile(t *testing.T) {
-	m := buildManifest(&generateOptions{options: &options{}}, demoNS, []gamerav1alpha1.ResourceSelector{pod})
+	m := buildManifest(&generateOptions{options: &options{}}, demoNS, []astronv1alpha1.ResourceSelector{pod})
 	path := filepath.Join(t.TempDir(), "proj.yaml")
 	cmd := &cobra.Command{}
 	var out, errb bytes.Buffer
@@ -256,7 +256,7 @@ func TestParseViewSelection(t *testing.T) {
 }
 
 func TestWriteManifestsWithViews(t *testing.T) {
-	m := buildManifest(&generateOptions{options: &options{}}, demoNS, []gamerav1alpha1.ResourceSelector{pod})
+	m := buildManifest(&generateOptions{options: &options{}}, demoNS, []astronv1alpha1.ResourceSelector{pod})
 	views, _ := parseViewSelection("compute,networking")
 	vms := make([]viewManifest, 0, len(views))
 	for _, v := range views {
@@ -295,7 +295,7 @@ func TestApplyView(t *testing.T) {
 	if err := applyView(cmd, dyn, vm); err != nil {
 		t.Fatalf("applyView: %v", err)
 	}
-	if !strings.Contains(out.String(), "graphview.gamera.gamera.io/web-compute created in namespace demo") {
+	if !strings.Contains(out.String(), "graphview.astron.astron.io/web-compute created in namespace demo") {
 		t.Errorf("unexpected confirmation: %q", out.String())
 	}
 
@@ -336,7 +336,7 @@ func TestApplyProjection(t *testing.T) {
 		neo4jDatabase: "neo4j",
 		neo4jSecret:   "creds",
 	}
-	m := buildManifest(gopts, demoNS, []gamerav1alpha1.ResourceSelector{pod, service})
+	m := buildManifest(gopts, demoNS, []astronv1alpha1.ResourceSelector{pod, service})
 
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
@@ -345,7 +345,7 @@ func TestApplyProjection(t *testing.T) {
 	if err := applyProjection(cmd, dyn, m); err != nil {
 		t.Fatalf("applyProjection: %v", err)
 	}
-	if !strings.Contains(out.String(), "graphprojection.gamera.gamera.io/demo created") {
+	if !strings.Contains(out.String(), "graphprojection.astron.astron.io/demo created") {
 		t.Errorf("unexpected confirmation: %q", out.String())
 	}
 
@@ -354,7 +354,7 @@ func TestApplyProjection(t *testing.T) {
 	if err := applyProjection(cmd, dyn, m); err != nil {
 		t.Fatalf("re-applyProjection: %v", err)
 	}
-	if !strings.Contains(out.String(), "graphprojection.gamera.gamera.io/demo configured") {
+	if !strings.Contains(out.String(), "graphprojection.astron.astron.io/demo configured") {
 		t.Errorf("expected 'configured' on re-apply, got: %q", out.String())
 	}
 
@@ -376,7 +376,7 @@ func TestDeleteProjection(t *testing.T) {
 	gvrToListKind := map[schema.GroupVersionResource]string{
 		graphProjectionGVR: "GraphProjectionList",
 	}
-	existing := obj(gamerav1alpha1.GroupVersion.String(), "GraphProjection", demoNS, "web")
+	existing := obj(astronv1alpha1.GroupVersion.String(), "GraphProjection", demoNS, "web")
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, existing)
 
 	cmd := &cobra.Command{}
@@ -387,7 +387,7 @@ func TestDeleteProjection(t *testing.T) {
 	if err := deleteProjection(cmd, dyn, demoNS, "web"); err != nil {
 		t.Fatalf("deleteProjection: %v", err)
 	}
-	if !strings.Contains(out.String(), "graphprojection.gamera.gamera.io/web deleted from namespace demo") {
+	if !strings.Contains(out.String(), "graphprojection.astron.astron.io/web deleted from namespace demo") {
 		t.Errorf("unexpected confirmation: %q", out.String())
 	}
 

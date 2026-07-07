@@ -17,9 +17,9 @@ limitations under the License.
 package api
 
 import (
-	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
-	"github.com/project-gamera/gamera/internal/graph"
-	"github.com/project-gamera/gamera/internal/projector"
+	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
+	"github.com/project-astron/astron/internal/graph"
+	"github.com/project-astron/astron/internal/projector"
 )
 
 // projectionDTO is the API representation of a GraphProjection summary.
@@ -32,7 +32,7 @@ type projectionDTO struct {
 	RelationshipCount int64  `json:"relationshipCount"`
 }
 
-func projectionToDTO(p gamerav1alpha1.GraphProjection) projectionDTO {
+func projectionToDTO(p astronv1alpha1.GraphProjection) projectionDTO {
 	return projectionDTO{
 		UID:               string(p.UID),
 		Namespace:         p.Namespace,
@@ -202,7 +202,7 @@ type viewDTO struct {
 	Filters       viewFiltersDTO   `json:"filters"`
 }
 
-func viewToDTO(v *gamerav1alpha1.GraphView) viewDTO {
+func viewToDTO(v *astronv1alpha1.GraphView) viewDTO {
 	f := v.Spec.Filters
 	labels := make([]labelFilterDTO, 0, len(f.LabelFilters))
 	for _, lf := range f.LabelFilters {
@@ -232,19 +232,19 @@ func viewToDTO(v *gamerav1alpha1.GraphView) viewDTO {
 }
 
 // dtoToViewSpec builds a GraphViewSpec from the API request representation.
-func dtoToViewSpec(in viewDTO) gamerav1alpha1.GraphViewSpec {
-	labels := make([]gamerav1alpha1.LabelFilter, 0, len(in.Filters.LabelFilters))
+func dtoToViewSpec(in viewDTO) astronv1alpha1.GraphViewSpec {
+	labels := make([]astronv1alpha1.LabelFilter, 0, len(in.Filters.LabelFilters))
 	for _, lf := range in.Filters.LabelFilters {
-		labels = append(labels, gamerav1alpha1.LabelFilter{Key: lf.Key, Value: lf.Value})
+		labels = append(labels, astronv1alpha1.LabelFilter{Key: lf.Key, Value: lf.Value})
 	}
-	return gamerav1alpha1.GraphViewSpec{
-		ProjectionRef: gamerav1alpha1.ProjectionReference{
+	return astronv1alpha1.GraphViewSpec{
+		ProjectionRef: astronv1alpha1.ProjectionReference{
 			Name:      in.ProjectionRef.Name,
 			Namespace: in.ProjectionRef.Namespace,
 		},
 		DisplayName: in.DisplayName,
 		Description: in.Description,
-		Filters: gamerav1alpha1.GraphViewFilters{
+		Filters: astronv1alpha1.GraphViewFilters{
 			KindMode:         in.Filters.KindMode,
 			HiddenKinds:      in.Filters.HiddenKinds,
 			VisibleKinds:     in.Filters.VisibleKinds,

@@ -32,23 +32,23 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
-	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
+	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
 )
 
 func TestParseResourceSelector(t *testing.T) {
 	cases := []struct {
 		in   string
-		want gamerav1alpha1.ResourceSelector
+		want astronv1alpha1.ResourceSelector
 		err  bool
 	}{
-		{"Pod", gamerav1alpha1.ResourceSelector{Kind: "Pod"}, false},
-		{"v1/Pod", gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "Pod"}, false},
-		{"/v1/Pod", gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "Pod"}, false},
-		{"apps/v1/Deployment", gamerav1alpha1.ResourceSelector{Group: "apps", Version: "v1", Kind: "Deployment"}, false},
-		{" apps/v1/Deployment ", gamerav1alpha1.ResourceSelector{Group: "apps", Version: "v1", Kind: "Deployment"}, false},
-		{"", gamerav1alpha1.ResourceSelector{}, true},
-		{"a/b/c/d", gamerav1alpha1.ResourceSelector{}, true},
-		{"apps/v1/", gamerav1alpha1.ResourceSelector{}, true},
+		{"Pod", astronv1alpha1.ResourceSelector{Kind: "Pod"}, false},
+		{"v1/Pod", astronv1alpha1.ResourceSelector{Version: "v1", Kind: "Pod"}, false},
+		{"/v1/Pod", astronv1alpha1.ResourceSelector{Version: "v1", Kind: "Pod"}, false},
+		{"apps/v1/Deployment", astronv1alpha1.ResourceSelector{Group: "apps", Version: "v1", Kind: "Deployment"}, false},
+		{" apps/v1/Deployment ", astronv1alpha1.ResourceSelector{Group: "apps", Version: "v1", Kind: "Deployment"}, false},
+		{"", astronv1alpha1.ResourceSelector{}, true},
+		{"a/b/c/d", astronv1alpha1.ResourceSelector{}, true},
+		{"apps/v1/", astronv1alpha1.ResourceSelector{}, true},
 	}
 	for _, c := range cases {
 		got, err := parseResourceSelector(c.in)
@@ -69,11 +69,11 @@ func TestParseResourceSelector(t *testing.T) {
 }
 
 func TestApplyResourceChanges(t *testing.T) {
-	existing := []gamerav1alpha1.ResourceSelector{
+	existing := []astronv1alpha1.ResourceSelector{
 		{Version: "v1", Kind: "Pod"},
 		{Version: "v1", Kind: "Service"},
 	}
-	add := []gamerav1alpha1.ResourceSelector{
+	add := []astronv1alpha1.ResourceSelector{
 		{Group: "apps", Version: "v1", Kind: "Deployment"}, // new
 		{Version: "v1", Kind: "Pod"},                       // already present, identical -> no-op
 	}
@@ -83,7 +83,7 @@ func TestApplyResourceChanges(t *testing.T) {
 	if added != 1 || removed != 1 {
 		t.Fatalf("expected +1/-1, got +%d/-%d", added, removed)
 	}
-	want := []gamerav1alpha1.ResourceSelector{
+	want := []astronv1alpha1.ResourceSelector{
 		{Version: "v1", Kind: "Pod"},
 		{Group: "apps", Version: "v1", Kind: "Deployment"},
 	}
@@ -93,21 +93,21 @@ func TestApplyResourceChanges(t *testing.T) {
 }
 
 func TestApplyResourceChangesOverridesGroupVersion(t *testing.T) {
-	existing := []gamerav1alpha1.ResourceSelector{{Version: "v1beta1", Kind: "Deployment"}}
-	add := []gamerav1alpha1.ResourceSelector{{Group: "apps", Version: "v1", Kind: "Deployment"}}
+	existing := []astronv1alpha1.ResourceSelector{{Version: "v1beta1", Kind: "Deployment"}}
+	add := []astronv1alpha1.ResourceSelector{{Group: "apps", Version: "v1", Kind: "Deployment"}}
 
 	got, added, removed := applyResourceChanges(existing, add, nil)
 	if added != 1 || removed != 0 {
 		t.Fatalf("expected +1/-0, got +%d/-%d", added, removed)
 	}
-	want := []gamerav1alpha1.ResourceSelector{{Group: "apps", Version: "v1", Kind: "Deployment"}}
+	want := []astronv1alpha1.ResourceSelector{{Group: "apps", Version: "v1", Kind: "Deployment"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected override, got %+v", got)
 	}
 }
 
 func projectionWithResources(ns, name string, res ...map[string]any) *unstructured.Unstructured {
-	u := obj(gamerav1alpha1.GroupVersion.String(), "GraphProjection", ns, name)
+	u := obj(astronv1alpha1.GroupVersion.String(), "GraphProjection", ns, name)
 	raw := make([]any, 0, len(res))
 	for _, r := range res {
 		raw = append(raw, r)
@@ -130,7 +130,7 @@ func TestUpdateProjectionResources(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	add := []gamerav1alpha1.ResourceSelector{{Group: "apps", Version: "v1", Kind: "Deployment"}}
+	add := []astronv1alpha1.ResourceSelector{{Group: "apps", Version: "v1", Kind: "Deployment"}}
 	remove := map[string]bool{"Service": true}
 	if err := updateProjectionResources(cmd, dyn, demoNS, "web", add, remove); err != nil {
 		t.Fatalf("updateProjectionResources: %v", err)
@@ -156,8 +156,8 @@ func TestUpdateProjectionResources(t *testing.T) {
 
 func TestApplyRelationshipChangesAddAndRemove(t *testing.T) {
 	// Adding Service (with Pod already present) should pull in service-selects-pod.
-	existingRels := []gamerav1alpha1.RelationshipRule{}
-	updated := []gamerav1alpha1.ResourceSelector{{Version: "v1", Kind: "Pod"}, {Version: "v1", Kind: "Service"}}
+	existingRels := []astronv1alpha1.RelationshipRule{}
+	updated := []astronv1alpha1.ResourceSelector{{Version: "v1", Kind: "Pod"}, {Version: "v1", Kind: "Service"}}
 	rels, added, removed := applyRelationshipChanges(existingRels, updated,
 		map[string]bool{"Service": true}, nil)
 	if added != 1 || removed != 0 {
@@ -168,7 +168,7 @@ func TestApplyRelationshipChangesAddAndRemove(t *testing.T) {
 	}
 
 	// Removing Service should drop the relationship referencing it.
-	updatedAfterRemove := []gamerav1alpha1.ResourceSelector{{Version: "v1", Kind: "Pod"}}
+	updatedAfterRemove := []astronv1alpha1.ResourceSelector{{Version: "v1", Kind: "Pod"}}
 	rels2, added2, removed2 := applyRelationshipChanges(rels, updatedAfterRemove,
 		nil, map[string]bool{"Service": true})
 	if added2 != 0 || removed2 != 1 {
@@ -180,14 +180,14 @@ func TestApplyRelationshipChangesAddAndRemove(t *testing.T) {
 }
 
 func TestApplyRelationshipChangesPreservesUnrelated(t *testing.T) {
-	custom := gamerav1alpha1.RelationshipRule{
-		Name: "custom", Type: "LINKS", Strategy: gamerav1alpha1.CustomStrategy,
-		From: gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "Pod"},
-		To:   gamerav1alpha1.ResourceSelector{Version: "v1", Kind: "Pod"},
+	custom := astronv1alpha1.RelationshipRule{
+		Name: "custom", Type: "LINKS", Strategy: astronv1alpha1.CustomStrategy,
+		From: astronv1alpha1.ResourceSelector{Version: "v1", Kind: "Pod"},
+		To:   astronv1alpha1.ResourceSelector{Version: "v1", Kind: "Pod"},
 	}
-	updated := []gamerav1alpha1.ResourceSelector{{Version: "v1", Kind: "Pod"}, {Group: "apps", Version: "v1", Kind: "Deployment"}}
+	updated := []astronv1alpha1.ResourceSelector{{Version: "v1", Kind: "Pod"}, {Group: "apps", Version: "v1", Kind: "Deployment"}}
 	// Removing ConfigMap (referenced by nothing here) must not touch the custom rule.
-	rels, added, removed := applyRelationshipChanges([]gamerav1alpha1.RelationshipRule{custom}, updated,
+	rels, added, removed := applyRelationshipChanges([]astronv1alpha1.RelationshipRule{custom}, updated,
 		nil, map[string]bool{"ConfigMap": true})
 	if added != 0 || removed != 0 || len(rels) != 1 || rels[0].Name != "custom" {
 		t.Fatalf("custom rule should be preserved: +%d/-%d %+v", added, removed, rels)
@@ -206,7 +206,7 @@ func TestUpdateProjectionResourcesReconcilesRelationships(t *testing.T) {
 	cmd.SetOut(&out)
 
 	// Add Service: service-selects-pod relationship should be added.
-	add := []gamerav1alpha1.ResourceSelector{{Version: "v1", Kind: "Service"}}
+	add := []astronv1alpha1.ResourceSelector{{Version: "v1", Kind: "Service"}}
 	if err := updateProjectionResources(cmd, dyn, demoNS, "web", add, nil); err != nil {
 		t.Fatalf("updateProjectionResources: %v", err)
 	}
@@ -246,7 +246,7 @@ func TestUpdateProjectionResourcesNoChange(t *testing.T) {
 	cmd.SetOut(&out)
 
 	// Removing an absent kind and re-adding an identical one is a no-op.
-	add := []gamerav1alpha1.ResourceSelector{{Version: "v1", Kind: "Pod"}}
+	add := []astronv1alpha1.ResourceSelector{{Version: "v1", Kind: "Pod"}}
 	if err := updateProjectionResources(cmd, dyn, demoNS, "web", add, map[string]bool{"Ingress": true}); err != nil {
 		t.Fatalf("updateProjectionResources: %v", err)
 	}
@@ -265,13 +265,13 @@ func TestUpdateProjectionResourcesNotFound(t *testing.T) {
 	cmd.SetOut(&bytes.Buffer{})
 
 	err := updateProjectionResources(cmd, dyn, demoNS, "missing",
-		[]gamerav1alpha1.ResourceSelector{{Version: "v1", Kind: "Pod"}}, nil)
+		[]astronv1alpha1.ResourceSelector{{Version: "v1", Kind: "Pod"}}, nil)
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("expected not-found error, got %v", err)
 	}
 }
 
-const fileProjection = `apiVersion: gamera.gamera.io/v1alpha1
+const fileProjection = `apiVersion: astron.astron.io/v1alpha1
 kind: GraphProjection
 metadata:
   name: web
@@ -325,7 +325,7 @@ func mustReadFile(t *testing.T, path string) []byte {
 func TestUpdateFileMultiDocumentPreservesOtherDocs(t *testing.T) {
 	content := fileProjection + `---
 # keep me
-apiVersion: gamera.gamera.io/v1alpha1
+apiVersion: astron.astron.io/v1alpha1
 kind: GraphView
 metadata:
   name: web-compute

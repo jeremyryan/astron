@@ -30,20 +30,20 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/project-gamera/gamera/test/utils"
+	"github.com/project-astron/astron/test/utils"
 )
 
 // namespace where the project is deployed in
-const namespace = "gamera-system"
+const namespace = "astron-system"
 
 // serviceAccountName created for the project
-const serviceAccountName = "gamera-controller-manager"
+const serviceAccountName = "astron-controller-manager"
 
 // metricsServiceName is the name of the metrics service of the project
-const metricsServiceName = "gamera-controller-manager-metrics-service"
+const metricsServiceName = "astron-controller-manager-metrics-service"
 
 // metricsRoleBindingName is the name of the RBAC that will be created to allow get the metrics data
-const metricsRoleBindingName = "gamera-metrics-binding"
+const metricsRoleBindingName = "astron-metrics-binding"
 
 var _ = Describe("Manager", Ordered, func() {
 	var controllerPodName string
@@ -176,7 +176,7 @@ var _ = Describe("Manager", Ordered, func() {
 		It("should ensure the metrics endpoint is serving metrics", func() {
 			By("creating a ClusterRoleBinding for the service account to allow access to metrics")
 			cmd := exec.Command("kubectl", "create", "clusterrolebinding", metricsRoleBindingName,
-				"--clusterrole=gamera-metrics-reader",
+				"--clusterrole=astron-metrics-reader",
 				fmt.Sprintf("--serviceaccount=%s:%s", namespace, serviceAccountName),
 			)
 			_, err := utils.Run(cmd)

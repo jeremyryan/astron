@@ -29,9 +29,9 @@ import (
 	"k8s.io/client-go/tools/cache"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
-	"github.com/project-gamera/gamera/internal/graph"
-	"github.com/project-gamera/gamera/internal/relationship"
+	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
+	"github.com/project-astron/astron/internal/graph"
+	"github.com/project-astron/astron/internal/relationship"
 )
 
 // crdGroup/crdKind identify CustomResourceDefinition objects, and crdDefinesType
@@ -410,7 +410,7 @@ func (p *Projector) scopedGVKs() []schema.GroupVersionKind {
 	// an unwatched kind; those edges have no node to attach to and are silently
 	// dropped when written. Kinds already covered by scope.resources are skipped
 	// to avoid registering a duplicate informer for the same resource.
-	addEndpoint := func(sel gamerav1alpha1.ResourceSelector) {
+	addEndpoint := func(sel astronv1alpha1.ResourceSelector) {
 		if sel.Kind == "" || seenGK[schema.GroupKind{Group: sel.Group, Kind: sel.Kind}] {
 			return
 		}
@@ -444,8 +444,8 @@ func (p *Projector) gvrFor(gvk schema.GroupVersionKind) (schema.GroupVersionReso
 
 // defaultResources is the built-in set of resource kinds captured when a
 // projection does not enumerate its own.
-func defaultResources() []gamerav1alpha1.ResourceSelector {
-	return []gamerav1alpha1.ResourceSelector{
+func defaultResources() []astronv1alpha1.ResourceSelector {
+	return []astronv1alpha1.ResourceSelector{
 		{Group: "apps", Version: "v1", Kind: "Deployment"},
 		{Group: "apps", Version: "v1", Kind: "StatefulSet"},
 		{Group: "apps", Version: "v1", Kind: "DaemonSet"},

@@ -36,12 +36,12 @@ const (
 func viewsServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	all := []View{
-		{Namespace: "gamera", Name: "web-only", DisplayName: "Web only",
-			ProjectionRef: ViewProjectionRef{Name: "default", Namespace: "gamera"}},
-		{Namespace: "gamera", Name: "secrets-hidden",
-			ProjectionRef: ViewProjectionRef{Name: "other"}}, // ref ns defaults to view ns (gamera)
+		{Namespace: "astron", Name: "web-only", DisplayName: "Web only",
+			ProjectionRef: ViewProjectionRef{Name: "default", Namespace: "astron"}},
+		{Namespace: "astron", Name: "secrets-hidden",
+			ProjectionRef: ViewProjectionRef{Name: "other"}}, // ref ns defaults to view ns (astron)
 		{Namespace: "team-a", Name: "team-view",
-			ProjectionRef: ViewProjectionRef{Name: "default", Namespace: "gamera"}},
+			ProjectionRef: ViewProjectionRef{Name: "default", Namespace: "astron"}},
 	}
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != apiViewsPath {
@@ -76,7 +76,7 @@ func TestViewsListTable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("views list failed: %v", err)
 	}
-	for _, want := range []string{"NAMESPACE", "NAME", "PROJECTION", "web-only", "team-view", "gamera/default"} {
+	for _, want := range []string{"NAMESPACE", "NAME", "PROJECTION", "web-only", "team-view", "astron/default"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("table output missing %q:\n%s", want, out)
 		}
@@ -95,7 +95,7 @@ func TestViewsListNamespaceFilter(t *testing.T) {
 		t.Errorf("expected team-a view retained:\n%s", out)
 	}
 	if strings.Contains(out, "web-only") || strings.Contains(out, "secrets-hidden") {
-		t.Errorf("expected gamera views filtered out:\n%s", out)
+		t.Errorf("expected astron views filtered out:\n%s", out)
 	}
 }
 
@@ -103,15 +103,15 @@ func TestViewsListProjectionFilter(t *testing.T) {
 	srv := viewsServer(t)
 	defer srv.Close()
 
-	// Views associated with projection "default" in namespace "gamera": both the
-	// gamera "web-only" view and the team-a view (which references gamera/default).
+	// Views associated with projection "default" in namespace "astron": both the
+	// astron "web-only" view and the team-a view (which references astron/default).
 	out, err := runCmd(t, "--server", srv.URL, "views", "list",
-		"--namespace", "gamera", "--projection", "default")
+		"--namespace", "astron", "--projection", "default")
 	if err != nil {
 		t.Fatalf("views list --projection failed: %v", err)
 	}
 	if !strings.Contains(out, "web-only") || !strings.Contains(out, "team-view") {
-		t.Errorf("expected views referencing gamera/default:\n%s", out)
+		t.Errorf("expected views referencing astron/default:\n%s", out)
 	}
 	if strings.Contains(out, "secrets-hidden") {
 		t.Errorf("expected view referencing 'other' to be excluded:\n%s", out)
@@ -133,11 +133,11 @@ func TestBuildDefaultViewVisibleKinds(t *testing.T) {
 	if !ok {
 		t.Fatal("expected 'compute' to resolve to a default view")
 	}
-	v := buildDefaultView("gamera", projWeb, compute)
+	v := buildDefaultView("astron", projWeb, compute)
 	if v.Name != "web-compute" || v.DisplayName != "Compute" {
 		t.Fatalf("unexpected view identity: %+v", v)
 	}
-	if v.ProjectionRef.Name != projWeb || v.ProjectionRef.Namespace != "gamera" {
+	if v.ProjectionRef.Name != projWeb || v.ProjectionRef.Namespace != "astron" {
 		t.Fatalf("unexpected projectionRef: %+v", v.ProjectionRef)
 	}
 	// Compute is an allow-list view showing only its own kinds (+ Pod).
@@ -193,19 +193,19 @@ func TestViewsAddCreatesViews(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	out, err := runCmd(t, "--server", srv.URL, "views", "add", "gamera", projWeb, "Compute", "networking")
+	out, err := runCmd(t, "--server", srv.URL, "views", "add", "astron", projWeb, "Compute", "networking")
 	if err != nil {
 		t.Fatalf("views add failed: %v", err)
 	}
 	if len(created) != 2 {
 		t.Fatalf("expected 2 views created, got %d", len(created))
 	}
-	if !strings.Contains(out, "graphview.gamera.gamera.io/web-compute created in namespace gamera") ||
+	if !strings.Contains(out, "graphview.astron.astron.io/web-compute created in namespace astron") ||
 		!strings.Contains(out, "web-networking created") {
 		t.Errorf("unexpected confirmation output:\n%s", out)
 	}
 	for _, v := range created {
-		if v.ProjectionRef.Name != projWeb || v.ProjectionRef.Namespace != "gamera" {
+		if v.ProjectionRef.Name != projWeb || v.ProjectionRef.Namespace != "astron" {
 			t.Errorf("unexpected projectionRef on created view: %+v", v.ProjectionRef)
 		}
 	}
@@ -222,7 +222,7 @@ func TestViewsAddDeduplicates(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := runCmd(t, "--server", srv.URL, "views", "add", "gamera", projWeb, "compute", "Compute"); err != nil {
+	if _, err := runCmd(t, "--server", srv.URL, "views", "add", "astron", projWeb, "compute", "Compute"); err != nil {
 		t.Fatalf("views add failed: %v", err)
 	}
 	if count != 1 {
@@ -238,7 +238,7 @@ func TestViewsAddUnknownView(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := runCmd(t, "--server", srv.URL, "views", "add", "gamera", projWeb, "Bogus")
+	_, err := runCmd(t, "--server", srv.URL, "views", "add", "astron", projWeb, "Bogus")
 	if err == nil || !strings.Contains(err.Error(), "unknown view") {
 		t.Fatalf("expected unknown-view error, got %v", err)
 	}
@@ -248,7 +248,7 @@ func TestViewsListJSON(t *testing.T) {
 	srv := viewsServer(t)
 	defer srv.Close()
 
-	out, err := runCmd(t, "--server", srv.URL, "-o", "json", "views", "list", "--namespace", "gamera")
+	out, err := runCmd(t, "--server", srv.URL, "-o", "json", "views", "list", "--namespace", "astron")
 	if err != nil {
 		t.Fatalf("views list -o json failed: %v", err)
 	}
@@ -257,6 +257,6 @@ func TestViewsListJSON(t *testing.T) {
 		t.Fatalf("output is not valid JSON: %v\n%s", err, out)
 	}
 	if len(got) != 2 {
-		t.Fatalf("expected 2 gamera views, got %d: %+v", len(got), got)
+		t.Fatalf("expected 2 astron views, got %d: %+v", len(got), got)
 	}
 }

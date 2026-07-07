@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package cli implements the gamera command-line client. It is a thin client
+// Package cli implements the astron command-line client. It is a thin client
 // over the operator's read API (see internal/api), used to inspect projections
 // and the graph they materialize from a terminal.
 package cli
@@ -34,7 +34,7 @@ const defaultServer = "http://localhost:8082"
 
 // options holds the global flags shared by all subcommands.
 type options struct {
-	// server is the base URL of the Gamera read API.
+	// server is the base URL of the Astron read API.
 	server string
 	// timeout bounds each request made to the API.
 	timeout time.Duration
@@ -49,9 +49,9 @@ func newRootCmd() *cobra.Command {
 	opts := &options{}
 
 	cmd := &cobra.Command{
-		Use:   "gamera",
-		Short: "Inspect Project Gamera projections and graphs",
-		Long: "gamera is the command-line client for Project Gamera.\n\n" +
+		Use:   "astron",
+		Short: "Inspect Project Astron projections and graphs",
+		Long: "astron is the command-line client for Project Astron.\n\n" +
 			"It talks to a running operator's read API to list GraphProjections\n" +
 			"and explore the resource graph they materialize into Neo4J.",
 		SilenceUsage:  true,
@@ -68,7 +68,7 @@ func newRootCmd() *cobra.Command {
 	}
 
 	cmd.PersistentFlags().StringVar(&opts.server, "server", defaultServer,
-		"Base URL of the Gamera read API")
+		"Base URL of the Astron read API")
 	cmd.PersistentFlags().DurationVar(&opts.timeout, "timeout", 30*time.Second,
 		"Timeout for requests to the API")
 	cmd.PersistentFlags().StringVarP(&opts.output, "output", "o", "table",

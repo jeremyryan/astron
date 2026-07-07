@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: graphprojections.gamera.gamera.io
+  name: graphprojections.astron.astron.io
 spec:
-  group: gamera.gamera.io
+  group: astron.astron.io
   names:
     kind: GraphProjection
     listKind: GraphProjectionList
@@ -238,7 +238,7 @@ spec:
                   uri:
                     description: |-
                       uri is the bolt/neo4j connection URI of the target database,
-                      e.g. "neo4j://neo4j.gamera-system.svc:7687".
+                      e.g. "neo4j://neo4j.astron-system.svc:7687".
                     minLength: 1
                     type: string
                 required:

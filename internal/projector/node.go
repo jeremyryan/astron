@@ -26,7 +26,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
 
-	"github.com/project-gamera/gamera/internal/graph"
+	"github.com/project-astron/astron/internal/graph"
 )
 
 // podKind is the Kind of core/v1 Pod objects, whose status is surfaced as flat

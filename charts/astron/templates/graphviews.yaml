@@ -1,13 +1,13 @@
 {{- if and .Values.defaultProjection.enabled .Values.defaultViews.enabled }}
 {{- range $view := .Values.defaultViews.views }}
 ---
-apiVersion: gamera.gamera.io/v1alpha1
+apiVersion: astron.astron.io/v1alpha1
 kind: GraphView
 metadata:
   name: {{ $view.name }}
   namespace: {{ $.Release.Namespace }}
   labels:
-    {{- include "gamera.labels" $ | nindent 4 }}
+    {{- include "astron.labels" $ | nindent 4 }}
   {{- if $.Values.neo4j.enabled }}
   annotations:
     # Apply after the CRD/operator and the default projection are in place.

@@ -1,6 +1,6 @@
-# Project Gamera
+# Project Astron
 
-Project Gamera is a Kubernetes operator that visualizes, explores, and helps you
+Project Astron is a Kubernetes operator that visualizes, explores, and helps you
 understand a cluster. It watches cluster resources and projects them — and the
 relationships between them — into a [Neo4J](https://neo4j.com/) graph, then
 serves a web UI to explore that graph.
@@ -53,8 +53,8 @@ the chart will:
 
 1. build the operator image (web UI + Go binary) via the multi-stage
    [`Dockerfile`](./Dockerfile),
-2. push it to `localhost:5000/gamera` with a content-based (digest) tag,
-3. `helm upgrade` the `gamera` release into the `gamera` namespace, injecting the
+2. push it to `localhost:5000/astron` with a content-based (digest) tag,
+3. `helm upgrade` the `astron` release into the `astron` namespace, injecting the
    freshly built, digest-pinned image, and
 4. **port-forward the UI** to <http://localhost:8082>.
 
@@ -82,7 +82,7 @@ by `skaffold run`/`make skaffold-run`, which deploy and then exit.
 - After a one-shot deploy (`make skaffold-run`), forward the service manually:
 
   ```sh
-  kubectl -n gamera port-forward svc/gamera-api 8082:8082
+  kubectl -n astron port-forward svc/astron-api 8082:8082
   # then browse http://localhost:8082
   ```
 
@@ -90,19 +90,19 @@ by `skaffold run`/`make skaffold-run`, which deploy and then exit.
 
 ```sh
 kubectl get graphprojection -A                 # status, node/edge counts
-kubectl -n gamera get graphprojection default -o yaml
+kubectl -n astron get graphprojection default -o yaml
 ```
 
 The read API is also available (under the same port-forward):
 
 ```sh
 curl http://localhost:8082/api/projections
-curl http://localhost:8082/api/projections/gamera/default/graph
+curl http://localhost:8082/api/projections/astron/default/graph
 ```
 
 ### GraphRAG (semantic search, Q&A, text-to-Cypher, MCP)
 
-Gamera can expose the projected graph to LLM/agent applications: semantic
+Astron can expose the projected graph to LLM/agent applications: semantic
 search, graph-neighborhood retrieval, grounded question answering, and guarded
 text-to-Cypher — over HTTP and via the [Model Context Protocol](https://modelcontextprotocol.io/).
 It is opt-in per `GraphProjection`.
@@ -110,7 +110,7 @@ It is opt-in per `GraphProjection`.
 - **[UI User Guide](./docs/ui-guide.md)** — how to explore the cluster graph in
   the web UI: filters, views, selection, custom links, layout, and shortcuts.
 - **[GraphRAG User Guide](./docs/graphrag-guide.md)** — enable it, configure a
-  provider, call the API, and wire up the `gamera mcp-server`.
+  provider, call the API, and wire up the `astron mcp-server`.
 - **[GraphRAG Design](./docs/graphrag.md)** — architecture and rationale.
 
 ## Getting Started
@@ -125,7 +125,7 @@ It is opt-in per `GraphProjection`.
 **Build and push your image to the location specified by `IMG`:**
 
 ```sh
-make docker-build docker-push IMG=<some-registry>/gamera:tag
+make docker-build docker-push IMG=<some-registry>/astron:tag
 ```
 
 **NOTE:** This image ought to be published in the personal registry you specified.
@@ -141,7 +141,7 @@ make install
 **Deploy the Manager to the cluster with the image specified by `IMG`:**
 
 ```sh
-make deploy IMG=<some-registry>/gamera:tag
+make deploy IMG=<some-registry>/astron:tag
 ```
 
 > **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
@@ -184,7 +184,7 @@ Following the options to release and provide this solution to the users.
 1. Build the installer for the image built and published in the registry:
 
 ```sh
-make build-installer IMG=<some-registry>/gamera:tag
+make build-installer IMG=<some-registry>/astron:tag
 ```
 
 **NOTE:** The makefile target mentioned above generates an 'install.yaml'
@@ -198,20 +198,20 @@ Users can just run 'kubectl apply -f <URL for YAML BUNDLE>' to install
 the project, i.e.:
 
 ```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/gamera/<tag or branch>/dist/install.yaml
+kubectl apply -f https://raw.githubusercontent.com/<org>/astron/<tag or branch>/dist/install.yaml
 ```
 
 ### By providing a Helm Chart
 
-The operator ships a Helm chart at [`charts/gamera`](./charts/gamera) that
+The operator ships a Helm chart at [`charts/astron`](./charts/astron) that
 installs the CRD, the controller, RBAC, and — optionally — a bundled Neo4J (or
-connects to an existing one). See [`charts/gamera/README.md`](./charts/gamera/README.md)
+connects to an existing one). See [`charts/astron/README.md`](./charts/astron/README.md)
 for the full set of values.
 
 ```sh
-helm dependency build charts/gamera   # fetch the Neo4J subchart (once)
-helm install gamera charts/gamera \
-  --namespace gamera --create-namespace \
+helm dependency build charts/astron   # fetch the Neo4J subchart (once)
+helm install astron charts/astron \
+  --namespace astron --create-namespace \
   --set neo4j.neo4j.password='a-strong-password'
 ```
 

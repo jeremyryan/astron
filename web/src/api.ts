@@ -1,4 +1,4 @@
-// Typed client for the Gamera read API.
+// Typed client for the Astron read API.
 
 export interface Projection {
   uid: string;

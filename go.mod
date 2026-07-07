@@ -1,4 +1,4 @@
-module github.com/project-gamera/gamera
+module github.com/project-astron/astron
 
 go 1.25.6
 

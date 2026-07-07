@@ -41,12 +41,12 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
-	"github.com/project-gamera/gamera/internal/api"
-	"github.com/project-gamera/gamera/internal/controller"
-	"github.com/project-gamera/gamera/internal/graph"
-	"github.com/project-gamera/gamera/internal/projector"
-	"github.com/project-gamera/gamera/web"
+	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
+	"github.com/project-astron/astron/internal/api"
+	"github.com/project-astron/astron/internal/controller"
+	"github.com/project-astron/astron/internal/graph"
+	"github.com/project-astron/astron/internal/projector"
+	"github.com/project-astron/astron/web"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -58,7 +58,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
-	utilruntime.Must(gamerav1alpha1.AddToScheme(scheme))
+	utilruntime.Must(astronv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -173,7 +173,7 @@ func main() {
 		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "d1eb6bf1.gamera.io",
+		LeaderElectionID:       "d1eb6bf1.astron.io",
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly

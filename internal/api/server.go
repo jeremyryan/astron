@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 // Package api exposes a read-only HTTP API over the projected resource graph,
-// and serves the web UI. It is consumed by the Gamera frontend.
+// and serves the web UI. It is consumed by the Astron frontend.
 package api
 
 import (
@@ -36,16 +36,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
-	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
-	"github.com/project-gamera/gamera/internal/graph"
-	"github.com/project-gamera/gamera/internal/projector"
+	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
+	"github.com/project-astron/astron/internal/graph"
+	"github.com/project-astron/astron/internal/projector"
 )
 
 // defaultRAGHops is the graph-expansion radius used for retrieval requests that
 // do not specify one.
 const defaultRAGHops = 1
 
-// Server serves the Gamera read API and (optionally) the embedded web UI.
+// Server serves the Astron read API and (optionally) the embedded web UI.
 type Server struct {
 	client     client.Client
 	projectors *projector.Manager
@@ -97,7 +97,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleListProjections(w http.ResponseWriter, r *http.Request) {
-	var list gamerav1alpha1.GraphProjectionList
+	var list astronv1alpha1.GraphProjectionList
 	if err := s.client.List(r.Context(), &list); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -140,7 +140,7 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 // projectionID resolves a projection's namespace/name to its UID, writing an
 // appropriate error response and returning ok=false when it cannot be found.
 func (s *Server) projectionID(w http.ResponseWriter, r *http.Request) (graph.ProjectionID, bool) {
-	var projection gamerav1alpha1.GraphProjection
+	var projection astronv1alpha1.GraphProjection
 	key := client.ObjectKey{Namespace: r.PathValue("namespace"), Name: r.PathValue("name")}
 	if err := s.client.Get(r.Context(), key, &projection); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -523,7 +523,7 @@ func (s *Server) handleResourceYAML(w http.ResponseWriter, r *http.Request) {
 // referencing a specific projection via the projectionNamespace/projectionName
 // query parameters.
 func (s *Server) handleListViews(w http.ResponseWriter, r *http.Request) {
-	var list gamerav1alpha1.GraphViewList
+	var list astronv1alpha1.GraphViewList
 	if err := s.client.List(r.Context(), &list); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -571,7 +571,7 @@ func (s *Server) handleCreateView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	view := &gamerav1alpha1.GraphView{Spec: dtoToViewSpec(in)}
+	view := &astronv1alpha1.GraphView{Spec: dtoToViewSpec(in)}
 	view.Namespace = ns
 	if in.Name != "" {
 		view.Name = in.Name
@@ -599,7 +599,7 @@ func (s *Server) handleUpdateView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var view gamerav1alpha1.GraphView
+	var view astronv1alpha1.GraphView
 	if err := s.client.Get(r.Context(), client.ObjectKey{Namespace: namespace, Name: name}, &view); err != nil {
 		writeK8sError(w, err)
 		return
@@ -616,7 +616,7 @@ func (s *Server) handleUpdateView(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteView(w http.ResponseWriter, r *http.Request) {
 	namespace := r.PathValue("namespace")
 	name := r.PathValue("name")
-	view := &gamerav1alpha1.GraphView{}
+	view := &astronv1alpha1.GraphView{}
 	view.Namespace = namespace
 	view.Name = name
 	if err := s.client.Delete(r.Context(), view); err != nil {

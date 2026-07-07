@@ -23,11 +23,11 @@ import (
 	"net/url"
 )
 
-// registerTools wires up the Gamera retrieval tools exposed over MCP.
+// registerTools wires up the Astron retrieval tools exposed over MCP.
 func (s *Server) registerTools() {
 	s.register(tool{
 		Name: "list_projections",
-		Description: "List the Gamera GraphProjections available in the cluster, " +
+		Description: "List the Astron GraphProjections available in the cluster, " +
 			"with their namespace, name, phase, and node/edge counts. Use this to " +
 			"discover which projection to query.",
 		InputSchema: objectSchema(nil, nil),

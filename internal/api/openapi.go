@@ -25,7 +25,7 @@ import (
 	"github.com/swaggest/openapi-go/openapi3"
 	"sigs.k8s.io/yaml"
 
-	"github.com/project-gamera/gamera/internal/projector"
+	"github.com/project-astron/astron/internal/projector"
 )
 
 //go:generate go run ../../hack/openapi -o ../../docs/openapi.yaml
@@ -229,9 +229,9 @@ func apiEndpoints() []endpoint {
 func buildOpenAPIReflector() (*openapi3.Reflector, error) {
 	r := openapi3.NewReflector()
 	r.SpecEns().Info.
-		WithTitle("Gamera API").
+		WithTitle("Astron API").
 		WithVersion(openAPIVersion).
-		WithDescription("HTTP API for Project Gamera: read the projected Kubernetes " +
+		WithDescription("HTTP API for Project Astron: read the projected Kubernetes " +
 			"resource graph, run GraphRAG retrieval, manage manual links and saved views.")
 
 	for _, e := range apiEndpoints() {

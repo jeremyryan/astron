@@ -103,7 +103,7 @@ type Graph struct {
 	Edges []Edge `json:"edges"`
 }
 
-// Client is a thin HTTP client for the Gamera read API.
+// Client is a thin HTTP client for the Astron read API.
 type Client struct {
 	baseURL string
 	http    *http.Client

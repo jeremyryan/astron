@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Command openapi writes the generated OpenAPI 3 document (YAML) for the Gamera
+// Command openapi writes the generated OpenAPI 3 document (YAML) for the Astron
 // HTTP API. With no -o flag it prints to stdout. Regenerate the checked-in spec
 // with `make openapi` (or `go generate ./...`).
 package main
@@ -24,7 +24,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/project-gamera/gamera/internal/api"
+	"github.com/project-astron/astron/internal/api"
 )
 
 func main() {

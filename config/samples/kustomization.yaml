@@ -1,4 +1,4 @@
 ## Append samples of your project ##
 resources:
-- gamera_v1alpha1_graphprojection.yaml
+- astron_v1alpha1_graphprojection.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

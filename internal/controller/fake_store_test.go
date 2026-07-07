@@ -20,7 +20,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/project-gamera/gamera/internal/graph"
+	"github.com/project-astron/astron/internal/graph"
 )
 
 // fakeStore is an in-memory graph.Store used for tests.

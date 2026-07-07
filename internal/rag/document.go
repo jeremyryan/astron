@@ -34,7 +34,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/project-gamera/gamera/internal/graph"
+	"github.com/project-astron/astron/internal/graph"
 )
 
 // Options controls which optional node properties are folded into a card.

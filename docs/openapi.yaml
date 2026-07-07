@@ -306,9 +306,9 @@ components:
           type: array
       type: object
 info:
-  description: 'HTTP API for Project Gamera: read the projected Kubernetes resource
+  description: 'HTTP API for Project Astron: read the projected Kubernetes resource
     graph, run GraphRAG retrieval, manage manual links and saved views.'
-  title: Gamera API
+  title: Astron API
   version: v1alpha1
 openapi: 3.0.3
 paths:

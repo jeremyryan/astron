@@ -195,7 +195,7 @@ type VectorIndexConfig struct {
 // database.
 type Neo4jConnection struct {
 	// uri is the bolt/neo4j connection URI of the target database,
-	// e.g. "neo4j://neo4j.gamera-system.svc:7687".
+	// e.g. "neo4j://neo4j.astron-system.svc:7687".
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	URI string `json:"uri"`

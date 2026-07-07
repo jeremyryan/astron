@@ -127,17 +127,17 @@ func TestNodeFromPropsHidesVectorBookkeeping(t *testing.T) {
 }
 
 // TestVectorStoreIntegration exercises the real Neo4J vector path. It is skipped
-// unless GAMERA_NEO4J_TEST_URI is set, e.g.:
+// unless ASTRON_NEO4J_TEST_URI is set, e.g.:
 //
-//	GAMERA_NEO4J_TEST_URI=neo4j://localhost:7687 \
-//	GAMERA_NEO4J_TEST_PASSWORD=password go test ./internal/graph/ -run Integration
+//	ASTRON_NEO4J_TEST_URI=neo4j://localhost:7687 \
+//	ASTRON_NEO4J_TEST_PASSWORD=password go test ./internal/graph/ -run Integration
 func TestVectorStoreIntegration(t *testing.T) {
-	uri := os.Getenv("GAMERA_NEO4J_TEST_URI")
+	uri := os.Getenv("ASTRON_NEO4J_TEST_URI")
 	if uri == "" {
-		t.Skip("set GAMERA_NEO4J_TEST_URI to run the Neo4J vector integration test")
+		t.Skip("set ASTRON_NEO4J_TEST_URI to run the Neo4J vector integration test")
 	}
-	user := envOr("GAMERA_NEO4J_TEST_USERNAME", "neo4j")
-	pass := envOr("GAMERA_NEO4J_TEST_PASSWORD", "password")
+	user := envOr("ASTRON_NEO4J_TEST_USERNAME", "neo4j")
+	pass := envOr("ASTRON_NEO4J_TEST_PASSWORD", "password")
 
 	store, err := NewNeo4jStore(Neo4jConfig{URI: uri, Username: user, Password: pass})
 	if err != nil {

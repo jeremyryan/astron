@@ -1243,7 +1243,7 @@ export function GraphView({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${exportName || "gamera-graph"}.png`;
+    a.download = `${exportName || "astron-graph"}.png`;
     document.body.appendChild(a);
     a.click();
     a.remove();

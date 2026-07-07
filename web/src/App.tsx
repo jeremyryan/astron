@@ -1133,7 +1133,7 @@ export default function App() {
           <Group gap="sm" align="center" wrap="nowrap">
             <IconTopologyStar3 size={22} stroke={1.5} color="var(--mantine-color-brand-6)" />
             <Title order={1} size="h4" c="white">
-              Project Gamera
+              Project Astron
             </Title>
             <Text size="xs" c="dimmed">
               Kubernetes Cluster Graph

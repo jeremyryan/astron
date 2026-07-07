@@ -1,7 +1,7 @@
 apiVersion: v2
-name: gamera
+name: astron
 description: |
-  Project Gamera - a Kubernetes operator that projects cluster resources and
+  Project Astron - a Kubernetes operator that projects cluster resources and
   their relationships into a Neo4J graph, with a web UI to explore them.
 type: application
 version: 0.1.0
@@ -12,11 +12,11 @@ keywords:
   - neo4j
   - graph
   - visualization
-home: https://github.com/project-gamera/gamera
+home: https://github.com/project-astron/astron
 sources:
-  - https://github.com/project-gamera/gamera
+  - https://github.com/project-astron/astron
 maintainers:
-  - name: Project Gamera
+  - name: Project Astron
 dependencies:
   - name: neo4j
     version: "5.26.0"

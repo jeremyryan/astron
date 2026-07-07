@@ -21,7 +21,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/project-gamera/gamera/internal/graph"
+	"github.com/project-astron/astron/internal/graph"
 )
 
 // SchemaSummary renders a compact, deterministic description of a projection's

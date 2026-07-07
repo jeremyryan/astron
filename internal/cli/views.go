@@ -88,7 +88,7 @@ func runViewsAdd(cmd *cobra.Command, opts *options, namespace, projection string
 			continue
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(),
-			"graphview.gamera.gamera.io/%s created in namespace %s\n", created.Name, created.Namespace)
+			"graphview.astron.astron.io/%s created in namespace %s\n", created.Name, created.Namespace)
 	}
 	return errors.Join(errs...)
 }

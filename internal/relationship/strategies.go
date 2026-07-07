@@ -28,8 +28,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
-	"github.com/project-gamera/gamera/internal/graph"
+	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
+	"github.com/project-astron/astron/internal/graph"
 )
 
 // jsonString marshals a value to a compact JSON string, returning "" on error.
@@ -83,7 +83,7 @@ const groupGatewayAPI = "gateway.networking.k8s.io"
 // ownerReference gives a stable identity even if the owner is not in the index.
 type ownerReferenceStrategy struct{}
 
-func (ownerReferenceStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
+func (ownerReferenceStrategy) Derive(rule astronv1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
 	var edges []graph.Relationship
 	targets := index.ByKind(selectorGVK(rule.To))
 	for _, target := range targets {
@@ -118,7 +118,7 @@ func (ownerReferenceStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index
 // (.spec.selector with matchLabels/matchExpressions).
 type labelSelectorStrategy struct{}
 
-func (labelSelectorStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
+func (labelSelectorStrategy) Derive(rule astronv1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
 	var edges []graph.Relationship
 	sources := index.ByKind(selectorGVK(rule.From))
 	targets := index.ByKind(selectorGVK(rule.To))
@@ -212,7 +212,7 @@ func labelSelectorFromMap(raw map[string]any) (labels.Selector, bool, error) {
 // valueFrom references. The edge direction is source(config) -> target(pod).
 type volumeMountStrategy struct{}
 
-func (volumeMountStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
+func (volumeMountStrategy) Derive(rule astronv1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
 	pods := index.ByKind(selectorGVK(rule.To))
 	edges := make([]graph.Relationship, 0, len(pods))
 	// rule.From.Kind is "ConfigMap", "Secret" or "PersistentVolumeClaim".
@@ -375,7 +375,7 @@ func containerConfigRefs(container map[string]any, wantKind string) []configRef 
 // either PV -> PVC or PVC -> PV.
 type claimRefStrategy struct{}
 
-func (claimRefStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
+func (claimRefStrategy) Derive(rule astronv1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
 	pvs := index.ByKind(schema.GroupVersionKind{Version: "v1", Kind: kindPersistentVolume})
 	fromIsPV := rule.From.Kind == kindPersistentVolume
 
@@ -411,7 +411,7 @@ func (claimRefStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index Index
 // needed to match the endpoint), which the index Lookup resolves.
 type serviceAccountStrategy struct{}
 
-func (serviceAccountStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
+func (serviceAccountStrategy) Derive(rule astronv1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
 	pods := index.ByKind(selectorGVK(rule.To))
 	edges := make([]graph.Relationship, 0, len(pods))
 	for _, pod := range pods {
@@ -451,7 +451,7 @@ func podServiceAccountName(pod *unstructured.Unstructured) string {
 // Services in the same namespace (unless the backendRef names another).
 type serviceBackendStrategy struct{}
 
-func (serviceBackendStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
+func (serviceBackendStrategy) Derive(rule astronv1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
 	sources := index.ByKind(selectorGVK(rule.From))
 	edges := make([]graph.Relationship, 0, len(sources))
 	for _, src := range sources {
@@ -636,7 +636,7 @@ func httpRouteBackendServices(obj *unstructured.Unstructured) []serviceBackend {
 // natural traffic direction) or HTTPRoute -> Gateway.
 type parentRefStrategy struct{}
 
-func (parentRefStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
+func (parentRefStrategy) Derive(rule astronv1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
 	// One side of the rule is the HTTPRoute (which holds the parentRefs); the
 	// other is the parent (a Gateway by default).
 	routeSel, parentSel := rule.From, rule.To
@@ -754,7 +754,7 @@ func parentRefs(obj *unstructured.Unstructured, wantKind, wantGroup string) []pa
 // role is itself captured.
 type roleRefStrategy struct{}
 
-func (roleRefStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
+func (roleRefStrategy) Derive(rule astronv1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
 	var edges []graph.Relationship
 	for _, binding := range index.ByKind(selectorGVK(rule.To)) {
 		kind, _, _ := unstructured.NestedString(binding.Object, "roleRef", "kind")
@@ -783,7 +783,7 @@ func (roleRefStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index Index)
 // and are skipped, as are subjects that are not captured by the projection.
 type bindingSubjectStrategy struct{}
 
-func (bindingSubjectStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
+func (bindingSubjectStrategy) Derive(rule astronv1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
 	var edges []graph.Relationship
 	for _, binding := range index.ByKind(selectorGVK(rule.From)) {
 		subjects, _, _ := unstructured.NestedSlice(binding.Object, "subjects")
@@ -813,7 +813,7 @@ func (bindingSubjectStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index
 
 // selectorAPIVersion resolves a ResourceSelector into the apiVersion string
 // used by the index (group/version, or version alone for the core group).
-func selectorAPIVersion(sel gamerav1alpha1.ResourceSelector) string {
+func selectorAPIVersion(sel astronv1alpha1.ResourceSelector) string {
 	if sel.Group == "" {
 		return sel.Version
 	}

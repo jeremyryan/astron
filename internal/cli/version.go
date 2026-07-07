@@ -22,7 +22,7 @@ import (
 
 // These values are overridden at build time via -ldflags, e.g.:
 //
-//	go build -ldflags "-X github.com/project-gamera/gamera/internal/cli.version=v0.1.0"
+//	go build -ldflags "-X github.com/project-astron/astron/internal/cli.version=v0.1.0"
 var (
 	// version is the CLI release version.
 	version = "dev"
@@ -36,10 +36,10 @@ var (
 func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
-		Short: "Print the gamera CLI version",
+		Short: "Print the astron CLI version",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cmd.Printf("gamera %s (commit %s, built %s)\n", version, commit, date)
+			cmd.Printf("astron %s (commit %s, built %s)\n", version, commit, date)
 			return nil
 		},
 	}

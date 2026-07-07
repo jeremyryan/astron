@@ -21,7 +21,7 @@ rules:
   - list
   - watch
 - apiGroups:
-  - gamera.gamera.io
+  - astron.astron.io
   resources:
   - graphprojections
   - graphviews
@@ -34,13 +34,13 @@ rules:
   - update
   - watch
 - apiGroups:
-  - gamera.gamera.io
+  - astron.astron.io
   resources:
   - graphprojections/finalizers
   verbs:
   - update
 - apiGroups:
-  - gamera.gamera.io
+  - astron.astron.io
   resources:
   - graphprojections/status
   - graphviews/status

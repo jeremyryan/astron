@@ -33,10 +33,10 @@ import (
 	"k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/informers"
 
-	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
-	"github.com/project-gamera/gamera/internal/graph"
-	"github.com/project-gamera/gamera/internal/rag"
-	"github.com/project-gamera/gamera/internal/relationship"
+	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
+	"github.com/project-astron/astron/internal/graph"
+	"github.com/project-astron/astron/internal/rag"
+	"github.com/project-astron/astron/internal/relationship"
 )
 
 // defaultEmbeddingBatchSize bounds how many cards are sent to the embedding
@@ -59,7 +59,7 @@ type Options struct {
 	// defined. It is used when Spec.Scope.OwnNamespaceOnly is set.
 	Namespace string
 	// Spec is the GraphProjection spec driving this projector.
-	Spec gamerav1alpha1.GraphProjectionSpec
+	Spec astronv1alpha1.GraphProjectionSpec
 	// Dynamic is the dynamic client used to build informers.
 	Dynamic dynamic.Interface
 	// Mapper resolves GroupVersionKind to GroupVersionResource.

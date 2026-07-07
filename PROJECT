@@ -3,19 +3,19 @@
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
 cliVersion: 4.14.0
-domain: gamera.io
+domain: astron.io
 layout:
 - go.kubebuilder.io/v4
-projectName: gamera
-repo: github.com/project-gamera/gamera
+projectName: astron
+repo: github.com/project-astron/astron
 resources:
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: gamera.io
-  group: gamera
+  domain: astron.io
+  group: astron
   kind: GraphProjection
-  path: github.com/project-gamera/gamera/api/v1alpha1
+  path: github.com/project-astron/astron/api/v1alpha1
   version: v1alpha1
 version: "3"

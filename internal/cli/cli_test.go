@@ -42,7 +42,7 @@ func TestVersionCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("version command failed: %v", err)
 	}
-	if !strings.Contains(out, "gamera") {
+	if !strings.Contains(out, "astron") {
 		t.Fatalf("version output missing program name: %q", out)
 	}
 }
@@ -61,7 +61,7 @@ func TestProjectionsListTable(t *testing.T) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode([]Projection{
-			{Namespace: "gamera", Name: "default", Phase: "Ready", NodeCount: 3, RelationshipCount: 2},
+			{Namespace: "astron", Name: "default", Phase: "Ready", NodeCount: 3, RelationshipCount: 2},
 		})
 	}))
 	defer srv.Close()
@@ -83,8 +83,8 @@ func graphServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	g := Graph{
 		Nodes: []Node{
-			{ID: "dep-1", APIVersion: "apps/v1", Kind: "Deployment", Namespace: "gamera", Name: "web"},
-			{ID: "pod-1", APIVersion: "v1", Kind: "Pod", Namespace: "gamera", Name: "web-abc"},
+			{ID: "dep-1", APIVersion: "apps/v1", Kind: "Deployment", Namespace: "astron", Name: "web"},
+			{ID: "pod-1", APIVersion: "v1", Kind: "Pod", Namespace: "astron", Name: "web-abc"},
 		},
 		Edges: []Edge{
 			{ID: "e1", Source: "dep-1", Target: "pod-1", Type: "OWNS"},
@@ -103,11 +103,11 @@ func TestGraphTable(t *testing.T) {
 	srv := graphServer(t)
 	defer srv.Close()
 
-	out, err := runCmd(t, "--server", srv.URL, "graph", "gamera", "default")
+	out, err := runCmd(t, "--server", srv.URL, "graph", "astron", "default")
 	if err != nil {
 		t.Fatalf("graph failed: %v", err)
 	}
-	for _, want := range []string{"KIND", "Deployment", "Pod", "TYPE", "OWNS", "Deployment gamera/web", "Pod gamera/web-abc"} {
+	for _, want := range []string{"KIND", "Deployment", "Pod", "TYPE", "OWNS", "Deployment astron/web", "Pod astron/web-abc"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("graph output missing %q:\n%s", want, out)
 		}
@@ -118,7 +118,7 @@ func TestGraphKindFilter(t *testing.T) {
 	srv := graphServer(t)
 	defer srv.Close()
 
-	out, err := runCmd(t, "--server", srv.URL, "graph", "gamera", "default", "--kind", "Pod")
+	out, err := runCmd(t, "--server", srv.URL, "graph", "astron", "default", "--kind", "Pod")
 	if err != nil {
 		t.Fatalf("graph --kind failed: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestGraphMutuallyExclusiveFlags(t *testing.T) {
 	srv := graphServer(t)
 	defer srv.Close()
 
-	_, err := runCmd(t, "--server", srv.URL, "graph", "gamera", "default", "--edges-only", "--nodes-only")
+	_, err := runCmd(t, "--server", srv.URL, "graph", "astron", "default", "--edges-only", "--nodes-only")
 	if err == nil {
 		t.Fatal("expected error for --edges-only with --nodes-only")
 	}
@@ -148,7 +148,7 @@ func TestGraphJSON(t *testing.T) {
 	srv := graphServer(t)
 	defer srv.Close()
 
-	out, err := runCmd(t, "--server", srv.URL, "-o", "json", "graph", "gamera", "default")
+	out, err := runCmd(t, "--server", srv.URL, "-o", "json", "graph", "astron", "default")
 	if err != nil {
 		t.Fatalf("graph -o json failed: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestGraphFormatJSON(t *testing.T) {
 	srv := graphServer(t)
 	defer srv.Close()
 
-	out, err := runCmd(t, "--server", srv.URL, "graph", "gamera", "default", "--format", "json")
+	out, err := runCmd(t, "--server", srv.URL, "graph", "astron", "default", "--format", "json")
 	if err != nil {
 		t.Fatalf("graph --format json failed: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestGraphFormatTableOverridesOutput(t *testing.T) {
 	defer srv.Close()
 
 	// Explicit --format table wins over a global -o json.
-	out, err := runCmd(t, "--server", srv.URL, "-o", "json", "graph", "gamera", "default", "--format", "table")
+	out, err := runCmd(t, "--server", srv.URL, "-o", "json", "graph", "astron", "default", "--format", "table")
 	if err != nil {
 		t.Fatalf("graph --format table failed: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestGraphFormatInvalid(t *testing.T) {
 	srv := graphServer(t)
 	defer srv.Close()
 
-	_, err := runCmd(t, "--server", srv.URL, "graph", "gamera", "default", "--format", "yaml")
+	_, err := runCmd(t, "--server", srv.URL, "graph", "astron", "default", "--format", "yaml")
 	if err == nil {
 		t.Fatal("expected error for invalid --format value")
 	}
@@ -205,7 +205,7 @@ func TestGraphFormatInvalid(t *testing.T) {
 func TestProjectionsListJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode([]Projection{
-			{Namespace: "gamera", Name: "default", NodeCount: 1},
+			{Namespace: "astron", Name: "default", NodeCount: 1},
 		})
 	}))
 	defer srv.Close()

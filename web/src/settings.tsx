@@ -47,10 +47,10 @@ const DEFAULT_PREFS: Prefs = {
   layoutGravity: 0.2,
 };
 
-const STORAGE_KEY = "gamera.settings";
+const STORAGE_KEY = "astron.settings";
 
 // IndexedDB coordinates for the wallpaper image.
-const IDB_NAME = "gamera";
+const IDB_NAME = "astron";
 const IDB_STORE = "settings";
 const WALLPAPER_KEY = "wallpaper";
 

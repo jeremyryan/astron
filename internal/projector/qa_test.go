@@ -22,8 +22,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/project-gamera/gamera/internal/graph"
-	"github.com/project-gamera/gamera/internal/rag"
+	"github.com/project-astron/astron/internal/graph"
+	"github.com/project-astron/astron/internal/rag"
 )
 
 func newQAProjector(store *retrievalStore, chat rag.Chat, embed bool) *Projector {

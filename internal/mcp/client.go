@@ -28,7 +28,7 @@ import (
 	"time"
 )
 
-// APIClient is a thin HTTP client for the Gamera read API. The MCP server uses
+// APIClient is a thin HTTP client for the Astron read API. The MCP server uses
 // it to serve retrieval tools, so it inherits the API's projection scoping and
 // read-only guarantees.
 type APIClient struct {
@@ -36,7 +36,7 @@ type APIClient struct {
 	http    *http.Client
 }
 
-// NewAPIClient builds a client for the Gamera read API at baseURL
+// NewAPIClient builds a client for the Astron read API at baseURL
 // (e.g. "http://localhost:8082").
 func NewAPIClient(baseURL string, httpClient *http.Client) *APIClient {
 	if httpClient == nil {
@@ -75,16 +75,16 @@ func (c *APIClient) postJSON(ctx context.Context, path string, body any) ([]byte
 func (c *APIClient) do(req *http.Request) ([]byte, error) {
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("calling gamera API: %w", err)
+		return nil, fmt.Errorf("calling astron API: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 	if err != nil {
-		return nil, fmt.Errorf("reading gamera API response: %w", err)
+		return nil, fmt.Errorf("reading astron API response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("gamera API %s %s: status %d: %s",
+		return nil, fmt.Errorf("astron API %s %s: status %d: %s",
 			req.Method, req.URL.Path, resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
 	return raw, nil

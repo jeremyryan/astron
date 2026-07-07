@@ -15,7 +15,7 @@ controller:
 neo4j:
   enabled: true
   neo4j:
-    password: "gamera-dev-password"
+    password: "astron-dev-password"
   resources:
     cpu: 500m
     memory: 1Gi
@@ -31,7 +31,7 @@ defaultProjection:
 httpRoute:
   enabled: true
   hostnames:
-    - gamera-192-168-1-190.nip.io
+    - astron-192-168-1-190.nip.io
   parentRefs:
     - name: "traefik-gateway"
       namespace: "kube-system"

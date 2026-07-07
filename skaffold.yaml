@@ -1,7 +1,7 @@
 apiVersion: skaffold/v4beta12
 kind: Config
 metadata:
-  name: gamera
+  name: astron
 
 build:
   local:
@@ -16,7 +16,7 @@ build:
     # Content-based tags keep redeploys stable and cache-friendly.
     inputDigest: {}
   artifacts:
-    - image: localhost:5000/gamera
+    - image: localhost:5000/astron
       docker:
         # Build context is the repo root; the Dockerfile builds the web UI
         # (node stage) and then the Go manager binary.
@@ -25,17 +25,17 @@ build:
 manifests:
   helm:
     releases:
-      - name: gamera
-        chartPath: charts/gamera
-        namespace: gamera
+      - name: astron
+        chartPath: charts/astron
+        namespace: astron
         createNamespace: true
         valuesFiles:
-          - charts/gamera/values-dev.yaml
+          - charts/astron/values-dev.yaml
         # Inject the freshly built, digest-pinned image into the chart. The
         # variable suffix is the artifact image with non-alphanumerics -> '_'.
         setValueTemplates:
-          image.repository: "{{.IMAGE_REPO_localhost_5000_gamera}}"
-          image.tag: "{{.IMAGE_TAG_localhost_5000_gamera}}@{{.IMAGE_DIGEST_localhost_5000_gamera}}"
+          image.repository: "{{.IMAGE_REPO_localhost_5000_astron}}"
+          image.tag: "{{.IMAGE_TAG_localhost_5000_astron}}@{{.IMAGE_DIGEST_localhost_5000_astron}}"
         setValues:
           # Unique digest-pinned refs each build, so IfNotPresent is correct.
           image.pullPolicy: IfNotPresent
@@ -47,7 +47,7 @@ deploy:
 
 portForward:
   - resourceType: service
-    resourceName: gamera-api
-    namespace: gamera
+    resourceName: astron-api
+    namespace: astron
     port: 8082
     localPort: 8082

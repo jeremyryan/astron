@@ -35,8 +35,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
-	"github.com/project-gamera/gamera/internal/projector"
+	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
+	"github.com/project-astron/astron/internal/projector"
 )
 
 func testScheme(t *testing.T) *runtime.Scheme {
@@ -45,7 +45,7 @@ func testScheme(t *testing.T) *runtime.Scheme {
 	if err := clientgoscheme.AddToScheme(s); err != nil {
 		t.Fatal(err)
 	}
-	if err := gamerav1alpha1.AddToScheme(s); err != nil {
+	if err := astronv1alpha1.AddToScheme(s); err != nil {
 		t.Fatal(err)
 	}
 	return s
@@ -69,9 +69,9 @@ func TestHealth(t *testing.T) {
 }
 
 func TestListProjections(t *testing.T) {
-	proj := &gamerav1alpha1.GraphProjection{
+	proj := &astronv1alpha1.GraphProjection{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default", UID: types.UID("uid-1")},
-		Status: gamerav1alpha1.GraphProjectionStatus{
+		Status: astronv1alpha1.GraphProjectionStatus{
 			Phase: "Ready", NodeCount: 5, RelationshipCount: 3,
 		},
 	}
@@ -96,9 +96,9 @@ func TestListProjectionsSorted(t *testing.T) {
 	// Provide projections out of order; the API must return them sorted by
 	// (namespace, name) regardless of input order.
 	objs := []client.Object{
-		&gamerav1alpha1.GraphProjection{ObjectMeta: metav1.ObjectMeta{Name: "zeta", Namespace: "b", UID: types.UID("u1")}},
-		&gamerav1alpha1.GraphProjection{ObjectMeta: metav1.ObjectMeta{Name: "alpha", Namespace: "b", UID: types.UID("u2")}},
-		&gamerav1alpha1.GraphProjection{ObjectMeta: metav1.ObjectMeta{Name: "mid", Namespace: "a", UID: types.UID("u3")}},
+		&astronv1alpha1.GraphProjection{ObjectMeta: metav1.ObjectMeta{Name: "zeta", Namespace: "b", UID: types.UID("u1")}},
+		&astronv1alpha1.GraphProjection{ObjectMeta: metav1.ObjectMeta{Name: "alpha", Namespace: "b", UID: types.UID("u2")}},
+		&astronv1alpha1.GraphProjection{ObjectMeta: metav1.ObjectMeta{Name: "mid", Namespace: "a", UID: types.UID("u3")}},
 	}
 	srv := newTestServer(t, objs...)
 
@@ -124,7 +124,7 @@ func TestListProjectionsSorted(t *testing.T) {
 }
 
 func TestCreateLink(t *testing.T) {
-	proj := &gamerav1alpha1.GraphProjection{
+	proj := &astronv1alpha1.GraphProjection{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default", UID: types.UID("uid-1")},
 	}
 	srv := newTestServer(t, proj)
@@ -150,7 +150,7 @@ func TestCreateLink(t *testing.T) {
 }
 
 func TestDeleteLink(t *testing.T) {
-	proj := &gamerav1alpha1.GraphProjection{
+	proj := &astronv1alpha1.GraphProjection{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default", UID: types.UID("uid-1")},
 	}
 	srv := newTestServer(t, proj)
@@ -186,7 +186,7 @@ func TestGraphNotFound(t *testing.T) {
 
 func TestSPAServesAssetsAndFallsBack(t *testing.T) {
 	assets := fstest.MapFS{
-		"index.html":    {Data: []byte("<!doctype html><title>gamera</title>")},
+		"index.html":    {Data: []byte("<!doctype html><title>astron</title>")},
 		"assets/app.js": {Data: []byte("console.log('hi')")},
 	}
 	c := fakeclient.NewClientBuilder().WithScheme(testScheme(t)).Build()
@@ -382,7 +382,7 @@ func TestUpdateViewNotFound(t *testing.T) {
 }
 
 func TestGraphNotRunningReturnsEmpty(t *testing.T) {
-	proj := &gamerav1alpha1.GraphProjection{
+	proj := &astronv1alpha1.GraphProjection{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default", UID: types.UID("uid-1")},
 	}
 	srv := newTestServer(t, proj)

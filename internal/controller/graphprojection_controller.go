@@ -33,16 +33,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
-	"github.com/project-gamera/gamera/internal/graph"
-	"github.com/project-gamera/gamera/internal/projector"
-	"github.com/project-gamera/gamera/internal/rag"
+	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
+	"github.com/project-astron/astron/internal/graph"
+	"github.com/project-astron/astron/internal/projector"
+	"github.com/project-astron/astron/internal/rag"
 )
 
 const (
 	// graphProjectionFinalizer ensures the graph materialized by a projection is
 	// torn down before the GraphProjection resource is removed.
-	graphProjectionFinalizer = "gamera.gamera.io/graph-projection"
+	graphProjectionFinalizer = "astron.astron.io/graph-projection"
 
 	// defaultResyncInterval is used when a projection does not specify its own
 	// resyncInterval.
@@ -75,11 +75,11 @@ type GraphProjectionReconciler struct {
 	Projectors *projector.Manager
 }
 
-// +kubebuilder:rbac:groups=gamera.gamera.io,resources=graphprojections,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=gamera.gamera.io,resources=graphprojections/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=gamera.gamera.io,resources=graphprojections/finalizers,verbs=update
-// +kubebuilder:rbac:groups=gamera.gamera.io,resources=graphviews,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=gamera.gamera.io,resources=graphviews/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=astron.astron.io,resources=graphprojections,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=astron.astron.io,resources=graphprojections/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=astron.astron.io,resources=graphprojections/finalizers,verbs=update
+// +kubebuilder:rbac:groups=astron.astron.io,resources=graphviews,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=astron.astron.io,resources=graphviews/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="*",resources="*",verbs=get;list;watch
 
@@ -92,7 +92,7 @@ type GraphProjectionReconciler struct {
 func (r *GraphProjectionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	var projection gamerav1alpha1.GraphProjection
+	var projection astronv1alpha1.GraphProjection
 	if err := r.Get(ctx, req.NamespacedName, &projection); err != nil {
 		// The object was deleted; nothing further to do.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -185,7 +185,7 @@ func (r *GraphProjectionReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 // reconcileDelete stops the projector (which removes the projection's graph
 // data) and then removes the finalizer.
-func (r *GraphProjectionReconciler) reconcileDelete(ctx context.Context, projection *gamerav1alpha1.GraphProjection, id graph.ProjectionID) (ctrl.Result, error) {
+func (r *GraphProjectionReconciler) reconcileDelete(ctx context.Context, projection *astronv1alpha1.GraphProjection, id graph.ProjectionID) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	if !controllerutil.ContainsFinalizer(projection, graphProjectionFinalizer) {
@@ -209,7 +209,7 @@ func (r *GraphProjectionReconciler) reconcileDelete(ctx context.Context, project
 }
 
 // resolveNeo4jConfig reads the credentials Secret and assembles a Neo4jConfig.
-func (r *GraphProjectionReconciler) resolveNeo4jConfig(ctx context.Context, projection *gamerav1alpha1.GraphProjection) (graph.Neo4jConfig, error) {
+func (r *GraphProjectionReconciler) resolveNeo4jConfig(ctx context.Context, projection *astronv1alpha1.GraphProjection) (graph.Neo4jConfig, error) {
 	ref := projection.Spec.Neo4j.AuthSecretRef
 	namespace := ref.Namespace
 	if namespace == "" {
@@ -249,7 +249,7 @@ func (r *GraphProjectionReconciler) resolveNeo4jConfig(ctx context.Context, proj
 // resolveEmbeddingConfig builds the projector embedding configuration from the
 // projection's graphRAG spec, reading the provider API key Secret when present.
 // It returns a disabled config when graphRAG is absent or turned off.
-func (r *GraphProjectionReconciler) resolveEmbeddingConfig(ctx context.Context, projection *gamerav1alpha1.GraphProjection) (projector.EmbeddingConfig, error) {
+func (r *GraphProjectionReconciler) resolveEmbeddingConfig(ctx context.Context, projection *astronv1alpha1.GraphProjection) (projector.EmbeddingConfig, error) {
 	spec := projection.Spec.GraphRAG
 	if spec == nil || !spec.Enabled {
 		return projector.EmbeddingConfig{Enabled: false}, nil
@@ -307,7 +307,7 @@ func (r *GraphProjectionReconciler) resolveEmbeddingConfig(ctx context.Context, 
 
 // resolveEmbeddingAPIKey reads the embedding provider API key from its Secret.
 // A nil reference yields an empty key (valid for the fake/ollama providers).
-func (r *GraphProjectionReconciler) resolveEmbeddingAPIKey(ctx context.Context, projNamespace string, ref *gamerav1alpha1.EmbeddingSecretReference) (string, error) {
+func (r *GraphProjectionReconciler) resolveEmbeddingAPIKey(ctx context.Context, projNamespace string, ref *astronv1alpha1.EmbeddingSecretReference) (string, error) {
 	if ref == nil {
 		return "", nil
 	}
@@ -333,7 +333,7 @@ func (r *GraphProjectionReconciler) resolveEmbeddingAPIKey(ctx context.Context, 
 
 // applyEmbeddingStatus records GraphRAG embedding state on the projection's
 // status, including the RAGReady condition.
-func (r *GraphProjectionReconciler) applyEmbeddingStatus(projection *gamerav1alpha1.GraphProjection, p *projector.Projector) {
+func (r *GraphProjectionReconciler) applyEmbeddingStatus(projection *astronv1alpha1.GraphProjection, p *projector.Projector) {
 	enabled, indexReady, count, last := p.EmbeddingStatus()
 	if !enabled {
 		projection.Status.EmbeddedNodeCount = 0
@@ -365,7 +365,7 @@ func (r *GraphProjectionReconciler) applyEmbeddingStatus(projection *gamerav1alp
 
 // fail records an error condition and phase on the projection and returns a
 // result that retries after a short backoff.
-func (r *GraphProjectionReconciler) fail(ctx context.Context, projection *gamerav1alpha1.GraphProjection, reason string, cause error) (ctrl.Result, error) {
+func (r *GraphProjectionReconciler) fail(ctx context.Context, projection *astronv1alpha1.GraphProjection, reason string, cause error) (ctrl.Result, error) {
 	meta.SetStatusCondition(&projection.Status.Conditions, metav1.Condition{
 		Type:               conditionAvailable,
 		Status:             metav1.ConditionFalse,
@@ -386,7 +386,7 @@ func (r *GraphProjectionReconciler) fail(ctx context.Context, projection *gamera
 }
 
 // resyncInterval returns the configured resync interval or the default.
-func (r *GraphProjectionReconciler) resyncInterval(projection *gamerav1alpha1.GraphProjection) time.Duration {
+func (r *GraphProjectionReconciler) resyncInterval(projection *astronv1alpha1.GraphProjection) time.Duration {
 	if projection.Spec.ResyncInterval != nil && projection.Spec.ResyncInterval.Duration > 0 {
 		return projection.Spec.ResyncInterval.Duration
 	}
@@ -405,7 +405,7 @@ func (r *GraphProjectionReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		})
 	}
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&gamerav1alpha1.GraphProjection{}).
+		For(&astronv1alpha1.GraphProjection{}).
 		Named("graphprojection").
 		Complete(r)
 }

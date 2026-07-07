@@ -31,9 +31,9 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
-	"github.com/project-gamera/gamera/internal/graph"
-	"github.com/project-gamera/gamera/internal/projector"
+	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
+	"github.com/project-astron/astron/internal/graph"
+	"github.com/project-astron/astron/internal/projector"
 )
 
 // newProjectorManager builds a projector.Manager wired to envtest with a fake
@@ -96,17 +96,17 @@ var _ = Describe("GraphProjection Controller", func() {
 			}
 
 			By("creating the custom resource for the Kind GraphProjection")
-			err = k8sClient.Get(ctx, typeNamespacedName, &gamerav1alpha1.GraphProjection{})
+			err = k8sClient.Get(ctx, typeNamespacedName, &astronv1alpha1.GraphProjection{})
 			if err != nil && errors.IsNotFound(err) {
-				resource := &gamerav1alpha1.GraphProjection{
+				resource := &astronv1alpha1.GraphProjection{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
 						Namespace: namespace,
 					},
-					Spec: gamerav1alpha1.GraphProjectionSpec{
-						Neo4j: gamerav1alpha1.Neo4jConnection{
-							URI: "neo4j://neo4j.gamera-system.svc:7687",
-							AuthSecretRef: gamerav1alpha1.SecretReference{
+					Spec: astronv1alpha1.GraphProjectionSpec{
+						Neo4j: astronv1alpha1.Neo4jConnection{
+							URI: "neo4j://neo4j.astron-system.svc:7687",
+							AuthSecretRef: astronv1alpha1.SecretReference{
 								Name: secretName,
 							},
 						},
@@ -117,7 +117,7 @@ var _ = Describe("GraphProjection Controller", func() {
 		})
 
 		AfterEach(func() {
-			resource := &gamerav1alpha1.GraphProjection{}
+			resource := &astronv1alpha1.GraphProjection{}
 			if err := k8sClient.Get(ctx, typeNamespacedName, resource); err == nil {
 				By("Cleanup the specific resource instance GraphProjection")
 				Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
@@ -127,7 +127,7 @@ var _ = Describe("GraphProjection Controller", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				Eventually(func() bool {
-					return errors.IsNotFound(k8sClient.Get(ctx, typeNamespacedName, &gamerav1alpha1.GraphProjection{}))
+					return errors.IsNotFound(k8sClient.Get(ctx, typeNamespacedName, &astronv1alpha1.GraphProjection{}))
 				}).Should(BeTrue())
 			}
 
@@ -152,7 +152,7 @@ var _ = Describe("GraphProjection Controller", func() {
 			Expect(store.verifyCalls).To(BeNumerically(">=", 1))
 
 			By("Verifying the projection status reflects the ready phase")
-			updated := &gamerav1alpha1.GraphProjection{}
+			updated := &astronv1alpha1.GraphProjection{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
 			Expect(updated.Status.Phase).To(Equal(phaseReady))
 			Expect(updated.Status.ObservedGeneration).To(Equal(updated.Generation))
@@ -186,7 +186,7 @@ var _ = Describe("GraphProjection Controller", func() {
 			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 			Expect(err).NotTo(HaveOccurred())
 
-			updated := &gamerav1alpha1.GraphProjection{}
+			updated := &astronv1alpha1.GraphProjection{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
 			Expect(updated.Status.Phase).To(Equal(phaseError))
 
@@ -204,7 +204,7 @@ var _ = Describe("GraphProjection Controller", func() {
 			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 			Expect(err).NotTo(HaveOccurred())
 
-			projection := &gamerav1alpha1.GraphProjection{}
+			projection := &astronv1alpha1.GraphProjection{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, projection)).To(Succeed())
 			projectionID := graph.ProjectionID(projection.UID)
 
@@ -218,7 +218,7 @@ var _ = Describe("GraphProjection Controller", func() {
 	})
 })
 
-func metaCondition(p *gamerav1alpha1.GraphProjection, condType string) *metav1.Condition {
+func metaCondition(p *astronv1alpha1.GraphProjection, condType string) *metav1.Condition {
 	for i := range p.Status.Conditions {
 		if p.Status.Conditions[i].Type == condType {
 			return &p.Status.Conditions[i]

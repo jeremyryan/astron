@@ -30,7 +30,7 @@ import (
 	"time"
 )
 
-// newTestServer returns an MCP server wired to a fake Gamera API plus a handle
+// newTestServer returns an MCP server wired to a fake Astron API plus a handle
 // to the requests it received.
 func newTestServer(t *testing.T) (*Server, *[]string) {
 	t.Helper()
@@ -40,7 +40,7 @@ func newTestServer(t *testing.T) (*Server, *[]string) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.URL.Path == "/api/projections":
-			_, _ = w.Write([]byte(`[{"uid":"u1","namespace":"gamera","name":"default","nodeCount":3}]`))
+			_, _ = w.Write([]byte(`[{"uid":"u1","namespace":"astron","name":"default","nodeCount":3}]`))
 		case strings.HasSuffix(r.URL.Path, "/rag/search"):
 			_, _ = w.Write([]byte(`{"query":"web","seeds":[{"id":"u-pod","kind":"Pod","name":"web","score":0.9}]}`))
 		case strings.HasSuffix(r.URL.Path, "/rag/neighborhood"):
@@ -170,8 +170,8 @@ func TestToolsListAdvertisesAllTools(t *testing.T) {
 func TestToolCallQueryAndAnswer(t *testing.T) {
 	s, seen := newTestServer(t)
 
-	qReq := `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"query_cluster","arguments":{"projectionNamespace":"gamera","projectionName":"default","question":"how many pods?"}}}`
-	aReq := `{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"answer_question","arguments":{"projectionNamespace":"gamera","projectionName":"default","question":"why?"}}}`
+	qReq := `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"query_cluster","arguments":{"projectionNamespace":"astron","projectionName":"default","question":"how many pods?"}}}`
+	aReq := `{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"answer_question","arguments":{"projectionNamespace":"astron","projectionName":"default","question":"why?"}}}`
 	resps := run(t, s, qReq, aReq)
 	if len(resps) != 2 {
 		t.Fatalf("expected 2 responses, got %d", len(resps))
@@ -202,7 +202,7 @@ func TestToolCallQueryAndAnswer(t *testing.T) {
 
 func TestToolCallSearch(t *testing.T) {
 	s, seen := newTestServer(t)
-	req := `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search_cluster_graph","arguments":{"projectionNamespace":"gamera","projectionName":"default","query":"web"}}}`
+	req := `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search_cluster_graph","arguments":{"projectionNamespace":"astron","projectionName":"default","query":"web"}}}`
 	resps := run(t, s, req)
 	if len(resps) != 1 || resps[0].Error != nil {
 		t.Fatalf("unexpected response: %+v", resps)
@@ -229,7 +229,7 @@ func TestToolCallMissingRequiredArgIsToolError(t *testing.T) {
 	s, _ := newTestServer(t)
 	// Missing query: the handler should return a tool error (isError=true), not
 	// a protocol error.
-	req := `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"search_cluster_graph","arguments":{"projectionNamespace":"gamera","projectionName":"default"}}}`
+	req := `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"search_cluster_graph","arguments":{"projectionNamespace":"astron","projectionName":"default"}}}`
 	resps := run(t, s, req)
 	if resps[0].Error != nil {
 		t.Fatalf("expected a tool result, got protocol error: %+v", resps[0].Error)

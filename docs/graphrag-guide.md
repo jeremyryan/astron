@@ -1,7 +1,7 @@
 # GraphRAG User Guide
 
 This guide explains how to **enable, configure, and use** GraphRAG in Project
-Gamera. GraphRAG turns the Kubernetes resource graph that Gamera projects into
+Astron. GraphRAG turns the Kubernetes resource graph that Astron projects into
 Neo4J into a retrieval backend for LLM/agent applications: semantic search,
 graph traversal, natural-language question answering, and text-to-Cypher — over
 HTTP and natively via the [Model Context Protocol](https://modelcontextprotocol.io/)
@@ -32,7 +32,7 @@ HTTP and natively via the [Model Context Protocol](https://modelcontextprotocol.
 
 ## What you get
 
-When GraphRAG is enabled on a `GraphProjection`, Gamera adds four retrieval
+When GraphRAG is enabled on a `GraphProjection`, Astron adds four retrieval
 modes on top of the existing graph:
 
 | Mode | Endpoint | MCP tool | Needs embeddings? | Needs a chat model? |
@@ -66,7 +66,7 @@ the graph alone.
 
 ## Prerequisites
 
-- A running Gamera operator and at least one `GraphProjection` (see the project
+- A running Astron operator and at least one `GraphProjection` (see the project
   [README](../README.md)).
 - **Neo4J 5.x** (the bundled chart's Neo4J qualifies) — required for native
   **vector indexes**.
@@ -91,11 +91,11 @@ For OpenAI (the embedding and chat keys can be the same Secret or different
 ones; the default data key is `apiKey`):
 
 ```sh
-kubectl -n gamera create secret generic gamera-embeddings \
+kubectl -n astron create secret generic astron-embeddings \
   --from-literal=apiKey="$OPENAI_API_KEY"
 
 # Optional: a separate secret for the chat model (answer/query).
-kubectl -n gamera create secret generic gamera-chat \
+kubectl -n astron create secret generic astron-chat \
   --from-literal=apiKey="$OPENAI_API_KEY"
 ```
 
@@ -106,14 +106,14 @@ kubectl -n gamera create secret generic gamera-chat \
 Add a `graphRAG` block to `spec`:
 
 ```yaml
-apiVersion: gamera.gamera.io/v1alpha1
+apiVersion: astron.astron.io/v1alpha1
 kind: GraphProjection
 metadata:
   name: default
-  namespace: gamera
+  namespace: astron
 spec:
   neo4j:
-    uri: neo4j://gamera-neo4j.gamera.svc:7687
+    uri: neo4j://astron-neo4j.astron.svc:7687
     authSecretRef:
       name: neo4j-credentials
   # ... scope, relationships ...
@@ -124,7 +124,7 @@ spec:
       model: text-embedding-3-small
       dimensions: 1536
       authSecretRef:
-        name: gamera-embeddings        # data key: apiKey
+        name: astron-embeddings        # data key: apiKey
     include:
       labels: true
       annotations: false
@@ -136,7 +136,7 @@ spec:
       provider: openai
       model: gpt-4o-mini
       authSecretRef:
-        name: gamera-chat
+        name: astron-chat
 ```
 
 Apply it: `kubectl apply -f your-projection.yaml`.
@@ -146,14 +146,14 @@ Apply it: `kubectl apply -f your-projection.yaml`.
 If you let the chart create the default projection, set the values instead:
 
 ```sh
-helm upgrade gamera charts/gamera -n gamera \
+helm upgrade astron charts/astron -n astron \
   --set defaultProjection.graphRAG.enabled=true \
-  --set defaultProjection.graphRAG.embedding.authSecretRef.name=gamera-embeddings \
+  --set defaultProjection.graphRAG.embedding.authSecretRef.name=astron-embeddings \
   --set defaultProjection.graphRAG.chat.enabled=true \
-  --set defaultProjection.graphRAG.chat.authSecretRef.name=gamera-chat
+  --set defaultProjection.graphRAG.chat.authSecretRef.name=astron-chat
 ```
 
-See [`charts/gamera/values.yaml`](../charts/gamera/values.yaml) for every
+See [`charts/astron/values.yaml`](../charts/astron/values.yaml) for every
 `defaultProjection.graphRAG.*` value.
 
 ---
@@ -167,7 +167,7 @@ OpenAI-compatible API shape.
 |----------|-----------|---------|-------|
 | `openai` | optional (defaults to the public API) | required | The simplest setup. |
 | `azure` | **required** — your resource endpoint | required | Point `baseURL` at your Azure OpenAI deployment. |
-| `ollama` | **required** — e.g. `http://ollama.gamera.svc:11434/v1` | not needed | Fully local; good for air-gapped clusters. |
+| `ollama` | **required** — e.g. `http://ollama.astron.svc:11434/v1` | not needed | Fully local; good for air-gapped clusters. |
 | `fake` | — | — | Deterministic, no network. Wiring/dev only; do **not** rely on result quality. |
 
 The same `provider` set applies to both `embedding` and `chat`; they are
@@ -180,7 +180,7 @@ configured independently and may use different providers, models, and Secrets.
 After enabling, watch the projection status:
 
 ```sh
-kubectl -n gamera get graphprojection default
+kubectl -n astron get graphprojection default
 # NAME      PHASE   NODES   EDGES   AGE
 # default   Ready   42      57      3m
 ```
@@ -188,8 +188,8 @@ kubectl -n gamera get graphprojection default
 Check the GraphRAG-specific status and conditions:
 
 ```sh
-kubectl -n gamera get graphprojection default -o jsonpath='{.status.embeddedNodeCount}{"\n"}'
-kubectl -n gamera get graphprojection default \
+kubectl -n astron get graphprojection default -o jsonpath='{.status.embeddedNodeCount}{"\n"}'
+kubectl -n astron get graphprojection default \
   -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.reason}{"\n"}{end}'
 # Available=True Synced
 # Progressing=False Running
@@ -213,7 +213,7 @@ The read API is served on the operator's API port (default `:8082`). During
 yourself:
 
 ```sh
-kubectl -n gamera port-forward svc/gamera-api 8082:8082
+kubectl -n astron port-forward svc/astron-api 8082:8082
 ```
 
 All retrieval endpoints are scoped to a projection by its **namespace and
@@ -222,7 +222,7 @@ name**: `/api/projections/{namespace}/{name}/…`.
 ### Semantic search
 
 ```sh
-curl -s http://localhost:8082/api/projections/gamera/default/rag/search \
+curl -s http://localhost:8082/api/projections/astron/default/rag/search \
   -H 'Content-Type: application/json' \
   -d '{"query": "why is the web deployment unhealthy?", "topK": 5, "hops": 1}' | jq
 ```
@@ -253,7 +253,7 @@ Response (`retrieval`):
 ### Neighborhood (no embeddings required)
 
 ```sh
-curl -s http://localhost:8082/api/projections/gamera/default/rag/neighborhood \
+curl -s http://localhost:8082/api/projections/astron/default/rag/neighborhood \
   -H 'Content-Type: application/json' \
   -d '{"kind": "Pod", "namespace": "shop", "name": "web-7d9", "hops": 2}' | jq
 ```
@@ -264,7 +264,7 @@ Request fields: `kind` + `name` (required), `namespace`, `apiVersion`, `hops`
 ### Answer a question (requires `chat`)
 
 ```sh
-curl -s http://localhost:8082/api/projections/gamera/default/rag/answer \
+curl -s http://localhost:8082/api/projections/astron/default/rag/answer \
   -H 'Content-Type: application/json' \
   -d '{"question": "what is preventing the web pods from starting?"}' | jq
 ```
@@ -277,7 +277,7 @@ that grounded it, so you can verify the citations.
 Best for precise/aggregate questions (counts, filters, joins):
 
 ```sh
-curl -s http://localhost:8082/api/projections/gamera/default/rag/query \
+curl -s http://localhost:8082/api/projections/astron/default/rag/query \
   -H 'Content-Type: application/json' \
   -d '{"question": "how many pods are CrashLoopBackOff in namespace shop?"}' | jq
 ```
@@ -300,17 +300,17 @@ its result rows.
 ## Using the MCP server
 
 The MCP server exposes the retrieval API as agent tools over stdio. It is a
-**subcommand of the same `gamera` binary** and a thin client of the read API, so
+**subcommand of the same `astron` binary** and a thin client of the read API, so
 it inherits projection scoping and read-only guarantees.
 
 ### Run it
 
 ```sh
 # Make sure the read API is reachable (e.g. port-forwarded to :8082).
-gamera mcp-server --api-base-url http://localhost:8082
+astron mcp-server --api-base-url http://localhost:8082
 ```
 
-The base URL also comes from `$GAMERA_API_URL` (default
+The base URL also comes from `$ASTRON_API_URL` (default
 `http://localhost:8082`). Logs go to **stderr**; **stdout** is the JSON-RPC
 stream — don't mix anything else into stdout.
 
@@ -333,15 +333,15 @@ Desktop / Cursor `mcp.json`):
 ```jsonc
 {
   "mcpServers": {
-    "gamera": {
-      "command": "/usr/local/bin/gamera",
+    "astron": {
+      "command": "/usr/local/bin/astron",
       "args": ["mcp-server", "--api-base-url", "http://localhost:8082"]
     }
   }
 }
 ```
 
-Then ask the agent things like *"Using the gamera tools, what's the blast radius
+Then ask the agent things like *"Using the astron tools, what's the blast radius
 of the `web-config` ConfigMap in the default projection?"*
 
 ---
@@ -412,7 +412,7 @@ Status fields written back by the controller: `embeddedNodeCount`,
   on text-to-Cypher alone for hard multi-tenant isolation.
 - **Credentials** are referenced from Kubernetes Secrets, never inlined in the
   CRD — the same pattern as the Neo4J credentials.
-- **Secret names appear in cards.** Gamera never captures Secret *values*, but a
+- **Secret names appear in cards.** Astron never captures Secret *values*, but a
   Secret's name/keys can appear in a resource card (e.g. "Mounts Secret
   `web-tls`"). Keep that in mind for the embedding provider you choose.
 - **Network egress.** With `openai`/`azure`, card text and queries are sent to
@@ -442,7 +442,7 @@ reconciling). Re-try after it reaches `Phase: Ready`.
 The embedding/chat Secret is missing or lacks the expected data key. Verify:
 
 ```sh
-kubectl -n gamera get secret gamera-embeddings -o jsonpath='{.data.apiKey}' | base64 -d | head -c4
+kubectl -n astron get secret astron-embeddings -o jsonpath='{.data.apiKey}' | base64 -d | head -c4
 ```
 
 **Provider errors in logs (`api error`, `unexpected status`).**

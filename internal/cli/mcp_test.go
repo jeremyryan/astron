@@ -86,7 +86,7 @@ func TestMCPServerAPIBaseURLFlag(t *testing.T) {
 
 func TestResolveMCPBaseURL(t *testing.T) {
 	// Explicit --server wins over the env var.
-	t.Setenv("GAMERA_API_URL", "http://env:9999")
+	t.Setenv("ASTRON_API_URL", "http://env:9999")
 	if got := resolveMCPBaseURL(&options{server: "http://explicit:1234"}); got != "http://explicit:1234" {
 		t.Errorf("explicit server should win, got %q", got)
 	}
@@ -95,7 +95,7 @@ func TestResolveMCPBaseURL(t *testing.T) {
 		t.Errorf("expected env fallback, got %q", got)
 	}
 	// Default --server with no env var keeps the default.
-	t.Setenv("GAMERA_API_URL", "")
+	t.Setenv("ASTRON_API_URL", "")
 	if got := resolveMCPBaseURL(&options{server: defaultServer}); got != defaultServer {
 		t.Errorf("expected default, got %q", got)
 	}

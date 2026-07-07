@@ -1,6 +1,6 @@
-# Gamera Helm Chart
+# Astron Helm Chart
 
-Deploys the **Project Gamera** operator — which projects Kubernetes cluster
+Deploys the **Project Astron** operator — which projects Kubernetes cluster
 resources and their relationships into a Neo4J graph — together with the
 `GraphProjection` CRD, RBAC, and (optionally) a bundled Neo4J database.
 
@@ -8,18 +8,18 @@ resources and their relationships into a Neo4J graph — together with the
 
 ```sh
 # Fetch the Neo4J dependency once.
-helm dependency build charts/gamera
+helm dependency build charts/astron
 
 # Install with a bundled Neo4J (development).
-helm install gamera charts/gamera \
-  --namespace gamera-system --create-namespace \
+helm install astron charts/astron \
+  --namespace astron-system --create-namespace \
   --set neo4j.neo4j.password='a-strong-password'
 ```
 
 Open the UI:
 
 ```sh
-kubectl -n gamera-system port-forward svc/gamera-api 8082:8082
+kubectl -n astron-system port-forward svc/astron-api 8082:8082
 # browse http://localhost:8082
 ```
 
@@ -36,7 +36,7 @@ is auto-derived from the in-cluster service, and the credentials Secret reuses
 the bundled password.
 
 ```sh
-helm install gamera charts/gamera -n gamera-system --create-namespace \
+helm install astron charts/astron -n astron-system --create-namespace \
   --set neo4j.neo4j.password='a-strong-password'
 ```
 
@@ -46,7 +46,7 @@ Set `neo4j.enabled=false` and point the chart at your database. Provide
 credentials either via an existing Secret or inline values.
 
 ```sh
-helm install gamera charts/gamera -n gamera-system --create-namespace \
+helm install astron charts/astron -n astron-system --create-namespace \
   --set neo4j.enabled=false \
   --set connection.uri='neo4j://neo4j.data.svc.cluster.local:7687' \
   --set connection.existingSecret='neo4j-credentials'
@@ -59,7 +59,7 @@ The existing Secret must contain the keys named by `connection.usernameKey`
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `image.repository` / `image.tag` | `ghcr.io/project-gamera/gamera` / appVersion | Operator image. |
+| `image.repository` / `image.tag` | `ghcr.io/project-astron/astron` / appVersion | Operator image. |
 | `replicaCount` | `1` | Operator replicas (leader-elected). |
 | `crds.install` | `true` | Install the GraphProjection CRD (kept on uninstall). |
 | `rbac.create` | `true` | Create ClusterRole/Role and bindings. |
@@ -84,12 +84,12 @@ scheduling, security contexts, and the default projection's scope/relationships.
 ## Uninstall
 
 ```sh
-helm uninstall gamera -n gamera-system
+helm uninstall astron -n astron-system
 ```
 
 The CRD is annotated with `helm.sh/resource-policy: keep`, so it (and any
 `GraphProjection` resources) survive uninstall. Remove it manually if desired:
 
 ```sh
-kubectl delete crd graphprojections.gamera.gamera.io
+kubectl delete crd graphprojections.astron.astron.io
 ```

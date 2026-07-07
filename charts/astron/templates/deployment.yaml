@@ -1,16 +1,16 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "gamera.fullname" . }}
+  name: {{ include "astron.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "gamera.labels" . | nindent 4 }}
+    {{- include "astron.labels" . | nindent 4 }}
     control-plane: controller-manager
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      {{- include "gamera.selectorLabels" . | nindent 6 }}
+      {{- include "astron.selectorLabels" . | nindent 6 }}
       control-plane: controller-manager
   template:
     metadata:
@@ -20,7 +20,7 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
       labels:
-        {{- include "gamera.selectorLabels" . | nindent 8 }}
+        {{- include "astron.selectorLabels" . | nindent 8 }}
         control-plane: controller-manager
         {{- with .Values.controller.podLabels }}
         {{- toYaml . | nindent 8 }}
@@ -30,13 +30,13 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "gamera.serviceAccountName" . }}
+      serviceAccountName: {{ include "astron.serviceAccountName" . }}
       terminationGracePeriodSeconds: 10
       securityContext:
         {{- toYaml .Values.controller.podSecurityContext | nindent 8 }}
       containers:
         - name: manager
-          image: {{ include "gamera.image" . }}
+          image: {{ include "astron.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command:
             - /manager

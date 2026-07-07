@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/project-gamera/gamera/internal/graph"
-	"github.com/project-gamera/gamera/internal/rag"
+	"github.com/project-astron/astron/internal/graph"
+	"github.com/project-astron/astron/internal/rag"
 )
 
 // embeddingEnabled reports whether GraphRAG embedding refresh is configured.

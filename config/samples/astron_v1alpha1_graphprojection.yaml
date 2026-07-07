@@ -1,17 +1,17 @@
-apiVersion: gamera.gamera.io/v1alpha1
+apiVersion: astron.astron.io/v1alpha1
 kind: GraphProjection
 metadata:
   labels:
-    app.kubernetes.io/name: gamera
+    app.kubernetes.io/name: astron
     app.kubernetes.io/managed-by: kustomize
   name: graphprojection-sample
 spec:
   neo4j:
-    uri: neo4j://neo4j.gamera-system.svc:7687
+    uri: neo4j://neo4j.astron-system.svc:7687
     database: neo4j
     authSecretRef:
       name: neo4j-credentials
-      namespace: gamera-system
+      namespace: astron-system
   resyncInterval: 5m
   scope:
     # Set ownNamespaceOnly to capture only resources in this resource's own
@@ -112,7 +112,7 @@ spec:
       # baseURL is required for azure/ollama and optional for openai.
       # baseURL: https://my-resource.openai.azure.com
       authSecretRef:
-        name: gamera-embeddings
+        name: astron-embeddings
         # apiKeyKey defaults to "apiKey".
         # apiKeyKey: apiKey
     # include controls which node properties feed the embedded card.
@@ -130,5 +130,5 @@ spec:
       model: gpt-4o-mini
       # baseURL: https://my-resource.openai.azure.com
       authSecretRef:
-        name: gamera-chat
+        name: astron-chat
         # apiKeyKey: apiKey

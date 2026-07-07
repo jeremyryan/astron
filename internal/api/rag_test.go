@@ -26,7 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
+	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
 )
 
 func ragRequest(t *testing.T, srv *Server, path, body string) *httptest.ResponseRecorder {
@@ -38,7 +38,7 @@ func ragRequest(t *testing.T, srv *Server, path, body string) *httptest.Response
 }
 
 func TestRAGSearchEmptyQueryIsBadRequest(t *testing.T) {
-	proj := &gamerav1alpha1.GraphProjection{
+	proj := &astronv1alpha1.GraphProjection{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default", UID: types.UID("uid-1")},
 	}
 	srv := newTestServer(t, proj)
@@ -60,7 +60,7 @@ func TestRAGSearchMissingProjectionIsNotFound(t *testing.T) {
 // but finds it not running, yielding an empty 200 (consistent with the graph
 // endpoint's behavior).
 func TestRAGSearchNotRunningReturnsEmpty(t *testing.T) {
-	proj := &gamerav1alpha1.GraphProjection{
+	proj := &astronv1alpha1.GraphProjection{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default", UID: types.UID("uid-1")},
 	}
 	srv := newTestServer(t, proj)
@@ -78,7 +78,7 @@ func TestRAGSearchNotRunningReturnsEmpty(t *testing.T) {
 }
 
 func TestRAGNeighborhoodRequiresKindAndName(t *testing.T) {
-	proj := &gamerav1alpha1.GraphProjection{
+	proj := &astronv1alpha1.GraphProjection{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default", UID: types.UID("uid-1")},
 	}
 	srv := newTestServer(t, proj)
@@ -89,7 +89,7 @@ func TestRAGNeighborhoodRequiresKindAndName(t *testing.T) {
 }
 
 func TestRAGNeighborhoodNotRunningReturnsEmpty(t *testing.T) {
-	proj := &gamerav1alpha1.GraphProjection{
+	proj := &astronv1alpha1.GraphProjection{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default", UID: types.UID("uid-1")},
 	}
 	srv := newTestServer(t, proj)
@@ -108,7 +108,7 @@ func TestRAGNeighborhoodNotRunningReturnsEmpty(t *testing.T) {
 }
 
 func TestRAGSearchRejectsMalformedBody(t *testing.T) {
-	proj := &gamerav1alpha1.GraphProjection{
+	proj := &astronv1alpha1.GraphProjection{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default", UID: types.UID("uid-1")},
 	}
 	srv := newTestServer(t, proj)
@@ -119,7 +119,7 @@ func TestRAGSearchRejectsMalformedBody(t *testing.T) {
 }
 
 func TestRAGQueryEmptyQuestionIsBadRequest(t *testing.T) {
-	proj := &gamerav1alpha1.GraphProjection{
+	proj := &astronv1alpha1.GraphProjection{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default", UID: types.UID("uid-1")},
 	}
 	srv := newTestServer(t, proj)
@@ -132,7 +132,7 @@ func TestRAGQueryEmptyQuestionIsBadRequest(t *testing.T) {
 // With no running projector, text-to-Cypher and answer report the capability as
 // unavailable (503), since they require a configured chat model.
 func TestRAGQueryNotRunningIsUnavailable(t *testing.T) {
-	proj := &gamerav1alpha1.GraphProjection{
+	proj := &astronv1alpha1.GraphProjection{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default", UID: types.UID("uid-1")},
 	}
 	srv := newTestServer(t, proj)
@@ -143,7 +143,7 @@ func TestRAGQueryNotRunningIsUnavailable(t *testing.T) {
 }
 
 func TestRAGAnswerNotRunningIsUnavailable(t *testing.T) {
-	proj := &gamerav1alpha1.GraphProjection{
+	proj := &astronv1alpha1.GraphProjection{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default", UID: types.UID("uid-1")},
 	}
 	srv := newTestServer(t, proj)

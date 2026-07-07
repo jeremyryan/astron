@@ -8,7 +8,7 @@ repository (`icons/svg`, the *unlabeled* variants).
 - **Copyright:** The Kubernetes Authors
 - **License:** Apache License, Version 2.0
 
-They are used in the Project Gamera web UI to visually identify the
+They are used in the Project Astron web UI to visually identify the
 corresponding Kubernetes resource kinds (Pod, Deployment, Service,
 ConfigMap, Secret, etc.).
 

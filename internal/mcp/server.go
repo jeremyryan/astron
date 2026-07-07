@@ -15,8 +15,8 @@ limitations under the License.
 */
 
 // Package mcp implements a minimal Model Context Protocol (MCP) server that
-// exposes Gamera's graph retrieval as agent tools. It speaks JSON-RPC 2.0 over
-// a newline-delimited stdio transport and is a thin client of the Gamera read
+// exposes Astron's graph retrieval as agent tools. It speaks JSON-RPC 2.0 over
+// a newline-delimited stdio transport and is a thin client of the Astron read
 // API, so it inherits that API's projection scoping and read-only behavior.
 //
 // The implementation depends only on the standard library.
@@ -36,7 +36,7 @@ const protocolVersion = "2024-11-05"
 
 // serverName and serverVersion identify this server to MCP clients.
 const (
-	serverName    = "gamera-mcp"
+	serverName    = "astron-mcp"
 	serverVersion = "0.1.0"
 )
 
@@ -79,14 +79,14 @@ type tool struct {
 	handler     toolHandler    `json:"-"`
 }
 
-// Server is an MCP server exposing Gamera retrieval tools over stdio.
+// Server is an MCP server exposing Astron retrieval tools over stdio.
 type Server struct {
 	api   *APIClient
 	tools map[string]tool
 	order []string // tool names in registration order, for stable tools/list
 }
 
-// NewServer builds an MCP server backed by the given Gamera API client.
+// NewServer builds an MCP server backed by the given Astron API client.
 func NewServer(api *APIClient) *Server {
 	s := &Server{api: api, tools: map[string]tool{}}
 	s.registerTools()

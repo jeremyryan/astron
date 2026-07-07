@@ -28,10 +28,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/dynamic"
 
-	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
-	"github.com/project-gamera/gamera/internal/graph"
-	"github.com/project-gamera/gamera/internal/rag"
-	"github.com/project-gamera/gamera/internal/relationship"
+	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
+	"github.com/project-astron/astron/internal/graph"
+	"github.com/project-astron/astron/internal/rag"
+	"github.com/project-astron/astron/internal/relationship"
 )
 
 // EmbeddingConfig is the resolved GraphRAG embedding configuration for a
@@ -93,7 +93,7 @@ func NewManager(dynamicClient dynamic.Interface, mapper meta.RESTMapper, newStor
 // Ensure makes the running state match the desired projection: it starts a new
 // projector, restarts one whose spec changed, or leaves an unchanged one alone.
 // It returns the projector currently serving the projection.
-func (m *Manager) Ensure(ctx context.Context, id graph.ProjectionID, namespace string, spec gamerav1alpha1.GraphProjectionSpec, cfg graph.Neo4jConfig, emb EmbeddingConfig) (*Projector, error) {
+func (m *Manager) Ensure(ctx context.Context, id graph.ProjectionID, namespace string, spec astronv1alpha1.GraphProjectionSpec, cfg graph.Neo4jConfig, emb EmbeddingConfig) (*Projector, error) {
 	hash, err := specHash(spec, cfg, emb)
 	if err != nil {
 		return nil, err
@@ -294,9 +294,9 @@ func (m *Manager) Answer(ctx context.Context, id graph.ProjectionID, question st
 
 // specHash produces a stable fingerprint of the inputs that affect a
 // projector's behaviour, so the manager can detect meaningful changes.
-func specHash(spec gamerav1alpha1.GraphProjectionSpec, cfg graph.Neo4jConfig, emb EmbeddingConfig) (string, error) {
+func specHash(spec astronv1alpha1.GraphProjectionSpec, cfg graph.Neo4jConfig, emb EmbeddingConfig) (string, error) {
 	payload := struct {
-		Spec gamerav1alpha1.GraphProjectionSpec
+		Spec astronv1alpha1.GraphProjectionSpec
 		Cfg  graph.Neo4jConfig
 		Emb  EmbeddingConfig
 	}{spec, cfg, emb}
@@ -308,7 +308,7 @@ func specHash(spec gamerav1alpha1.GraphProjectionSpec, cfg graph.Neo4jConfig, em
 	return fmt.Sprintf("%x", sum), nil
 }
 
-func resyncInterval(spec gamerav1alpha1.GraphProjectionSpec) (d time.Duration) {
+func resyncInterval(spec astronv1alpha1.GraphProjectionSpec) (d time.Duration) {
 	if spec.ResyncInterval != nil && spec.ResyncInterval.Duration > 0 {
 		return spec.ResyncInterval.Duration
 	}

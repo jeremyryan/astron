@@ -1,14 +1,14 @@
 {{/*
 Expand the name of the chart.
 */}}
-{{- define "gamera.name" -}}
+{{- define "astron.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Fully qualified app name.
 */}}
-{{- define "gamera.fullname" -}}
+{{- define "astron.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -21,37 +21,37 @@ Fully qualified app name.
 {{- end }}
 {{- end }}
 
-{{- define "gamera.chart" -}}
+{{- define "astron.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Common labels.
 */}}
-{{- define "gamera.labels" -}}
-helm.sh/chart: {{ include "gamera.chart" . }}
-{{ include "gamera.selectorLabels" . }}
+{{- define "astron.labels" -}}
+helm.sh/chart: {{ include "astron.chart" . }}
+{{ include "astron.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.kubernetes.io/part-of: gamera
+app.kubernetes.io/part-of: astron
 {{- end }}
 
 {{/*
 Selector labels.
 */}}
-{{- define "gamera.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "gamera.name" . }}
+{{- define "astron.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "astron.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
 ServiceAccount name.
 */}}
-{{- define "gamera.serviceAccountName" -}}
+{{- define "astron.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
-{{- default (include "gamera.fullname" .) .Values.serviceAccount.name }}
+{{- default (include "astron.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
@@ -60,7 +60,7 @@ ServiceAccount name.
 {{/*
 Container image reference.
 */}}
-{{- define "gamera.image" -}}
+{{- define "astron.image" -}}
 {{- $tag := default .Chart.AppVersion .Values.image.tag -}}
 {{- printf "%s:%s" .Values.image.repository $tag -}}
 {{- end }}
@@ -69,11 +69,11 @@ Container image reference.
 Name of the Secret holding Neo4J credentials (created or existing).
 */}}
 {{/* Distinct from the bundled Neo4J subchart's own "<name>-auth" secret. */}}
-{{- define "gamera.credentialsSecretName" -}}
+{{- define "astron.credentialsSecretName" -}}
 {{- if .Values.connection.existingSecret }}
 {{- .Values.connection.existingSecret }}
 {{- else }}
-{{- printf "%s-neo4j-credentials" (include "gamera.fullname" .) }}
+{{- printf "%s-neo4j-credentials" (include "astron.fullname" .) }}
 {{- end }}
 {{- end }}
 
@@ -81,7 +81,7 @@ Name of the Secret holding Neo4J credentials (created or existing).
 Effective Neo4J password: when the bundled Neo4J is enabled and no explicit
 connection password is given, reuse the bundled instance's password.
 */}}
-{{- define "gamera.neo4jPassword" -}}
+{{- define "astron.neo4jPassword" -}}
 {{- if .Values.connection.password }}
 {{- .Values.connection.password }}
 {{- else if .Values.neo4j.enabled }}
@@ -96,7 +96,7 @@ Effective Neo4J bolt URI. Uses connection.uri when set, otherwise derives the
 in-cluster address of the bundled Neo4J service. The bundled (official) Neo4J
 chart names its primary ClusterIP service after the release name, not neo4j.name.
 */}}
-{{- define "gamera.neo4jUri" -}}
+{{- define "astron.neo4jUri" -}}
 {{- if .Values.connection.uri }}
 {{- .Values.connection.uri }}
 {{- else if .Values.neo4j.enabled }}

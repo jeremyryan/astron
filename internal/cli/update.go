@@ -29,7 +29,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/yaml"
 
-	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
+	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
 )
 
 // updateOptions holds the flags for "projections update".
@@ -67,7 +67,7 @@ func newProjectionsUpdateCmd(opts *options) *cobra.Command {
 			"built-in default set), adding resources creates an explicit allow-list\n" +
 			"containing only the added kinds.\n\n" +
 			"By default it talks directly to the Kubernetes API (via your kubeconfig),\n" +
-			"not the Gamera read API. Pass -f/--file to instead edit a manifest file in\n" +
+			"not the Astron read API. Pass -f/--file to instead edit a manifest file in\n" +
 			"place: the file must contain a GraphProjection with the given namespace and\n" +
 			"name, and only that document is rewritten.",
 		Args: cobra.ExactArgs(2),
@@ -125,7 +125,7 @@ func runUpdate(cmd *cobra.Command, uopts *updateOptions, namespace, name string)
 // updateProjectionResources fetches the named GraphProjection, applies the add
 // and remove changes to its scope.resources list, and updates it in place. It is
 // split out so it can be unit-tested with a fake dynamic client.
-func updateProjectionResources(cmd *cobra.Command, dyn dynamic.Interface, namespace, name string, add []gamerav1alpha1.ResourceSelector, removeKinds map[string]bool) error {
+func updateProjectionResources(cmd *cobra.Command, dyn dynamic.Interface, namespace, name string, add []astronv1alpha1.ResourceSelector, removeKinds map[string]bool) error {
 	ctx := cmd.Context()
 	ri := dyn.Resource(graphProjectionGVR).Namespace(namespace)
 
@@ -143,7 +143,7 @@ func updateProjectionResources(cmd *cobra.Command, dyn dynamic.Interface, namesp
 	}
 	if change.empty() {
 		_, ferr := fmt.Fprintf(cmd.OutOrStdout(),
-			"graphprojection.gamera.gamera.io/%s unchanged in namespace %s\n", name, namespace)
+			"graphprojection.astron.astron.io/%s unchanged in namespace %s\n", name, namespace)
 		return ferr
 	}
 
@@ -152,7 +152,7 @@ func updateProjectionResources(cmd *cobra.Command, dyn dynamic.Interface, namesp
 	}
 
 	_, err = fmt.Fprintf(cmd.OutOrStdout(),
-		"graphprojection.gamera.gamera.io/%s updated in namespace %s (%s)\n",
+		"graphprojection.astron.astron.io/%s updated in namespace %s (%s)\n",
 		name, namespace, change)
 	return err
 }
@@ -161,7 +161,7 @@ func updateProjectionResources(cmd *cobra.Command, dyn dynamic.Interface, namesp
 // the manifest file at path (matching the given namespace and name) and writes
 // the result back. Other documents in a multi-document file are preserved
 // verbatim; only the matched GraphProjection document is rewritten.
-func updateProjectionFile(cmd *cobra.Command, path, namespace, name string, add []gamerav1alpha1.ResourceSelector, removeKinds map[string]bool) error {
+func updateProjectionFile(cmd *cobra.Command, path, namespace, name string, add []astronv1alpha1.ResourceSelector, removeKinds map[string]bool) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", path, err)
@@ -201,7 +201,7 @@ func updateProjectionFile(cmd *cobra.Command, path, namespace, name string, add 
 	}
 	if change.empty() {
 		_, ferr := fmt.Fprintf(cmd.OutOrStdout(),
-			"graphprojection.gamera.gamera.io/%s unchanged in %s\n", name, path)
+			"graphprojection.astron.astron.io/%s unchanged in %s\n", name, path)
 		return ferr
 	}
 
@@ -215,7 +215,7 @@ func updateProjectionFile(cmd *cobra.Command, path, namespace, name string, add 
 		return fmt.Errorf("writing %s: %w", path, err)
 	}
 	_, err = fmt.Fprintf(cmd.OutOrStdout(),
-		"graphprojection.gamera.gamera.io/%s updated in %s (%s)\n", name, path, change)
+		"graphprojection.astron.astron.io/%s updated in %s (%s)\n", name, path, change)
 	return err
 }
 
@@ -243,7 +243,7 @@ func (c projectionChange) String() string {
 // returning the counts of what changed. Adding a kind pulls in the well-known
 // relationships defined for it; removing a kind drops the relationships that
 // reference it.
-func mutateProjection(obj *unstructured.Unstructured, add []gamerav1alpha1.ResourceSelector, removeKinds map[string]bool) (projectionChange, error) {
+func mutateProjection(obj *unstructured.Unstructured, add []astronv1alpha1.ResourceSelector, removeKinds map[string]bool) (projectionChange, error) {
 	existing, err := readResourceSelectors(obj)
 	if err != nil {
 		return projectionChange{}, fmt.Errorf("reading resources: %w", err)
@@ -323,7 +323,7 @@ func joinYAMLDocuments(docs []string) string {
 // newlyAddedKinds returns the set of kinds from add that were not already
 // present in existing (i.e. genuinely new resource types, not group/version
 // overrides of an existing kind).
-func newlyAddedKinds(existing, add []gamerav1alpha1.ResourceSelector) map[string]bool {
+func newlyAddedKinds(existing, add []astronv1alpha1.ResourceSelector) map[string]bool {
 	present := make(map[string]bool, len(existing))
 	for _, r := range existing {
 		present[r.Kind] = true
@@ -342,8 +342,8 @@ func newlyAddedKinds(existing, add []gamerav1alpha1.ResourceSelector) map[string
 // adds the well-known rules (derived from the updated resource set) that involve
 // a newly added kind and are not already present. Custom rules that do not
 // reference a removed kind are preserved.
-func applyRelationshipChanges(existing []gamerav1alpha1.RelationshipRule, updatedResources []gamerav1alpha1.ResourceSelector, addedKinds, removeKinds map[string]bool) (result []gamerav1alpha1.RelationshipRule, added, removed int) {
-	out := make([]gamerav1alpha1.RelationshipRule, 0, len(existing))
+func applyRelationshipChanges(existing []astronv1alpha1.RelationshipRule, updatedResources []astronv1alpha1.ResourceSelector, addedKinds, removeKinds map[string]bool) (result []astronv1alpha1.RelationshipRule, added, removed int) {
+	out := make([]astronv1alpha1.RelationshipRule, 0, len(existing))
 	present := map[string]bool{}
 	for _, r := range existing {
 		if removeKinds[r.From.Kind] || removeKinds[r.To.Kind] {
@@ -370,8 +370,8 @@ func applyRelationshipChanges(existing []gamerav1alpha1.RelationshipRule, update
 // applyResourceChanges returns the resource list after removing the given kinds
 // and adding/overriding the given selectors (deduplicated by kind). It also
 // reports how many entries were effectively added and removed.
-func applyResourceChanges(existing, add []gamerav1alpha1.ResourceSelector, removeKinds map[string]bool) (result []gamerav1alpha1.ResourceSelector, added, removed int) {
-	out := make([]gamerav1alpha1.ResourceSelector, 0, len(existing)+len(add))
+func applyResourceChanges(existing, add []astronv1alpha1.ResourceSelector, removeKinds map[string]bool) (result []astronv1alpha1.ResourceSelector, added, removed int) {
+	out := make([]astronv1alpha1.ResourceSelector, 0, len(existing)+len(add))
 	for _, r := range existing {
 		if removeKinds[r.Kind] {
 			removed++
@@ -401,7 +401,7 @@ func applyResourceChanges(existing, add []gamerav1alpha1.ResourceSelector, remov
 
 // readResourceSelectors reads spec.scope.resources from an unstructured
 // GraphProjection into a typed slice.
-func readResourceSelectors(obj *unstructured.Unstructured) ([]gamerav1alpha1.ResourceSelector, error) {
+func readResourceSelectors(obj *unstructured.Unstructured) ([]astronv1alpha1.ResourceSelector, error) {
 	raw, found, err := unstructured.NestedSlice(obj.Object, "spec", "scope", "resources")
 	if err != nil {
 		return nil, err
@@ -409,7 +409,7 @@ func readResourceSelectors(obj *unstructured.Unstructured) ([]gamerav1alpha1.Res
 	if !found {
 		return nil, nil
 	}
-	out := make([]gamerav1alpha1.ResourceSelector, 0, len(raw))
+	out := make([]astronv1alpha1.ResourceSelector, 0, len(raw))
 	for _, item := range raw {
 		m, ok := item.(map[string]any)
 		if !ok {
@@ -418,14 +418,14 @@ func readResourceSelectors(obj *unstructured.Unstructured) ([]gamerav1alpha1.Res
 		group, _, _ := unstructured.NestedString(m, "group")
 		version, _, _ := unstructured.NestedString(m, "version")
 		kind, _, _ := unstructured.NestedString(m, "kind")
-		out = append(out, gamerav1alpha1.ResourceSelector{Group: group, Version: version, Kind: kind})
+		out = append(out, astronv1alpha1.ResourceSelector{Group: group, Version: version, Kind: kind})
 	}
 	return out, nil
 }
 
 // writeResourceSelectors writes the typed slice back to spec.scope.resources on
 // the unstructured object, omitting empty group/version fields.
-func writeResourceSelectors(obj *unstructured.Unstructured, selectors []gamerav1alpha1.ResourceSelector) error {
+func writeResourceSelectors(obj *unstructured.Unstructured, selectors []astronv1alpha1.ResourceSelector) error {
 	raw := make([]any, 0, len(selectors))
 	for _, s := range selectors {
 		m := map[string]any{"kind": s.Kind}
@@ -442,7 +442,7 @@ func writeResourceSelectors(obj *unstructured.Unstructured, selectors []gamerav1
 
 // readRelationshipRules reads spec.relationships from an unstructured
 // GraphProjection into a typed slice.
-func readRelationshipRules(obj *unstructured.Unstructured) ([]gamerav1alpha1.RelationshipRule, error) {
+func readRelationshipRules(obj *unstructured.Unstructured) ([]astronv1alpha1.RelationshipRule, error) {
 	raw, found, err := unstructured.NestedSlice(obj.Object, "spec", "relationships")
 	if err != nil {
 		return nil, err
@@ -450,7 +450,7 @@ func readRelationshipRules(obj *unstructured.Unstructured) ([]gamerav1alpha1.Rel
 	if !found {
 		return nil, nil
 	}
-	out := make([]gamerav1alpha1.RelationshipRule, 0, len(raw))
+	out := make([]astronv1alpha1.RelationshipRule, 0, len(raw))
 	for _, item := range raw {
 		m, ok := item.(map[string]any)
 		if !ok {
@@ -459,10 +459,10 @@ func readRelationshipRules(obj *unstructured.Unstructured) ([]gamerav1alpha1.Rel
 		name, _, _ := unstructured.NestedString(m, "name")
 		typ, _, _ := unstructured.NestedString(m, "type")
 		strategy, _, _ := unstructured.NestedString(m, "strategy")
-		out = append(out, gamerav1alpha1.RelationshipRule{
+		out = append(out, astronv1alpha1.RelationshipRule{
 			Name:     name,
 			Type:     typ,
-			Strategy: gamerav1alpha1.RelationshipStrategy(strategy),
+			Strategy: astronv1alpha1.RelationshipStrategy(strategy),
 			From:     selectorFromNested(m, "from"),
 			To:       selectorFromNested(m, "to"),
 		})
@@ -471,16 +471,16 @@ func readRelationshipRules(obj *unstructured.Unstructured) ([]gamerav1alpha1.Rel
 }
 
 // selectorFromNested reads a nested {group,version,kind} object under key from m.
-func selectorFromNested(m map[string]any, key string) gamerav1alpha1.ResourceSelector {
+func selectorFromNested(m map[string]any, key string) astronv1alpha1.ResourceSelector {
 	group, _, _ := unstructured.NestedString(m, key, "group")
 	version, _, _ := unstructured.NestedString(m, key, "version")
 	kind, _, _ := unstructured.NestedString(m, key, "kind")
-	return gamerav1alpha1.ResourceSelector{Group: group, Version: version, Kind: kind}
+	return astronv1alpha1.ResourceSelector{Group: group, Version: version, Kind: kind}
 }
 
 // writeRelationshipRules writes the typed slice back to spec.relationships on the
 // unstructured object.
-func writeRelationshipRules(obj *unstructured.Unstructured, rules []gamerav1alpha1.RelationshipRule) error {
+func writeRelationshipRules(obj *unstructured.Unstructured, rules []astronv1alpha1.RelationshipRule) error {
 	raw := make([]any, 0, len(rules))
 	for _, r := range rules {
 		raw = append(raw, map[string]any{
@@ -496,7 +496,7 @@ func writeRelationshipRules(obj *unstructured.Unstructured, rules []gamerav1alph
 
 // selectorToMap renders a ResourceSelector as an unstructured map, omitting empty
 // group/version fields.
-func selectorToMap(s gamerav1alpha1.ResourceSelector) map[string]any {
+func selectorToMap(s astronv1alpha1.ResourceSelector) map[string]any {
 	m := map[string]any{"kind": s.Kind}
 	if s.Group != "" {
 		m["group"] = s.Group
@@ -509,8 +509,8 @@ func selectorToMap(s gamerav1alpha1.ResourceSelector) map[string]any {
 
 // parseResourceSelectors parses a list of "[group/]version/Kind" (or "Kind")
 // strings into ResourceSelectors.
-func parseResourceSelectors(specs []string) ([]gamerav1alpha1.ResourceSelector, error) {
-	out := make([]gamerav1alpha1.ResourceSelector, 0, len(specs))
+func parseResourceSelectors(specs []string) ([]astronv1alpha1.ResourceSelector, error) {
+	out := make([]astronv1alpha1.ResourceSelector, 0, len(specs))
 	for _, s := range specs {
 		sel, err := parseResourceSelector(s)
 		if err != nil {
@@ -543,13 +543,13 @@ func parseRemoveKinds(specs []string) (map[string]bool, error) {
 //
 // The core API group is written as an empty group, so "v1/Pod" and "/v1/Pod"
 // are equivalent.
-func parseResourceSelector(spec string) (gamerav1alpha1.ResourceSelector, error) {
+func parseResourceSelector(spec string) (astronv1alpha1.ResourceSelector, error) {
 	spec = strings.TrimSpace(spec)
 	if spec == "" {
-		return gamerav1alpha1.ResourceSelector{}, fmt.Errorf("empty resource type")
+		return astronv1alpha1.ResourceSelector{}, fmt.Errorf("empty resource type")
 	}
 	parts := strings.Split(spec, "/")
-	var sel gamerav1alpha1.ResourceSelector
+	var sel astronv1alpha1.ResourceSelector
 	switch len(parts) {
 	case 1:
 		sel.Kind = parts[0]
@@ -561,10 +561,10 @@ func parseResourceSelector(spec string) (gamerav1alpha1.ResourceSelector, error)
 		sel.Version = parts[1]
 		sel.Kind = parts[2]
 	default:
-		return gamerav1alpha1.ResourceSelector{}, fmt.Errorf("invalid resource type %q: expected [group/]version/Kind or Kind", spec)
+		return astronv1alpha1.ResourceSelector{}, fmt.Errorf("invalid resource type %q: expected [group/]version/Kind or Kind", spec)
 	}
 	if sel.Kind == "" {
-		return gamerav1alpha1.ResourceSelector{}, fmt.Errorf("invalid resource type %q: missing Kind", spec)
+		return astronv1alpha1.ResourceSelector{}, fmt.Errorf("invalid resource type %q: missing Kind", spec)
 	}
 	return sel, nil
 }

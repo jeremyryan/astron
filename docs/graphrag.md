@@ -1,4 +1,4 @@
-# GraphRAG for Project Gamera — Design
+# GraphRAG for Project Astron — Design
 
 > **This is the design/architecture document.** For task-oriented usage —
 > enabling GraphRAG, configuring providers, calling the API, and wiring the MCP
@@ -10,7 +10,7 @@
 
 ## Motivation
 
-Gamera already captures a Kubernetes cluster — its resources and the typed
+Astron already captures a Kubernetes cluster — its resources and the typed
 relationships between them — as a property graph in Neo4J. That graph is exactly
 the kind of structured, connected knowledge that makes **GraphRAG** more
 powerful than plain vector RAG over flat documents.
@@ -91,7 +91,7 @@ New packages/components:
   vector search, bounded traversal, read-only query.
 - Extensions to `internal/api` — `rag/search`, `rag/neighborhood`,
   (optional) `rag/answer` endpoints + DTOs.
-- `gamera mcp-server` — exposes retrieval as Model Context Protocol tools.
+- `astron mcp-server` — exposes retrieval as Model Context Protocol tools.
 
 ## The retrieval contract
 
@@ -188,7 +188,7 @@ dependencies are nil.
 
 To make the graph directly usable by LLM agents, expose the retrieval API as
 [Model Context Protocol](https://modelcontextprotocol.io/) tools via a
-`gamera mcp-server` subcommand (stdio for local agents; SSE/HTTP in-cluster):
+`astron mcp-server` subcommand (stdio for local agents; SSE/HTTP in-cluster):
 
 - `search_cluster_graph(query, topK)` — hybrid vector+graph retrieval.
 - `get_resource_neighborhood(kind, namespace, name, hops)` — structural context.
@@ -200,9 +200,9 @@ scoping and read-only guarantees.
 
 **Status: Done (stdio).** Implemented in `internal/mcp` (JSON-RPC 2.0 over a
 newline-delimited stdio transport, standard library only) and wired as the
-`gamera mcp-server` subcommand of the CLI (`internal/cli/mcp.go`, built into the
-`gamera` binary). It reads the API base from `--api-base-url`, falling back to
-the global `--server` flag and then `$GAMERA_API_URL` (default
+`astron mcp-server` subcommand of the CLI (`internal/cli/mcp.go`, built into the
+`astron` binary). It reads the API base from `--api-base-url`, falling back to
+the global `--server` flag and then `$ASTRON_API_URL` (default
 `http://localhost:8082`), and logs to stderr to keep stdout clean for the
 protocol. Tools shipped:
 `list_projections`, `search_cluster_graph`, `get_resource_neighborhood`,
@@ -257,7 +257,7 @@ spec:
       model: text-embedding-3-small
       dimensions: 1536
       authSecretRef:
-        name: gamera-embeddings    # key: apiKey (mirrors Neo4j auth secret style)
+        name: astron-embeddings    # key: apiKey (mirrors Neo4j auth secret style)
     include:                       # which properties feed the resource card
       labels: true
       annotations: false
@@ -268,7 +268,7 @@ spec:
       provider: openai             # openai | azure | ollama
       model: gpt-4o-mini
       authSecretRef:
-        name: gamera-chat
+        name: astron-chat
 ```
 
 New `GraphProjectionStatus` fields mirror the existing count/condition pattern:
@@ -277,7 +277,7 @@ New `GraphProjectionStatus` fields mirror the existing count/condition pattern:
 - `lastEmbeddingTime` — timestamp of the last embedding refresh.
 - a `RAGReady` condition — provider reachable + vector index present.
 
-Corresponding Helm values are added under `charts/gamera`.
+Corresponding Helm values are added under `charts/astron`.
 
 ## Cross-cutting concerns
 
@@ -304,11 +304,11 @@ with no CRD changes, and 6–8 productionize and make it agent-native.
 | 0 | Retrieval contract (`RetrievedContext` DTO) | Design lock; no code. |
 | 1 | `internal/rag/document.go` + tests | **Done.** Resource cards; no external deps. |
 | 2 | `Embedder` interface + fake + one real provider | **Done.** Pluggable embeddings (`internal/rag/{embedder,fake_embedder,openai_embedder,factory}.go`); OpenAI-compatible HTTP client (also Azure/Ollama), no new deps. |
-| 3 | `VectorStore` methods + Neo4J vector index (`internal/graph/vector.go`) | **Done.** Pure Cypher/param helpers unit-tested; a live path gated behind `GAMERA_NEO4J_TEST_URI`. |
+| 3 | `VectorStore` methods + Neo4J vector index (`internal/graph/vector.go`) | **Done.** Pure Cypher/param helpers unit-tested; a live path gated behind `ASTRON_NEO4J_TEST_URI`. |
 | 4 | Projector post-sync embedding hook (`internal/projector/embed.go`) | **Done.** Best-effort, incremental via `cardHash`; lazy vector-index creation; never fails the sync. Disabled unless an `Embedder` + `VectorStore` are configured. |
 | 5 | `/rag/search` + `/rag/neighborhood` endpoints + DTOs | **Done.** Retrieval orchestration in `internal/projector/retrieval.go` (vector seed → bounded BFS expansion → assembled `Retrieval`); exposed via `Manager`; `POST` endpoints in `internal/api`. Not-running → empty 200, GraphRAG-disabled → 503. |
 | 6 | CRD `graphRAG` config + status + controller wiring + Helm values | **Done.** `GraphRAGSpec` on the CRD; controller resolves the embedding config + API-key Secret and passes it to `Manager.Ensure`; `RAGReady` condition + `embeddedNodeCount`/`lastEmbeddingTime` status; sample + Helm values/CRD synced. Opt-in (`enabled: false` by default). |
-| 7 | `gamera mcp-server` subcommand | **Done.** Stdio MCP server (`internal/mcp`, stdlib-only) exposing `list_projections`, `search_cluster_graph`, `get_resource_neighborhood`, `get_resource_yaml` as a thin client of the read API. |
+| 7 | `astron mcp-server` subcommand | **Done.** Stdio MCP server (`internal/mcp`, stdlib-only) exposing `list_projections`, `search_cluster_graph`, `get_resource_neighborhood`, `get_resource_yaml` as a thin client of the read API. |
 | 8 | text-to-Cypher + `/rag/answer` | **Done.** Guarded read-only `QueryStore`, `Chat` interface (+ fake/OpenAI), schema + prompts, projector `Query`/`Answer`, `/rag/query` + `/rag/answer` endpoints, `query_cluster` + `answer_question` MCP tools, `graphRAG.chat` CRD config. |
 
 ## Open questions

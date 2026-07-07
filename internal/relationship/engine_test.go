@@ -24,13 +24,13 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 
-	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
-	"github.com/project-gamera/gamera/internal/graph"
+	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
+	"github.com/project-astron/astron/internal/graph"
 )
 
 //nolint:unparam // version is always v1 in tests but kept for clarity
-func sel(group, version, kind string) gamerav1alpha1.ResourceSelector {
-	return gamerav1alpha1.ResourceSelector{Group: group, Version: version, Kind: kind}
+func sel(group, version, kind string) astronv1alpha1.ResourceSelector {
+	return astronv1alpha1.ResourceSelector{Group: group, Version: version, Kind: kind}
 }
 
 func obj(apiVersion, kind, namespace, name, uid string) *unstructured.Unstructured {
@@ -79,8 +79,8 @@ func TestOwnerReferenceStrategy(t *testing.T) {
 	other := obj("v1", "Pod", "default", "lone", "lone-uid")
 
 	index := NewMapIndex(pod, other)
-	rule := gamerav1alpha1.RelationshipRule{
-		Name: "rs-owns-pod", Type: "OWNS", Strategy: gamerav1alpha1.OwnerReferenceStrategy,
+	rule := astronv1alpha1.RelationshipRule{
+		Name: "rs-owns-pod", Type: "OWNS", Strategy: astronv1alpha1.OwnerReferenceStrategy,
 		From: sel("apps", "v1", "ReplicaSet"), To: sel("", "v1", "Pod"),
 	}
 
@@ -112,8 +112,8 @@ func TestLabelSelectorStrategy_ServiceStyle(t *testing.T) {
 	otherNS.SetLabels(map[string]string{"app": "web"})
 
 	index := NewMapIndex(svc, matching, nonMatching, otherNS)
-	rule := gamerav1alpha1.RelationshipRule{
-		Name: "svc-selects-pod", Type: "SELECTS", Strategy: gamerav1alpha1.LabelSelectorStrategy,
+	rule := astronv1alpha1.RelationshipRule{
+		Name: "svc-selects-pod", Type: "SELECTS", Strategy: astronv1alpha1.LabelSelectorStrategy,
 		From: sel("", "v1", "Service"), To: sel("", "v1", "Pod"),
 	}
 
@@ -145,8 +145,8 @@ func TestLabelSelectorStrategy_WorkloadStyle(t *testing.T) {
 	pod.SetLabels(map[string]string{"app": "web"})
 
 	index := NewMapIndex(deploy, pod)
-	rule := gamerav1alpha1.RelationshipRule{
-		Name: "deploy-targets-pod", Type: "TARGETS", Strategy: gamerav1alpha1.LabelSelectorStrategy,
+	rule := astronv1alpha1.RelationshipRule{
+		Name: "deploy-targets-pod", Type: "TARGETS", Strategy: astronv1alpha1.LabelSelectorStrategy,
 		From: sel("apps", "v1", "Deployment"), To: sel("", "v1", "Pod"),
 	}
 
@@ -165,8 +165,8 @@ func TestLabelSelectorStrategy_EmptySelectorMatchesNothing(t *testing.T) {
 	pod.SetLabels(map[string]string{"app": "web"})
 
 	index := NewMapIndex(svc, pod)
-	rule := gamerav1alpha1.RelationshipRule{
-		Name: "svc-selects-pod", Type: "SELECTS", Strategy: gamerav1alpha1.LabelSelectorStrategy,
+	rule := astronv1alpha1.RelationshipRule{
+		Name: "svc-selects-pod", Type: "SELECTS", Strategy: astronv1alpha1.LabelSelectorStrategy,
 		From: sel("", "v1", "Service"), To: sel("", "v1", "Pod"),
 	}
 
@@ -195,8 +195,8 @@ func TestVolumeMountStrategy_ConfigMap(t *testing.T) {
 	}, "spec", "containers")
 
 	index := NewMapIndex(cm, pod)
-	rule := gamerav1alpha1.RelationshipRule{
-		Name: "cm-mounts-pod", Type: "MOUNTS", Strategy: gamerav1alpha1.VolumeMountStrategy,
+	rule := astronv1alpha1.RelationshipRule{
+		Name: "cm-mounts-pod", Type: "MOUNTS", Strategy: astronv1alpha1.VolumeMountStrategy,
 		From: sel("", "v1", "ConfigMap"), To: sel("", "v1", "Pod"),
 	}
 
@@ -235,8 +235,8 @@ func TestClaimRefStrategy(t *testing.T) {
 	_ = unstructured.SetNestedField(pv.Object, "data-web", "spec", "claimRef", "name")
 
 	index := NewMapIndex(pvc, pv)
-	rule := gamerav1alpha1.RelationshipRule{
-		Name: "pv-binds-pvc", Type: "BINDS", Strategy: gamerav1alpha1.ClaimRefStrategy,
+	rule := astronv1alpha1.RelationshipRule{
+		Name: "pv-binds-pvc", Type: "BINDS", Strategy: astronv1alpha1.ClaimRefStrategy,
 		From: sel("", "v1", "PersistentVolume"), To: sel("", "v1", kindPersistentVolumeClaim),
 	}
 	edges, err := (claimRefStrategy{}).Derive(rule, index)
@@ -276,8 +276,8 @@ func TestServiceAccountStrategy(t *testing.T) {
 	implicit := obj("v1", "Pod", "default", "bare", "bare-uid")
 
 	index := NewMapIndex(sa, defSA, explicit, deprecated, implicit)
-	rule := gamerav1alpha1.RelationshipRule{
-		Name: "sa-runs-pod", Type: "RUNS", Strategy: gamerav1alpha1.ServiceAccountStrategy,
+	rule := astronv1alpha1.RelationshipRule{
+		Name: "sa-runs-pod", Type: "RUNS", Strategy: astronv1alpha1.ServiceAccountStrategy,
 		From: sel("", "v1", kindServiceAccount), To: sel("", "v1", "Pod"),
 	}
 	edges, err := (serviceAccountStrategy{}).Derive(rule, index)
@@ -322,8 +322,8 @@ func TestServiceBackendStrategy_Ingress(t *testing.T) {
 	}, "spec", "rules")
 
 	index := NewMapIndex(svc, ing)
-	rule := gamerav1alpha1.RelationshipRule{
-		Name: "ingress-routes-service", Type: "ROUTES", Strategy: gamerav1alpha1.ServiceBackendStrategy,
+	rule := astronv1alpha1.RelationshipRule{
+		Name: "ingress-routes-service", Type: "ROUTES", Strategy: astronv1alpha1.ServiceBackendStrategy,
 		From: sel("networking.k8s.io", "v1", "Ingress"), To: sel("", "v1", "Service"),
 	}
 	edges, err := (serviceBackendStrategy{}).Derive(rule, index)
@@ -368,8 +368,8 @@ func TestServiceBackendStrategy_HTTPRoute(t *testing.T) {
 	}, "spec", "rules")
 
 	index := NewMapIndex(route)
-	rule := gamerav1alpha1.RelationshipRule{
-		Name: "httproute-routes-service", Type: "ROUTES", Strategy: gamerav1alpha1.ServiceBackendStrategy,
+	rule := astronv1alpha1.RelationshipRule{
+		Name: "httproute-routes-service", Type: "ROUTES", Strategy: astronv1alpha1.ServiceBackendStrategy,
 		From: sel("gateway.networking.k8s.io", "v1", "HTTPRoute"), To: sel("", "v1", "Service"),
 	}
 	edges, err := (serviceBackendStrategy{}).Derive(rule, index)
@@ -407,8 +407,8 @@ func TestParentRefStrategy_HTTPRoute(t *testing.T) {
 	}, "spec", "parentRefs")
 
 	index := NewMapIndex(gw, route)
-	rule := gamerav1alpha1.RelationshipRule{
-		Name: "gateway-routes-httproute", Type: "ROUTES", Strategy: gamerav1alpha1.GatewayParentStrategy,
+	rule := astronv1alpha1.RelationshipRule{
+		Name: "gateway-routes-httproute", Type: "ROUTES", Strategy: astronv1alpha1.GatewayParentStrategy,
 		From: sel("gateway.networking.k8s.io", "v1", "Gateway"), To: sel("gateway.networking.k8s.io", "v1", "HTTPRoute"),
 	}
 	edges, err := (parentRefStrategy{}).Derive(rule, index)
@@ -447,8 +447,8 @@ func TestVolumeMountStrategy_PersistentVolumeClaim(t *testing.T) {
 	}, "spec", "volumes")
 
 	index := NewMapIndex(pvc, pod)
-	rule := gamerav1alpha1.RelationshipRule{
-		Name: "pvc-mounts-pod", Type: "MOUNTS", Strategy: gamerav1alpha1.VolumeMountStrategy,
+	rule := astronv1alpha1.RelationshipRule{
+		Name: "pvc-mounts-pod", Type: "MOUNTS", Strategy: astronv1alpha1.VolumeMountStrategy,
 		From: sel("", "v1", kindPersistentVolumeClaim), To: sel("", "v1", "Pod"),
 	}
 
@@ -483,8 +483,8 @@ func TestVolumeMountStrategy_SecretAndDedup(t *testing.T) {
 	}, "spec", "containers")
 
 	index := NewMapIndex(pod)
-	rule := gamerav1alpha1.RelationshipRule{
-		Name: "secret-mounts-pod", Type: "MOUNTS", Strategy: gamerav1alpha1.VolumeMountStrategy,
+	rule := astronv1alpha1.RelationshipRule{
+		Name: "secret-mounts-pod", Type: "MOUNTS", Strategy: astronv1alpha1.VolumeMountStrategy,
 		From: sel("", "v1", "Secret"), To: sel("", "v1", "Pod"),
 	}
 
@@ -505,10 +505,10 @@ func TestEngine_DeriveAggregatesAndReportsUnknownStrategy(t *testing.T) {
 	}))
 	index := NewMapIndex(pod)
 
-	rules := []gamerav1alpha1.RelationshipRule{
-		{Name: "ok", Type: "OWNS", Strategy: gamerav1alpha1.OwnerReferenceStrategy,
+	rules := []astronv1alpha1.RelationshipRule{
+		{Name: "ok", Type: "OWNS", Strategy: astronv1alpha1.OwnerReferenceStrategy,
 			From: sel("apps", "v1", "ReplicaSet"), To: sel("", "v1", "Pod")},
-		{Name: "bad", Type: "X", Strategy: gamerav1alpha1.RelationshipStrategy("Bogus"),
+		{Name: "bad", Type: "X", Strategy: astronv1alpha1.RelationshipStrategy("Bogus"),
 			From: sel("", "v1", "Service"), To: sel("", "v1", "Pod")},
 	}
 
@@ -553,8 +553,8 @@ func TestRoleRefStrategy(t *testing.T) {
 	index := NewMapIndex(role, clusterRole, rb, rbCR, crb, rbGhost)
 
 	// Role -> RoleBinding.
-	rule := gamerav1alpha1.RelationshipRule{
-		Name: "role-grants-rolebinding", Type: "GRANTS", Strategy: gamerav1alpha1.RoleRefStrategy,
+	rule := astronv1alpha1.RelationshipRule{
+		Name: "role-grants-rolebinding", Type: "GRANTS", Strategy: astronv1alpha1.RoleRefStrategy,
 		From: sel("rbac.authorization.k8s.io", "v1", kindRole),
 		To:   sel("rbac.authorization.k8s.io", "v1", kindRoleBinding),
 	}
@@ -613,8 +613,8 @@ func TestBindingSubjectStrategy(t *testing.T) {
 
 	index := NewMapIndex(sa, saOther, rb, crb)
 
-	rule := gamerav1alpha1.RelationshipRule{
-		Name: "rolebinding-binds-serviceaccount", Type: "BINDS", Strategy: gamerav1alpha1.BindingSubjectStrategy,
+	rule := astronv1alpha1.RelationshipRule{
+		Name: "rolebinding-binds-serviceaccount", Type: "BINDS", Strategy: astronv1alpha1.BindingSubjectStrategy,
 		From: sel("rbac.authorization.k8s.io", "v1", kindRoleBinding),
 		To:   sel("", "v1", kindServiceAccount),
 	}

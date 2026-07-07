@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Build a self-contained SPA that is embedded into and served by the Gamera
+// Build a self-contained SPA that is embedded into and served by the Astron
 // operator binary. Relative base so assets resolve under any mount path.
 export default defineConfig({
   plugins: [react()],

@@ -27,8 +27,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
-	"github.com/project-gamera/gamera/internal/rag"
+	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
+	"github.com/project-astron/astron/internal/rag"
 )
 
 func embeddingScheme(t *testing.T) *runtime.Scheme {
@@ -37,7 +37,7 @@ func embeddingScheme(t *testing.T) *runtime.Scheme {
 	if err := clientgoscheme.AddToScheme(s); err != nil {
 		t.Fatal(err)
 	}
-	if err := gamerav1alpha1.AddToScheme(s); err != nil {
+	if err := astronv1alpha1.AddToScheme(s); err != nil {
 		t.Fatal(err)
 	}
 	return s
@@ -54,7 +54,7 @@ func boolPtr(b bool) *bool { return &b }
 
 func TestResolveEmbeddingConfigDisabledWhenAbsent(t *testing.T) {
 	r := newReconciler(t)
-	proj := &gamerav1alpha1.GraphProjection{
+	proj := &astronv1alpha1.GraphProjection{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default"},
 	}
 	emb, err := r.resolveEmbeddingConfig(context.Background(), proj)
@@ -73,16 +73,16 @@ func TestResolveEmbeddingConfigReadsSecretAndDefaults(t *testing.T) {
 	}
 	r := newReconciler(t, secret)
 
-	proj := &gamerav1alpha1.GraphProjection{
+	proj := &astronv1alpha1.GraphProjection{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default"},
-		Spec: gamerav1alpha1.GraphProjectionSpec{
-			GraphRAG: &gamerav1alpha1.GraphRAGSpec{
+		Spec: astronv1alpha1.GraphProjectionSpec{
+			GraphRAG: &astronv1alpha1.GraphRAGSpec{
 				Enabled: true,
-				Embedding: gamerav1alpha1.EmbeddingConfig{
+				Embedding: astronv1alpha1.EmbeddingConfig{
 					Provider:   "openai",
 					Model:      "text-embedding-3-small",
 					Dimensions: 1536,
-					AuthSecretRef: &gamerav1alpha1.EmbeddingSecretReference{
+					AuthSecretRef: &astronv1alpha1.EmbeddingSecretReference{
 						Name: "emb-creds",
 					},
 				},
@@ -119,22 +119,22 @@ func TestResolveEmbeddingConfigHonorsOverrides(t *testing.T) {
 	}
 	r := newReconciler(t, secret)
 
-	proj := &gamerav1alpha1.GraphProjection{
+	proj := &astronv1alpha1.GraphProjection{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default"},
-		Spec: gamerav1alpha1.GraphProjectionSpec{
-			GraphRAG: &gamerav1alpha1.GraphRAGSpec{
+		Spec: astronv1alpha1.GraphProjectionSpec{
+			GraphRAG: &astronv1alpha1.GraphRAGSpec{
 				Enabled: true,
-				Embedding: gamerav1alpha1.EmbeddingConfig{
+				Embedding: astronv1alpha1.EmbeddingConfig{
 					Provider: "azure",
 					Model:    "embed",
 					BaseURL:  "https://example.openai.azure.com",
-					AuthSecretRef: &gamerav1alpha1.EmbeddingSecretReference{
+					AuthSecretRef: &astronv1alpha1.EmbeddingSecretReference{
 						Name:      "creds",
 						APIKeyKey: "token",
 					},
 				},
-				Include:     &gamerav1alpha1.CardInclude{Labels: boolPtr(false), Annotations: true},
-				VectorIndex: &gamerav1alpha1.VectorIndexConfig{Similarity: "euclidean"},
+				Include:     &astronv1alpha1.CardInclude{Labels: boolPtr(false), Annotations: true},
+				VectorIndex: &astronv1alpha1.VectorIndexConfig{Similarity: "euclidean"},
 			},
 		},
 	}
@@ -165,21 +165,21 @@ func TestResolveEmbeddingConfigResolvesChat(t *testing.T) {
 	}
 	r := newReconciler(t, embSecret, chatSecret)
 
-	proj := &gamerav1alpha1.GraphProjection{
+	proj := &astronv1alpha1.GraphProjection{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default"},
-		Spec: gamerav1alpha1.GraphProjectionSpec{
-			GraphRAG: &gamerav1alpha1.GraphRAGSpec{
+		Spec: astronv1alpha1.GraphProjectionSpec{
+			GraphRAG: &astronv1alpha1.GraphRAGSpec{
 				Enabled: true,
-				Embedding: gamerav1alpha1.EmbeddingConfig{
+				Embedding: astronv1alpha1.EmbeddingConfig{
 					Provider:      "openai",
 					Model:         "text-embedding-3-small",
-					AuthSecretRef: &gamerav1alpha1.EmbeddingSecretReference{Name: "emb"},
+					AuthSecretRef: &astronv1alpha1.EmbeddingSecretReference{Name: "emb"},
 				},
-				Chat: &gamerav1alpha1.ChatModelConfig{
+				Chat: &astronv1alpha1.ChatModelConfig{
 					Enabled:       true,
 					Provider:      "openai",
 					Model:         "gpt-4o-mini",
-					AuthSecretRef: &gamerav1alpha1.EmbeddingSecretReference{Name: "chat"},
+					AuthSecretRef: &astronv1alpha1.EmbeddingSecretReference{Name: "chat"},
 				},
 			},
 		},
@@ -207,12 +207,12 @@ func TestResolveEmbeddingConfigChatDisabledByDefault(t *testing.T) {
 		Data:       map[string][]byte{"apiKey": []byte("k")},
 	}
 	r := newReconciler(t, secret)
-	proj := &gamerav1alpha1.GraphProjection{
+	proj := &astronv1alpha1.GraphProjection{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default"},
-		Spec: gamerav1alpha1.GraphProjectionSpec{
-			GraphRAG: &gamerav1alpha1.GraphRAGSpec{
+		Spec: astronv1alpha1.GraphProjectionSpec{
+			GraphRAG: &astronv1alpha1.GraphRAGSpec{
 				Enabled:   true,
-				Embedding: gamerav1alpha1.EmbeddingConfig{Provider: "openai", Model: "m", AuthSecretRef: &gamerav1alpha1.EmbeddingSecretReference{Name: "emb"}},
+				Embedding: astronv1alpha1.EmbeddingConfig{Provider: "openai", Model: "m", AuthSecretRef: &astronv1alpha1.EmbeddingSecretReference{Name: "emb"}},
 			},
 		},
 	}
@@ -232,12 +232,12 @@ func TestResolveEmbeddingConfigMissingSecretKeyErrors(t *testing.T) {
 	}
 	r := newReconciler(t, secret)
 
-	proj := &gamerav1alpha1.GraphProjection{
+	proj := &astronv1alpha1.GraphProjection{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default"},
-		Spec: gamerav1alpha1.GraphProjectionSpec{
-			GraphRAG: &gamerav1alpha1.GraphRAGSpec{
+		Spec: astronv1alpha1.GraphProjectionSpec{
+			GraphRAG: &astronv1alpha1.GraphRAGSpec{
 				Enabled:   true,
-				Embedding: gamerav1alpha1.EmbeddingConfig{Provider: "openai", Model: "m", AuthSecretRef: &gamerav1alpha1.EmbeddingSecretReference{Name: "creds"}},
+				Embedding: astronv1alpha1.EmbeddingConfig{Provider: "openai", Model: "m", AuthSecretRef: &astronv1alpha1.EmbeddingSecretReference{Name: "creds"}},
 			},
 		},
 	}

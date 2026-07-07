@@ -70,7 +70,7 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 # - KUBECTL_KUBERC=true
 # CertManager is installed by default; skip with:
 # - CERT_MANAGER_INSTALL_SKIP=true
-KIND_CLUSTER ?= gamera-test-e2e
+KIND_CLUSTER ?= astron-test-e2e
 
 .PHONY: setup-test-e2e
 setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
@@ -118,8 +118,8 @@ build: manifests generate fmt vet ## Build manager binary (embeds web/dist).
 	go build -o bin/manager ./cmd
 
 .PHONY: build-cli
-build-cli: fmt vet ## Build the gamera CLI client binary.
-	go build -o bin/gamera ./cmd/cli
+build-cli: fmt vet ## Build the astron CLI client binary.
+	go build -o bin/astron ./cmd/cli
 
 .PHONY: openapi
 openapi: ## Generate the OpenAPI 3 spec (docs/openapi.yaml) from the API types.
@@ -132,7 +132,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 .PHONY: helm-deps
 helm-deps: ## Fetch the chart's subchart dependencies (Neo4J).
 	helm repo add neo4j https://helm.neo4j.com/neo4j 2>/dev/null || true
-	cd charts/gamera && helm dependency build
+	cd charts/astron && helm dependency build
 
 .PHONY: dev
 dev: helm-deps ## Skaffold dev loop: build->push->deploy to the test cluster and watch for changes.
@@ -172,10 +172,10 @@ PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
 docker-buildx: ## Build and push docker image for the manager for cross-platform support
 	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
-	- $(CONTAINER_TOOL) buildx create --name gamera-builder
-	$(CONTAINER_TOOL) buildx use gamera-builder
+	- $(CONTAINER_TOOL) buildx create --name astron-builder
+	$(CONTAINER_TOOL) buildx use astron-builder
 	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
-	- $(CONTAINER_TOOL) buildx rm gamera-builder
+	- $(CONTAINER_TOOL) buildx rm astron-builder
 	rm Dockerfile.cross
 
 .PHONY: build-installer

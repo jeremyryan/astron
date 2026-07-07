@@ -35,20 +35,20 @@ import (
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/yaml"
 
-	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
+	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
 )
 
 // graphProjectionGVR is the resource used to apply generated manifests.
 var graphProjectionGVR = schema.GroupVersionResource{
-	Group:    gamerav1alpha1.GroupVersion.Group,
-	Version:  gamerav1alpha1.GroupVersion.Version,
+	Group:    astronv1alpha1.GroupVersion.Group,
+	Version:  astronv1alpha1.GroupVersion.Version,
 	Resource: "graphprojections",
 }
 
 // graphViewGVR is the resource used to apply generated GraphViews.
 var graphViewGVR = schema.GroupVersionResource{
-	Group:    gamerav1alpha1.GroupVersion.Group,
-	Version:  gamerav1alpha1.GroupVersion.Version,
+	Group:    astronv1alpha1.GroupVersion.Group,
+	Version:  astronv1alpha1.GroupVersion.Version,
 	Resource: "graphviews",
 }
 
@@ -87,7 +87,7 @@ type projectionManifest struct {
 	APIVersion string                             `json:"apiVersion"`
 	Kind       string                             `json:"kind"`
 	Metadata   manifestMeta                       `json:"metadata"`
-	Spec       gamerav1alpha1.GraphProjectionSpec `json:"spec"`
+	Spec       astronv1alpha1.GraphProjectionSpec `json:"spec"`
 }
 
 // viewManifest is a YAML-friendly wrapper used to emit a clean GraphView
@@ -96,7 +96,7 @@ type viewManifest struct {
 	APIVersion string                       `json:"apiVersion"`
 	Kind       string                       `json:"kind"`
 	Metadata   manifestMeta                 `json:"metadata"`
-	Spec       gamerav1alpha1.GraphViewSpec `json:"spec"`
+	Spec       astronv1alpha1.GraphViewSpec `json:"spec"`
 }
 
 type manifestMeta struct {
@@ -121,7 +121,7 @@ func newGenerateCmd(opts *options) *cobra.Command {
 			"it to a file, or --apply to create/update the GraphProjection in the\n" +
 			"cluster instead of emitting YAML.\n\n" +
 			"It talks directly to the Kubernetes API (via your kubeconfig), not the\n" +
-			"Gamera read API, so the --server flag does not apply here.",
+			"Astron read API, so the --server flag does not apply here.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runGenerate(cmd, gopts, args[0])
@@ -134,7 +134,7 @@ func newGenerateCmd(opts *options) *cobra.Command {
 		"Name of the kubeconfig context to use")
 	cmd.Flags().StringVar(&gopts.name, "name", "",
 		"Name of the generated GraphProjection (defaults to the namespace)")
-	cmd.Flags().StringVar(&gopts.neo4jURI, "neo4j-uri", "neo4j://gamera-neo4j.gamera.svc:7687",
+	cmd.Flags().StringVar(&gopts.neo4jURI, "neo4j-uri", "neo4j://astron-neo4j.astron.svc:7687",
 		"Neo4J connection URI to write into the manifest")
 	cmd.Flags().StringVar(&gopts.neo4jDatabase, "neo4j-database", "neo4j",
 		"Neo4J database name")
@@ -218,14 +218,14 @@ func runGenerate(cmd *cobra.Command, gopts *generateOptions, namespace string) e
 // the given projection.
 func buildViewManifest(namespace, projection string, view defaultViewCategory) viewManifest {
 	return viewManifest{
-		APIVersion: gamerav1alpha1.GroupVersion.String(),
+		APIVersion: astronv1alpha1.GroupVersion.String(),
 		Kind:       "GraphView",
 		Metadata:   manifestMeta{Name: defaultViewResourceName(projection, view), Namespace: namespace},
-		Spec: gamerav1alpha1.GraphViewSpec{
-			ProjectionRef: gamerav1alpha1.ProjectionReference{Name: projection, Namespace: namespace},
+		Spec: astronv1alpha1.GraphViewSpec{
+			ProjectionRef: astronv1alpha1.ProjectionReference{Name: projection, Namespace: namespace},
 			DisplayName:   view.displayName,
 			Description:   view.description,
-			Filters:       gamerav1alpha1.GraphViewFilters{KindMode: "show", VisibleKinds: visibleKindsFor(view)},
+			Filters:       astronv1alpha1.GraphViewFilters{KindMode: "show", VisibleKinds: visibleKindsFor(view)},
 		},
 	}
 }
@@ -306,7 +306,7 @@ func applyProjection(cmd *cobra.Command, dyn dynamic.Interface, manifest project
 		}
 		verb = "configured"
 	}
-	_, err = fmt.Fprintf(cmd.OutOrStdout(), "graphprojection.gamera.gamera.io/%s %s in namespace %s\n", name, verb, ns)
+	_, err = fmt.Fprintf(cmd.OutOrStdout(), "graphprojection.astron.astron.io/%s %s in namespace %s\n", name, verb, ns)
 	return err
 }
 
@@ -342,14 +342,14 @@ func applyView(cmd *cobra.Command, dyn dynamic.Interface, manifest viewManifest)
 		}
 		verb = "configured"
 	}
-	_, err = fmt.Fprintf(cmd.OutOrStdout(), "graphview.gamera.gamera.io/%s %s in namespace %s\n", name, verb, ns)
+	_, err = fmt.Fprintf(cmd.OutOrStdout(), "graphview.astron.astron.io/%s %s in namespace %s\n", name, verb, ns)
 	return err
 }
 
 // discoverKinds enumerates the namespaced, listable resource types in the
 // cluster and returns selectors for those that currently have at least one
 // instance in the given namespace. Subresources and excluded kinds are skipped.
-func discoverKinds(ctx context.Context, disco discovery.DiscoveryInterface, dyn dynamic.Interface, namespace string, exclude []string, standardOnly bool) ([]gamerav1alpha1.ResourceSelector, error) {
+func discoverKinds(ctx context.Context, disco discovery.DiscoveryInterface, dyn dynamic.Interface, namespace string, exclude []string, standardOnly bool) ([]astronv1alpha1.ResourceSelector, error) {
 	lists, err := disco.ServerPreferredNamespacedResources()
 	if err != nil && len(lists) == 0 {
 		return nil, fmt.Errorf("discovering namespaced resources: %w", err)
@@ -360,7 +360,7 @@ func discoverKinds(ctx context.Context, disco discovery.DiscoveryInterface, dyn 
 // selectNamespacedKinds filters discovered resource lists to the namespaced,
 // listable kinds that have at least one instance in the namespace. It is split
 // out from discovery so it can be unit-tested with a fake dynamic client.
-func selectNamespacedKinds(ctx context.Context, lists []*metav1.APIResourceList, dyn dynamic.Interface, namespace string, exclude []string, standardOnly bool) ([]gamerav1alpha1.ResourceSelector, error) {
+func selectNamespacedKinds(ctx context.Context, lists []*metav1.APIResourceList, dyn dynamic.Interface, namespace string, exclude []string, standardOnly bool) ([]astronv1alpha1.ResourceSelector, error) {
 	excluded := map[string]bool{}
 	for _, k := range exclude {
 		excluded[strings.ToLower(k)] = true
@@ -372,7 +372,7 @@ func selectNamespacedKinds(ctx context.Context, lists []*metav1.APIResourceList,
 	}
 
 	seen := map[string]bool{}
-	var selectors []gamerav1alpha1.ResourceSelector
+	var selectors []astronv1alpha1.ResourceSelector
 
 	for _, list := range lists {
 		gv, parseErr := schema.ParseGroupVersion(list.GroupVersion)
@@ -405,7 +405,7 @@ func selectNamespacedKinds(ctx context.Context, lists []*metav1.APIResourceList,
 			}
 
 			seen[res.Kind] = true
-			selectors = append(selectors, gamerav1alpha1.ResourceSelector{
+			selectors = append(selectors, astronv1alpha1.ResourceSelector{
 				Group:   gv.Group,
 				Version: gv.Version,
 				Kind:    res.Kind,
@@ -469,22 +469,22 @@ func standardKindSet() map[string]bool {
 }
 
 // buildManifest assembles the GraphProjection manifest from discovered kinds.
-func buildManifest(gopts *generateOptions, namespace string, selectors []gamerav1alpha1.ResourceSelector) projectionManifest {
+func buildManifest(gopts *generateOptions, namespace string, selectors []astronv1alpha1.ResourceSelector) projectionManifest {
 	name := gopts.name
 	if name == "" {
 		name = namespace
 	}
 
-	spec := gamerav1alpha1.GraphProjectionSpec{
-		Neo4j: gamerav1alpha1.Neo4jConnection{
+	spec := astronv1alpha1.GraphProjectionSpec{
+		Neo4j: astronv1alpha1.Neo4jConnection{
 			URI:      gopts.neo4jURI,
 			Database: gopts.neo4jDatabase,
-			AuthSecretRef: gamerav1alpha1.SecretReference{
+			AuthSecretRef: astronv1alpha1.SecretReference{
 				Name:      gopts.neo4jSecret,
 				Namespace: gopts.neo4jSecretNS,
 			},
 		},
-		Scope: gamerav1alpha1.ProjectionScope{
+		Scope: astronv1alpha1.ProjectionScope{
 			Namespaces: []string{namespace},
 			Resources:  selectors,
 		},
@@ -499,7 +499,7 @@ func buildManifest(gopts *generateOptions, namespace string, selectors []gamerav
 	}
 
 	return projectionManifest{
-		APIVersion: gamerav1alpha1.GroupVersion.String(),
+		APIVersion: astronv1alpha1.GroupVersion.String(),
 		Kind:       "GraphProjection",
 		Metadata:   manifestMeta{Name: name, Namespace: namespace},
 		Spec:       spec,
@@ -520,7 +520,7 @@ func parseDuration(s string) (*metav1.Duration, error) {
 }
 
 // sortSelectors orders selectors by group then kind for stable output.
-func sortSelectors(selectors []gamerav1alpha1.ResourceSelector) {
+func sortSelectors(selectors []astronv1alpha1.ResourceSelector) {
 	sort.Slice(selectors, func(i, j int) bool {
 		if selectors[i].Group != selectors[j].Group {
 			return selectors[i].Group < selectors[j].Group

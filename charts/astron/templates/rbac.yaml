@@ -2,29 +2,29 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "gamera.fullname" . }}-manager
+  name: {{ include "astron.fullname" . }}-manager
   labels:
-    {{- include "gamera.labels" . | nindent 4 }}
+    {{- include "astron.labels" . | nindent 4 }}
 rules:
 # Read any resource in the cluster so the dynamic watchers can project them.
 - apiGroups: ["*"]
   resources: ["*"]
   verbs: ["get", "list", "watch"]
 # GraphProjection CRD.
-- apiGroups: ["gamera.gamera.io"]
+- apiGroups: ["astron.astron.io"]
   resources: ["graphprojections"]
   verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
-- apiGroups: ["gamera.gamera.io"]
+- apiGroups: ["astron.astron.io"]
   resources: ["graphprojections/status"]
   verbs: ["get", "patch", "update"]
-- apiGroups: ["gamera.gamera.io"]
+- apiGroups: ["astron.astron.io"]
   resources: ["graphprojections/finalizers"]
   verbs: ["update"]
 # GraphView CRD (saved filter sets) managed via the read/write API.
-- apiGroups: ["gamera.gamera.io"]
+- apiGroups: ["astron.astron.io"]
   resources: ["graphviews"]
   verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
-- apiGroups: ["gamera.gamera.io"]
+- apiGroups: ["astron.astron.io"]
   resources: ["graphviews/status"]
   verbs: ["get", "patch", "update"]
 {{- if .Values.controller.metrics.secure }}
@@ -33,9 +33,9 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "gamera.fullname" . }}-metrics-auth
+  name: {{ include "astron.fullname" . }}-metrics-auth
   labels:
-    {{- include "gamera.labels" . | nindent 4 }}
+    {{- include "astron.labels" . | nindent 4 }}
 rules:
 - apiGroups: ["authentication.k8s.io"]
   resources: ["tokenreviews"]
@@ -48,32 +48,32 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "gamera.fullname" . }}-manager
+  name: {{ include "astron.fullname" . }}-manager
   labels:
-    {{- include "gamera.labels" . | nindent 4 }}
+    {{- include "astron.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "gamera.fullname" . }}-manager
+  name: {{ include "astron.fullname" . }}-manager
 subjects:
 - kind: ServiceAccount
-  name: {{ include "gamera.serviceAccountName" . }}
+  name: {{ include "astron.serviceAccountName" . }}
   namespace: {{ .Release.Namespace }}
 {{- if .Values.controller.metrics.secure }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "gamera.fullname" . }}-metrics-auth
+  name: {{ include "astron.fullname" . }}-metrics-auth
   labels:
-    {{- include "gamera.labels" . | nindent 4 }}
+    {{- include "astron.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "gamera.fullname" . }}-metrics-auth
+  name: {{ include "astron.fullname" . }}-metrics-auth
 subjects:
 - kind: ServiceAccount
-  name: {{ include "gamera.serviceAccountName" . }}
+  name: {{ include "astron.serviceAccountName" . }}
   namespace: {{ .Release.Namespace }}
 {{- end }}
 {{- if .Values.controller.leaderElection }}
@@ -81,10 +81,10 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ include "gamera.fullname" . }}-leader-election
+  name: {{ include "astron.fullname" . }}-leader-election
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "gamera.labels" . | nindent 4 }}
+    {{- include "astron.labels" . | nindent 4 }}
 rules:
 - apiGroups: [""]
   resources: ["configmaps"]
@@ -99,17 +99,17 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ include "gamera.fullname" . }}-leader-election
+  name: {{ include "astron.fullname" . }}-leader-election
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "gamera.labels" . | nindent 4 }}
+    {{- include "astron.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ include "gamera.fullname" . }}-leader-election
+  name: {{ include "astron.fullname" . }}-leader-election
 subjects:
 - kind: ServiceAccount
-  name: {{ include "gamera.serviceAccountName" . }}
+  name: {{ include "astron.serviceAccountName" . }}
   namespace: {{ .Release.Namespace }}
 {{- end }}
 {{- end }}

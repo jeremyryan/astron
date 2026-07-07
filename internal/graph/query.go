@@ -168,7 +168,7 @@ func convertProps(props map[string]any) map[string]any {
 	return out
 }
 
-// stripInternal removes Gamera/vector bookkeeping keys from a property map so
+// stripInternal removes Astron/vector bookkeeping keys from a property map so
 // query results stay clean and don't leak large embedding vectors.
 func stripInternal(props map[string]any) map[string]any {
 	for _, k := range []string{

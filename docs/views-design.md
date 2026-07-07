@@ -20,12 +20,12 @@ A View captures the same filters the UI exposes interactively today:
 ## Where the data lives
 
 Views are persisted as a **namespaced Custom Resource Definition**,
-`GraphView` (`gamera.gamera.io/v1alpha1`), stored in etcd via the Kubernetes
+`GraphView` (`astron.astron.io/v1alpha1`), stored in etcd via the Kubernetes
 API server — the same mechanism as the existing `GraphProjection` CRD.
 
 ### Why a CRD
 
-- **Consistent with the operator pattern.** Gamera is a Kubernetes operator and
+- **Consistent with the operator pattern.** Astron is a Kubernetes operator and
   already owns the `GraphProjection` CRD; Views are configuration that naturally
   references a projection.
 - **No new infrastructure.** Reuses the API server / etcd already in play. No

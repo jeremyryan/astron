@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Regenerates the Helm chart's CRD template (charts/gamera/templates/crds.yaml)
+# Regenerates the Helm chart's CRD template (charts/astron/templates/crds.yaml)
 # from the controller-gen output in config/crd/bases, so the chart's CRDs stay
 # in sync with the API types. This is invoked automatically by `make manifests`.
 #
@@ -11,7 +11,7 @@ set -euo pipefail
 #     does not delete the CRDs (and the custom resources they own).
 
 CRD_DIR="config/crd/bases"
-OUT="charts/gamera/templates/crds.yaml"
+OUT="charts/astron/templates/crds.yaml"
 
 {
   echo '{{- if .Values.crds.install }}'

@@ -49,7 +49,7 @@ func newGraphCmd(opts *options) *cobra.Command {
 		Short: "Show the resource graph materialized by a projection",
 		Long: "graph fetches the nodes and edges a GraphProjection has materialized\n" +
 			"and prints them. The projection is identified by its namespace and name\n" +
-			"(see \"gamera projections list\").\n\n" +
+			"(see \"astron projections list\").\n\n" +
 			"Use --format table (the default) to print human-readable node and edge\n" +
 			"tables, or --format json to print a single JSON document containing all\n" +
 			"nodes and edges.",
