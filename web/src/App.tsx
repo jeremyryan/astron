@@ -774,6 +774,18 @@ function GraphPanel({
       return next;
     });
 
+  // Set the visibility of several nodes at once (used by the graph context
+  // menu's Hide/View item so it acts on the whole current selection).
+  const setNodesVisibility = (ids: string[], hidden: boolean) =>
+    setHiddenNodeIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (hidden) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+
   // Distinct relationship types currently visible, for the color legend.
   const edgeTypes = useMemo(() => {
     const set = new Set<string>();
@@ -918,7 +930,7 @@ function GraphPanel({
         {filteredGraph && (
           <GraphView
             graph={filteredGraph}
-            onToggleVisibility={toggleNodeVisibility}
+            onSetVisibility={setNodesVisibility}
             hiddenIds={hiddenNodeIds}
             additiveSelect={additiveSelect}
             onSelect={handleSelect}
