@@ -190,6 +190,16 @@ defaultProjection:
       strategy: OwnerReference
       from: { group: apps, version: v1, kind: DaemonSet }
       to: { version: v1, kind: Pod }
+    - name: job-owns-pod
+      type: OWNS
+      strategy: OwnerReference
+      from: { group: batch, version: v1, kind: Job }
+      to: { version: v1, kind: Pod }
+    - name: cronjob-owns-job
+      type: OWNS
+      strategy: OwnerReference
+      from: { group: batch, version: v1, kind: CronJob }
+      to: { group: batch, version: v1, kind: Job }
     - name: service-selects-pod
       type: SELECTS
       strategy: LabelSelector
@@ -279,7 +289,7 @@ defaultViews:
   views:
     - name: compute
       displayName: Compute
-      description: Pods and the workload controllers (Deployments, ReplicaSets, StatefulSets, DaemonSets) that manage them.
+      description: Pods and the workload controllers (Deployments, ReplicaSets, StatefulSets, DaemonSets, Jobs, CronJobs) that manage them.
       filters:
         groupByNamespace: true
         hiddenKinds:
@@ -300,6 +310,8 @@ defaultViews:
           - ReplicaSet
           - StatefulSet
           - DaemonSet
+          - Job
+          - CronJob
           - Service
           - ConfigMap
           - Secret
@@ -315,6 +327,8 @@ defaultViews:
           - ReplicaSet
           - StatefulSet
           - DaemonSet
+          - Job
+          - CronJob
           - ConfigMap
           - Secret
           - PersistentVolumeClaim

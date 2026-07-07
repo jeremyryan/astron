@@ -419,6 +419,8 @@ func defaultResources() []gamerav1alpha1.ResourceSelector {
 		{Group: "apps", Version: "v1", Kind: "StatefulSet"},
 		{Group: "apps", Version: "v1", Kind: "DaemonSet"},
 		{Group: "apps", Version: "v1", Kind: "ReplicaSet"},
+		{Group: "batch", Version: "v1", Kind: "Job"},
+		{Group: "batch", Version: "v1", Kind: "CronJob"},
 		{Version: "v1", Kind: "Pod"},
 		{Version: "v1", Kind: "Service"},
 		{Version: "v1", Kind: "ServiceAccount"},
