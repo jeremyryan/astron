@@ -235,6 +235,31 @@ defaultProjection:
       strategy: ServiceBackend
       from: { group: gateway.networking.k8s.io, version: v1, kind: HTTPRoute }
       to: { version: v1, kind: Service }
+    - name: role-grants-rolebinding
+      type: GRANTS
+      strategy: RoleRef
+      from: { group: rbac.authorization.k8s.io, version: v1, kind: Role }
+      to: { group: rbac.authorization.k8s.io, version: v1, kind: RoleBinding }
+    - name: clusterrole-grants-clusterrolebinding
+      type: GRANTS
+      strategy: RoleRef
+      from: { group: rbac.authorization.k8s.io, version: v1, kind: ClusterRole }
+      to: { group: rbac.authorization.k8s.io, version: v1, kind: ClusterRoleBinding }
+    - name: clusterrole-grants-rolebinding
+      type: GRANTS
+      strategy: RoleRef
+      from: { group: rbac.authorization.k8s.io, version: v1, kind: ClusterRole }
+      to: { group: rbac.authorization.k8s.io, version: v1, kind: RoleBinding }
+    - name: rolebinding-binds-serviceaccount
+      type: BINDS
+      strategy: BindingSubject
+      from: { group: rbac.authorization.k8s.io, version: v1, kind: RoleBinding }
+      to: { version: v1, kind: ServiceAccount }
+    - name: clusterrolebinding-binds-serviceaccount
+      type: BINDS
+      strategy: BindingSubject
+      from: { group: rbac.authorization.k8s.io, version: v1, kind: ClusterRoleBinding }
+      to: { version: v1, kind: ServiceAccount }
   # -- GraphRAG (semantic retrieval) configuration for the default projection.
   # When enabled, each resource node is rendered into a natural-language card,
   # embedded, and stored on the node so the read API can serve vector + graph
@@ -300,6 +325,11 @@ defaultViews:
           - PersistentVolume
           - Ingress
           - HTTPRoute
+          - ServiceAccount
+          - Role
+          - ClusterRole
+          - RoleBinding
+          - ClusterRoleBinding
     - name: persistence
       displayName: Persistence
       description: Pods together with the PersistentVolumeClaims and PersistentVolumes attached to them.
@@ -317,6 +347,11 @@ defaultViews:
           - Secret
           - Ingress
           - HTTPRoute
+          - ServiceAccount
+          - Role
+          - ClusterRole
+          - RoleBinding
+          - ClusterRoleBinding
     - name: networking
       displayName: Networking
       description: Pods together with the Services, Ingresses and HTTPRoutes that expose them to network traffic.
@@ -333,6 +368,30 @@ defaultViews:
           - Secret
           - PersistentVolumeClaim
           - PersistentVolume
+          - ServiceAccount
+          - Role
+          - ClusterRole
+          - RoleBinding
+          - ClusterRoleBinding
+    - name: access-control
+      displayName: Access control
+      description: RBAC resources (Roles, ClusterRoles, their bindings) and the ServiceAccounts they grant permissions to.
+      filters:
+        groupByNamespace: true
+        hiddenKinds:
+          - Deployment
+          - ReplicaSet
+          - StatefulSet
+          - DaemonSet
+          - Job
+          - CronJob
+          - Service
+          - ConfigMap
+          - Secret
+          - PersistentVolumeClaim
+          - PersistentVolume
+          - Ingress
+          - HTTPRoute
 
 # Bundled Neo4J subchart (https://helm.neo4j.com/neo4j).
 # Set neo4j.enabled to false to use an existing/external Neo4J instead; then

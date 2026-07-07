@@ -240,8 +240,8 @@ func TestParseViewSelection(t *testing.T) {
 		t.Fatalf("empty selection = %v, %v; want nil, nil", got, err)
 	}
 	all, err := parseViewSelection("defaults")
-	if err != nil || len(all) != 3 {
-		t.Fatalf("defaults = %v (%d), %v; want 3 views", all, len(all), err)
+	if err != nil || len(all) != 4 {
+		t.Fatalf("defaults = %v (%d), %v; want 4 views", all, len(all), err)
 	}
 	sel, err := parseViewSelection("compute, persistence, Compute")
 	if err != nil {

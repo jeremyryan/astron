@@ -332,7 +332,7 @@ type RelationshipRule struct {
 	// strategy selects how the relationship between source and target resources
 	// is determined.
 	// +required
-	// +kubebuilder:validation:Enum=OwnerReference;LabelSelector;VolumeMount;ClaimRef;ServiceBackend;GatewayParent;ServiceAccount;Custom
+	// +kubebuilder:validation:Enum=OwnerReference;LabelSelector;VolumeMount;ClaimRef;ServiceBackend;GatewayParent;ServiceAccount;RoleRef;BindingSubject;Custom
 	Strategy RelationshipStrategy `json:"strategy"`
 }
 
@@ -360,6 +360,13 @@ const (
 	// ServiceAccountStrategy derives edges from a ServiceAccount to the Pods that
 	// run under it (via the Pod's spec.serviceAccountName field reference).
 	ServiceAccountStrategy RelationshipStrategy = "ServiceAccount"
+	// RoleRefStrategy derives edges from a Role or ClusterRole to the
+	// RoleBindings/ClusterRoleBindings that reference it via roleRef.
+	RoleRefStrategy RelationshipStrategy = "RoleRef"
+	// BindingSubjectStrategy derives edges from a RoleBinding or
+	// ClusterRoleBinding to the subject resources (e.g. ServiceAccounts) it
+	// grants permissions to.
+	BindingSubjectStrategy RelationshipStrategy = "BindingSubject"
 	// CustomStrategy is reserved for projection-specific relationship logic.
 	CustomStrategy RelationshipStrategy = "Custom"
 )

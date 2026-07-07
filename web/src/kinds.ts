@@ -22,6 +22,10 @@ import pod from "./assets/k8s/pod.svg";
 import pv from "./assets/k8s/pv.svg";
 import pvc from "./assets/k8s/pvc.svg";
 import rs from "./assets/k8s/rs.svg";
+import role from "./assets/k8s/role.svg";
+import cRole from "./assets/k8s/c-role.svg";
+import rb from "./assets/k8s/rb.svg";
+import crb from "./assets/k8s/crb.svg";
 import sa from "./assets/k8s/sa.svg";
 import secret from "./assets/k8s/secret.svg";
 import sts from "./assets/k8s/sts.svg";
@@ -57,6 +61,7 @@ export const RELATIONSHIP_COLORS: Record<string, string> = {
   BINDS: "#1abc9c", // PersistentVolume <-> PersistentVolumeClaim
   ROUTES: "#f1c40f", // Ingress / HTTPRoute -> Service
   RUNS: "#2ecc71", // ServiceAccount -> Pod (identity the pod runs as)
+  GRANTS: "#e74c3c", // Role/ClusterRole -> the bindings that reference it
   DEFINES: "#e84393", // CRD -> its instances
   CUSTOM: "#16a3b8", // user-created link
 };
@@ -90,6 +95,10 @@ export const KIND_ICONS: Record<string, string> = {
   ReplicaSet: rs,
   ServiceAccount: sa,
   Secret: secret,
+  Role: role,
+  ClusterRole: cRole,
+  RoleBinding: rb,
+  ClusterRoleBinding: crb,
   StatefulSet: sts,
   Service: svc,
 };

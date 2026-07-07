@@ -294,6 +294,8 @@ spec:
                       - ServiceBackend
                       - GatewayParent
                       - ServiceAccount
+                      - RoleRef
+                      - BindingSubject
                       - Custom
                       type: string
                     to:
