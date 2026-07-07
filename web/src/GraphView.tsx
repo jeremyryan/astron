@@ -41,9 +41,12 @@ function phaseColor(status: unknown): string | undefined {
   if (typeof status !== "string" || status === "") return undefined;
   switch (status) {
     case "Running":
+      return "#4caf50"; // healthy
     case "Succeeded":
     case "Completed":
-      return "#4caf50"; // healthy / done
+      // Terminal success (e.g. a finished Job pod): not actively "healthy", so
+      // show the same neutral gray outline as non-status resources.
+      return undefined;
     case "Pending":
     case "ContainerCreating":
     case "PodInitializing":
