@@ -54,7 +54,7 @@ func newMCPServerCmd(opts *options) *cobra.Command {
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
 
-			fmt.Fprintf(cmd.ErrOrStderr(), "gamera mcp-server: serving over stdio, API at %s\n", baseURL)
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "gamera mcp-server: serving over stdio, API at %s\n", baseURL)
 			if err := server.Serve(ctx, cmd.InOrStdin(), cmd.OutOrStdout()); err != nil && ctx.Err() == nil {
 				return err
 			}
