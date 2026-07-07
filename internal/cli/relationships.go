@@ -39,6 +39,11 @@ var (
 	ingress   = gamerav1alpha1.ResourceSelector{Group: "networking.k8s.io", Version: "v1", Kind: "Ingress"}
 	httpRoute = gamerav1alpha1.ResourceSelector{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRoute"}
 	gateway   = gamerav1alpha1.ResourceSelector{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "Gateway"}
+
+	role               = gamerav1alpha1.ResourceSelector{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "Role"}
+	clusterRole        = gamerav1alpha1.ResourceSelector{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "ClusterRole"}
+	roleBinding        = gamerav1alpha1.ResourceSelector{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "RoleBinding"}
+	clusterRoleBinding = gamerav1alpha1.ResourceSelector{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "ClusterRoleBinding"}
 )
 
 // buildRelationships returns the subset of well-known relationship rules whose
@@ -79,6 +84,12 @@ func buildRelationships(selectors []gamerav1alpha1.ResourceSelector) []gamerav1a
 		{"gateway-routes-httproute", "ROUTES", gamerav1alpha1.GatewayParentStrategy, gateway, httpRoute},
 		// Identity (Pod runs under a ServiceAccount, via spec.serviceAccountName).
 		{"serviceaccount-runs-pod", "RUNS", gamerav1alpha1.ServiceAccountStrategy, serviceAccount, pod},
+		// RBAC: roles grant permissions through bindings to ServiceAccounts.
+		{"role-grants-rolebinding", "GRANTS", gamerav1alpha1.RoleRefStrategy, role, roleBinding},
+		{"clusterrole-grants-clusterrolebinding", "GRANTS", gamerav1alpha1.RoleRefStrategy, clusterRole, clusterRoleBinding},
+		{"clusterrole-grants-rolebinding", "GRANTS", gamerav1alpha1.RoleRefStrategy, clusterRole, roleBinding},
+		{"rolebinding-binds-serviceaccount", "BINDS", gamerav1alpha1.BindingSubjectStrategy, roleBinding, serviceAccount},
+		{"clusterrolebinding-binds-serviceaccount", "BINDS", gamerav1alpha1.BindingSubjectStrategy, clusterRoleBinding, serviceAccount},
 	}
 
 	var rules []gamerav1alpha1.RelationshipRule

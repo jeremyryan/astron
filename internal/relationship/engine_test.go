@@ -520,3 +520,128 @@ func TestEngine_DeriveAggregatesAndReportsUnknownStrategy(t *testing.T) {
 		t.Errorf("expected 1 edge from the valid rule, got %d", len(edges))
 	}
 }
+
+// RBAC fixtures shared by the RoleRef / BindingSubject strategy tests.
+const (
+	rbacAPIVersion         = "rbac.authorization.k8s.io/v1"
+	kindClusterRole        = "ClusterRole"
+	kindRoleBinding        = "RoleBinding"
+	kindClusterRoleBinding = "ClusterRoleBinding"
+)
+
+func roleRefOf(kind, name string) map[string]any {
+	return map[string]any{"apiGroup": "rbac.authorization.k8s.io", "kind": kind, "name": name}
+}
+
+func TestRoleRefStrategy(t *testing.T) {
+	role := obj(rbacAPIVersion, kindRole, "default", "reader", "role-uid")
+	clusterRole := obj(rbacAPIVersion, kindClusterRole, "", "admin", "cr-uid")
+
+	// RoleBinding -> namespaced Role.
+	rb := obj(rbacAPIVersion, kindRoleBinding, "default", "read-binding", "rb-uid")
+	_ = unstructured.SetNestedMap(rb.Object, roleRefOf(kindRole, "reader"), "roleRef")
+	// RoleBinding -> ClusterRole (namespaced binding of a cluster-scoped role).
+	rbCR := obj(rbacAPIVersion, kindRoleBinding, "default", "admin-binding", "rb2-uid")
+	_ = unstructured.SetNestedMap(rbCR.Object, roleRefOf(kindClusterRole, "admin"), "roleRef")
+	// ClusterRoleBinding -> ClusterRole.
+	crb := obj(rbacAPIVersion, kindClusterRoleBinding, "", "admin-crb", "crb-uid")
+	_ = unstructured.SetNestedMap(crb.Object, roleRefOf(kindClusterRole, "admin"), "roleRef")
+	// RoleBinding -> a Role that is not captured: no edge.
+	rbGhost := obj(rbacAPIVersion, kindRoleBinding, "default", "ghost-binding", "rb3-uid")
+	_ = unstructured.SetNestedMap(rbGhost.Object, roleRefOf(kindRole, "ghost"), "roleRef")
+
+	index := NewMapIndex(role, clusterRole, rb, rbCR, crb, rbGhost)
+
+	// Role -> RoleBinding.
+	rule := gamerav1alpha1.RelationshipRule{
+		Name: "role-grants-rolebinding", Type: "GRANTS", Strategy: gamerav1alpha1.RoleRefStrategy,
+		From: sel("rbac.authorization.k8s.io", "v1", kindRole),
+		To:   sel("rbac.authorization.k8s.io", "v1", kindRoleBinding),
+	}
+	edges, err := (roleRefStrategy{}).Derive(rule, index)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 Role->RoleBinding edge, got %d: %+v", len(edges), edges)
+	}
+	if e := findEdge(edges, "GRANTS", "reader", "read-binding"); e == nil {
+		t.Errorf("missing reader->read-binding edge: %+v", edges)
+	} else if e.From.UID != "role-uid" || e.To.UID != "rb-uid" {
+		t.Errorf("edge endpoints should resolve UIDs: %+v", e)
+	}
+
+	// ClusterRole -> ClusterRoleBinding.
+	rule.From, rule.To = sel("rbac.authorization.k8s.io", "v1", kindClusterRole),
+		sel("rbac.authorization.k8s.io", "v1", kindClusterRoleBinding)
+	edges, err = (roleRefStrategy{}).Derive(rule, index)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(edges) != 1 || findEdge(edges, "GRANTS", "admin", "admin-crb") == nil {
+		t.Errorf("expected admin->admin-crb edge, got: %+v", edges)
+	}
+
+	// ClusterRole -> RoleBinding (roleRef to a ClusterRole from a namespaced binding).
+	rule.To = sel("rbac.authorization.k8s.io", "v1", kindRoleBinding)
+	edges, err = (roleRefStrategy{}).Derive(rule, index)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(edges) != 1 || findEdge(edges, "GRANTS", "admin", "admin-binding") == nil {
+		t.Errorf("expected admin->admin-binding edge, got: %+v", edges)
+	}
+}
+
+func TestBindingSubjectStrategy(t *testing.T) {
+	sa := obj("v1", kindServiceAccount, "default", "builder", "sa-uid")
+	saOther := obj("v1", kindServiceAccount, "other", "runner", "sa2-uid")
+
+	// RoleBinding: SA subject without a namespace (defaults to the binding's),
+	// a non-resource User subject, and an uncaptured SA (both skipped).
+	rb := obj(rbacAPIVersion, kindRoleBinding, "default", "read-binding", "rb-uid")
+	_ = unstructured.SetNestedSlice(rb.Object, []any{
+		map[string]any{"kind": kindServiceAccount, "name": "builder"},
+		map[string]any{"kind": "User", "name": "alice"},
+		map[string]any{"kind": kindServiceAccount, "name": "ghost"},
+	}, "subjects")
+	// ClusterRoleBinding: SA subject with an explicit namespace.
+	crb := obj(rbacAPIVersion, kindClusterRoleBinding, "", "admin-crb", "crb-uid")
+	_ = unstructured.SetNestedSlice(crb.Object, []any{
+		map[string]any{"kind": kindServiceAccount, "name": "runner", "namespace": "other"},
+	}, "subjects")
+
+	index := NewMapIndex(sa, saOther, rb, crb)
+
+	rule := gamerav1alpha1.RelationshipRule{
+		Name: "rolebinding-binds-serviceaccount", Type: "BINDS", Strategy: gamerav1alpha1.BindingSubjectStrategy,
+		From: sel("rbac.authorization.k8s.io", "v1", kindRoleBinding),
+		To:   sel("", "v1", kindServiceAccount),
+	}
+	edges, err := (bindingSubjectStrategy{}).Derive(rule, index)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 RoleBinding->SA edge, got %d: %+v", len(edges), edges)
+	}
+	if e := findEdge(edges, "BINDS", "read-binding", "builder"); e == nil {
+		t.Errorf("missing read-binding->builder edge: %+v", edges)
+	} else if e.To.UID != "sa-uid" || e.To.Namespace != "default" {
+		t.Errorf("subject namespace should default to the binding's: %+v", e.To)
+	}
+
+	rule.From = sel("rbac.authorization.k8s.io", "v1", kindClusterRoleBinding)
+	edges, err = (bindingSubjectStrategy{}).Derive(rule, index)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 ClusterRoleBinding->SA edge, got %d: %+v", len(edges), edges)
+	}
+	if e := findEdge(edges, "BINDS", "admin-crb", "runner"); e == nil {
+		t.Errorf("missing admin-crb->runner edge: %+v", edges)
+	} else if e.To.Namespace != "other" || e.To.UID != "sa2-uid" {
+		t.Errorf("explicit subject namespace should be honored: %+v", e.To)
+	}
+}

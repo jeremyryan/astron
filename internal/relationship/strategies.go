@@ -70,6 +70,7 @@ const (
 	kindGateway               = "Gateway"
 	kindService               = "Service"
 	kindServiceAccount        = "ServiceAccount"
+	kindRole                  = "Role"
 )
 
 // groupGatewayAPI is the API group for Gateway API resources (HTTPRoute,
@@ -743,4 +744,78 @@ func parentRefs(obj *unstructured.Unstructured, wantKind, wantGroup string) []pa
 		})
 	}
 	return out
+}
+
+// roleRefStrategy derives edges from a Role or ClusterRole (rule.From) to the
+// RoleBindings or ClusterRoleBindings (rule.To) that reference it through
+// roleRef. A RoleBinding's roleRef may name a Role in the binding's own
+// namespace or a (cluster-scoped) ClusterRole; a ClusterRoleBinding always
+// references a ClusterRole. The edge is only persisted when the referenced
+// role is itself captured.
+type roleRefStrategy struct{}
+
+func (roleRefStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
+	var edges []graph.Relationship
+	for _, binding := range index.ByKind(selectorGVK(rule.To)) {
+		kind, _, _ := unstructured.NestedString(binding.Object, "roleRef", "kind")
+		name, _, _ := unstructured.NestedString(binding.Object, "roleRef", "name")
+		if name == "" || kind != rule.From.Kind {
+			continue
+		}
+		// A Role lives in the binding's namespace; a ClusterRole is cluster-scoped.
+		ns := ""
+		if kind == kindRole {
+			ns = binding.GetNamespace()
+		}
+		role, ok := index.Lookup(selectorAPIVersion(rule.From), kind, ns, name)
+		if !ok {
+			continue
+		}
+		edges = append(edges, graph.Relationship{Type: rule.Type, From: refOf(role), To: refOf(binding)})
+	}
+	return edges, nil
+}
+
+// bindingSubjectStrategy derives edges from a RoleBinding or ClusterRoleBinding
+// (rule.From) to the subject resources (rule.To, typically ServiceAccounts) it
+// grants permissions to. A subject without a namespace defaults to the
+// binding's namespace. Non-resource subjects (User, Group) have no graph node
+// and are skipped, as are subjects that are not captured by the projection.
+type bindingSubjectStrategy struct{}
+
+func (bindingSubjectStrategy) Derive(rule gamerav1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
+	var edges []graph.Relationship
+	for _, binding := range index.ByKind(selectorGVK(rule.From)) {
+		subjects, _, _ := unstructured.NestedSlice(binding.Object, "subjects")
+		for _, s := range subjects {
+			subject, ok := s.(map[string]any)
+			if !ok {
+				continue
+			}
+			kind, _, _ := unstructured.NestedString(subject, "kind")
+			name, _, _ := unstructured.NestedString(subject, "name")
+			if name == "" || kind != rule.To.Kind {
+				continue
+			}
+			ns, _, _ := unstructured.NestedString(subject, "namespace")
+			if ns == "" {
+				ns = binding.GetNamespace()
+			}
+			target, ok := index.Lookup(selectorAPIVersion(rule.To), kind, ns, name)
+			if !ok {
+				continue
+			}
+			edges = append(edges, graph.Relationship{Type: rule.Type, From: refOf(binding), To: refOf(target)})
+		}
+	}
+	return edges, nil
+}
+
+// selectorAPIVersion resolves a ResourceSelector into the apiVersion string
+// used by the index (group/version, or version alone for the core group).
+func selectorAPIVersion(sel gamerav1alpha1.ResourceSelector) string {
+	if sel.Group == "" {
+		return sel.Version
+	}
+	return sel.Group + "/" + sel.Version
 }

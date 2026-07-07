@@ -63,6 +63,8 @@ func NewEngine() *Engine {
 			gamerav1alpha1.ServiceBackendStrategy: serviceBackendStrategy{},
 			gamerav1alpha1.GatewayParentStrategy:  parentRefStrategy{},
 			gamerav1alpha1.ServiceAccountStrategy: serviceAccountStrategy{},
+			gamerav1alpha1.RoleRefStrategy:        roleRefStrategy{},
+			gamerav1alpha1.BindingSubjectStrategy: bindingSubjectStrategy{},
 		},
 	}
 }

@@ -38,6 +38,9 @@ var (
 		"PersistentVolume", "PersistentVolumeClaim", "StorageClass",
 		"ConfigMap", "Secret",
 	}
+	accessControlKinds = []string{
+		"ServiceAccount", "Role", "ClusterRole", "RoleBinding", "ClusterRoleBinding",
+	}
 )
 
 // defaultViewCategory describes a built-in view: its canonical display name, a
@@ -64,6 +67,11 @@ var defaultViewCategories = []defaultViewCategory{
 		displayName: "Persistence",
 		description: "Storage and configuration resources (PVCs, PVs, ConfigMaps, Secrets, ...).",
 		kinds:       persistenceKinds,
+	},
+	{
+		displayName: "Access control",
+		description: "RBAC resources (Roles, ClusterRoles, their bindings) and the ServiceAccounts they grant permissions to.",
+		kinds:       accessControlKinds,
 	},
 }
 
