@@ -5,6 +5,9 @@
   --text: #d0d0d0;
   --muted: #8a909c;
   --accent: #326ce5;
+  /* Warm accent for top-level section headers, so they contrast with the
+     otherwise gray/blue chrome. */
+  --accent-warm: #f0a850;
 }
 
 * {

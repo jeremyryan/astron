@@ -433,7 +433,7 @@ function NodeDetails({ node }: { node: GraphNode | null }) {
     <Stack gap="md">
       <Group gap={8} wrap="nowrap" align="center">
         <img src={icon} width={22} height={22} alt="" />
-        <Title order={3} size="h4" c="brand.4">
+        <Title order={3} size="h4" c="var(--accent-warm)">
           {node.kind}{" "}
           <Text span c="dimmed" size="sm" fw={400}>
             {node.apiVersion}
@@ -502,7 +502,7 @@ function EdgeDetails({ selection }: { selection: Extract<GraphSelection, { type:
     node ? `${node.kind} ${node.namespace ? `${node.namespace}/` : ""}${node.name}` : fallback;
   return (
     <Stack gap="md">
-      <Title order={3} size="h4" c="brand.4">
+      <Title order={3} size="h4" c="var(--accent-warm)">
         {edge.type}{" "}
         <Text span c="dimmed" size="sm" fw={400}>
           relationship
@@ -1111,7 +1111,7 @@ export default function App() {
       </AppShell.Header>
 
       <AppShell.Navbar p="md">
-        <Text size="xs" fw={700} tt="uppercase" c="brand.4" mb="sm" style={{ letterSpacing: "0.08em" }}>
+        <Text size="xs" fw={700} tt="uppercase" c="var(--accent-warm)" mb="sm" style={{ letterSpacing: "0.08em" }}>
           Projections
         </Text>
         <AppShell.Section grow component={ScrollArea}>
