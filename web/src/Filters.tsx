@@ -75,8 +75,13 @@ export function kindCounts(graph: Graph): KindCount[] {
 
 interface Props {
   kinds: KindCount[];
-  // Kinds the user has hidden. Empty means everything is shown (the default).
+  // Kind-filter mode: "hide" (hide-list) or "show" (allow-list).
+  kindMode: "hide" | "show";
+  onChangeKindMode: (mode: "hide" | "show") => void;
+  // Kinds the user has hidden (hide mode). Empty means everything is shown.
   hiddenKinds: Set<string>;
+  // Kinds the user has chosen to show (show / allow-list mode).
+  visibleKinds: Set<string>;
   onToggleKind: (kind: string) => void;
   onShowAll: () => void;
   onHideAll: () => void;
@@ -188,7 +193,10 @@ function FilterSection({
 
 export function FilterPanel({
   kinds,
+  kindMode,
+  onChangeKindMode,
   hiddenKinds,
+  visibleKinds,
   onToggleKind,
   onShowAll,
   onHideAll,
@@ -212,8 +220,10 @@ export function FilterPanel({
   collapsed,
   onToggleCollapse,
 }: Props) {
-  const visibleCount = kinds.filter((k) => !hiddenKinds.has(k.kind)).length;
-  const filtering = hiddenKinds.size > 0;
+  const kindVisible = (kind: string) =>
+    kindMode === "show" ? visibleKinds.has(kind) : !hiddenKinds.has(kind);
+  const visibleCount = kinds.filter((k) => kindVisible(k.kind)).length;
+  const filtering = visibleCount < kinds.length;
   const visibleNamespaces = namespaces.filter((n) => !hiddenNamespaces.has(n.namespace)).length;
   const nsFiltering = hiddenNamespaces.size > 0;
 
@@ -271,7 +281,7 @@ export function FilterPanel({
             <ShowHideButtons
               onShowAll={onShowAll}
               onHideAll={onHideAll}
-              showDisabled={hiddenKinds.size === 0}
+              showDisabled={visibleCount === kinds.length}
               hideDisabled={visibleCount === 0}
             />
           }
@@ -282,11 +292,26 @@ export function FilterPanel({
             </Text>
           ) : (
             <Stack gap={6}>
+              <SegmentedControl
+                size="xs"
+                fullWidth
+                value={kindMode}
+                onChange={(v) => onChangeKindMode(v as "hide" | "show")}
+                data={[
+                  { label: "Hide-list", value: "hide" },
+                  { label: "Allow-list", value: "show" },
+                ]}
+              />
+              <Text size="xs" c="dimmed">
+                {kindMode === "show"
+                  ? "Only checked kinds are shown; new kinds stay hidden."
+                  : "All kinds are shown except those unchecked."}
+              </Text>
               {kinds.map(({ kind, count }) => (
                 <Checkbox
                   key={kind}
                   size="xs"
-                  checked={!hiddenKinds.has(kind)}
+                  checked={kindVisible(kind)}
                   onChange={() => onToggleKind(kind)}
                   styles={{ labelWrapper: { flex: 1 } }}
                   label={

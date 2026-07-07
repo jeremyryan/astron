@@ -66,8 +66,9 @@ spec:
                       true.
                     type: boolean
                   hiddenKinds:
-                    description: hiddenKinds lists resource kinds to hide (e.g. "ConfigMap",
-                      "Secret").
+                    description: |-
+                      hiddenKinds lists resource kinds to hide (e.g. "ConfigMap", "Secret").
+                      Used when kindMode is "hide".
                     items:
                       type: string
                     type: array
@@ -76,6 +77,17 @@ spec:
                     items:
                       type: string
                     type: array
+                  kindMode:
+                    default: hide
+                    description: |-
+                      kindMode selects how the resource-kind filter is interpreted: "hide"
+                      (a hide-list: everything is shown except hiddenKinds) or "show" (an
+                      allow-list: only visibleKinds are shown). An allow-list view is immune to
+                      newly-captured kinds appearing unexpectedly. Defaults to "hide".
+                    enum:
+                    - hide
+                    - show
+                    type: string
                   labelFilters:
                     description: |-
                       labelFilters restricts displayed nodes to those matching the given label
@@ -113,6 +125,13 @@ spec:
                     format: int32
                     minimum: 1
                     type: integer
+                  visibleKinds:
+                    description: |-
+                      visibleKinds lists the only resource kinds to show. Used when kindMode is
+                      "show" (allow-list); any kind not listed is hidden.
+                    items:
+                      type: string
+                    type: array
                 type: object
               projectionRef:
                 description: projectionRef selects the GraphProjection this view filters.

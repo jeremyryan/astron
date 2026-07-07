@@ -181,7 +181,9 @@ type labelFilterDTO struct {
 
 // viewFiltersDTO mirrors GraphViewFilters in the API representation.
 type viewFiltersDTO struct {
+	KindMode         string           `json:"kindMode,omitempty"`
 	HiddenKinds      []string         `json:"hiddenKinds,omitempty"`
+	VisibleKinds     []string         `json:"visibleKinds,omitempty"`
 	HiddenNamespaces []string         `json:"hiddenNamespaces,omitempty"`
 	LabelFilters     []labelFilterDTO `json:"labelFilters,omitempty"`
 	LabelMode        string           `json:"labelMode,omitempty"`
@@ -217,7 +219,9 @@ func viewToDTO(v *gamerav1alpha1.GraphView) viewDTO {
 			Namespace: v.Spec.ProjectionRef.Namespace,
 		},
 		Filters: viewFiltersDTO{
+			KindMode:         f.KindMode,
 			HiddenKinds:      f.HiddenKinds,
+			VisibleKinds:     f.VisibleKinds,
 			HiddenNamespaces: f.HiddenNamespaces,
 			LabelFilters:     labels,
 			LabelMode:        f.LabelMode,
@@ -241,7 +245,9 @@ func dtoToViewSpec(in viewDTO) gamerav1alpha1.GraphViewSpec {
 		DisplayName: in.DisplayName,
 		Description: in.Description,
 		Filters: gamerav1alpha1.GraphViewFilters{
+			KindMode:         in.Filters.KindMode,
 			HiddenKinds:      in.Filters.HiddenKinds,
+			VisibleKinds:     in.Filters.VisibleKinds,
 			HiddenNamespaces: in.Filters.HiddenNamespaces,
 			LabelFilters:     labels,
 			LabelMode:        in.Filters.LabelMode,

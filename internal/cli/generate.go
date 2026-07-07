@@ -225,7 +225,7 @@ func buildViewManifest(namespace, projection string, view defaultViewCategory) v
 			ProjectionRef: gamerav1alpha1.ProjectionReference{Name: projection, Namespace: namespace},
 			DisplayName:   view.displayName,
 			Description:   view.description,
-			Filters:       gamerav1alpha1.GraphViewFilters{HiddenKinds: hiddenKindsFor(view)},
+			Filters:       gamerav1alpha1.GraphViewFilters{KindMode: "show", VisibleKinds: visibleKindsFor(view)},
 		},
 	}
 }

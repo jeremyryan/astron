@@ -57,7 +57,9 @@ type ViewLabelFilter struct {
 
 // ViewFilters mirrors the read API's view filters (see internal/api viewFiltersDTO).
 type ViewFilters struct {
+	KindMode         string            `json:"kindMode,omitempty"`
 	HiddenKinds      []string          `json:"hiddenKinds,omitempty"`
+	VisibleKinds     []string          `json:"visibleKinds,omitempty"`
 	HiddenNamespaces []string          `json:"hiddenNamespaces,omitempty"`
 	LabelFilters     []ViewLabelFilter `json:"labelFilters,omitempty"`
 	LabelMode        string            `json:"labelMode,omitempty"`

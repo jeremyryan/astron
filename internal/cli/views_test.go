@@ -128,7 +128,7 @@ func TestViewsListProjectionRequiresNamespace(t *testing.T) {
 	}
 }
 
-func TestBuildDefaultViewHiddenKinds(t *testing.T) {
+func TestBuildDefaultViewVisibleKinds(t *testing.T) {
 	compute, ok := lookupDefaultView("compute") // case-insensitive
 	if !ok {
 		t.Fatal("expected 'compute' to resolve to a default view")
@@ -140,16 +140,22 @@ func TestBuildDefaultViewHiddenKinds(t *testing.T) {
 	if v.ProjectionRef.Name != projWeb || v.ProjectionRef.Namespace != "gamera" {
 		t.Fatalf("unexpected projectionRef: %+v", v.ProjectionRef)
 	}
-	hidden := map[string]bool{}
-	for _, k := range v.Filters.HiddenKinds {
-		hidden[k] = true
+	// Compute is an allow-list view showing only its own kinds (+ Pod).
+	if v.Filters.KindMode != "show" {
+		t.Errorf("default views should use allow-list mode, got %q", v.Filters.KindMode)
 	}
-	// Compute view hides networking + persistence kinds, not its own.
-	if hidden[podKind] || hidden["Deployment"] {
-		t.Errorf("compute view must not hide compute kinds: %v", v.Filters.HiddenKinds)
+	if len(v.Filters.HiddenKinds) != 0 {
+		t.Errorf("allow-list view should not set hiddenKinds: %v", v.Filters.HiddenKinds)
 	}
-	if !hidden["Service"] || !hidden["PersistentVolumeClaim"] || !hidden["ConfigMap"] {
-		t.Errorf("compute view should hide networking/persistence kinds: %v", v.Filters.HiddenKinds)
+	visible := map[string]bool{}
+	for _, k := range v.Filters.VisibleKinds {
+		visible[k] = true
+	}
+	if !visible[podKind] || !visible["Deployment"] {
+		t.Errorf("compute view must show compute kinds: %v", v.Filters.VisibleKinds)
+	}
+	if visible["Service"] || visible["PersistentVolumeClaim"] || visible["ConfigMap"] {
+		t.Errorf("compute view should not show networking/persistence kinds: %v", v.Filters.VisibleKinds)
 	}
 }
 
@@ -159,10 +165,12 @@ func TestDefaultViewsKeepPodsVisible(t *testing.T) {
 		if !ok {
 			t.Fatalf("default view %q did not resolve", name)
 		}
-		for _, k := range hiddenKindsFor(cat) {
-			if k == podKind {
-				t.Errorf("%s view must keep Pods visible, but hides them: %v", name, hiddenKindsFor(cat))
-			}
+		visible := map[string]bool{}
+		for _, k := range visibleKindsFor(cat) {
+			visible[k] = true
+		}
+		if !visible[podKind] {
+			t.Errorf("%s view must keep Pods visible: %v", name, visibleKindsFor(cat))
 		}
 	}
 }

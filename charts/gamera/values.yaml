@@ -317,84 +317,52 @@ defaultViews:
       description: Pods and the workload controllers (Deployments, ReplicaSets, StatefulSets, DaemonSets, Jobs, CronJobs) that manage them.
       filters:
         groupByNamespace: true
-        hiddenKinds:
-          - Service
-          - ConfigMap
-          - Secret
-          - PersistentVolumeClaim
-          - PersistentVolume
-          - Ingress
-          - HTTPRoute
-          - Gateway
-          - ServiceAccount
-          - Role
-          - ClusterRole
-          - RoleBinding
-          - ClusterRoleBinding
+        # Allow-list: only these kinds are shown, so newly-captured kinds do not
+        # leak into the view.
+        kindMode: show
+        visibleKinds:
+          - Pod
+          - Deployment
+          - ReplicaSet
+          - StatefulSet
+          - DaemonSet
+          - Job
+          - CronJob
     - name: persistence
       displayName: Persistence
       description: Pods together with the PersistentVolumeClaims and PersistentVolumes attached to them.
       filters:
         groupByNamespace: true
-        hiddenKinds:
-          - Deployment
-          - ReplicaSet
-          - StatefulSet
-          - DaemonSet
-          - Job
-          - CronJob
-          - Service
-          - ConfigMap
-          - Secret
-          - Ingress
-          - HTTPRoute
-          - Gateway
-          - ServiceAccount
-          - Role
-          - ClusterRole
-          - RoleBinding
-          - ClusterRoleBinding
+        kindMode: show
+        visibleKinds:
+          - Pod
+          - PersistentVolumeClaim
+          - PersistentVolume
     - name: networking
       displayName: Networking
       description: Pods together with the Services, Ingresses and HTTPRoutes that expose them to network traffic.
       filters:
         groupByNamespace: true
-        hiddenKinds:
-          - Deployment
-          - ReplicaSet
-          - StatefulSet
-          - DaemonSet
-          - Job
-          - CronJob
-          - ConfigMap
-          - Secret
-          - PersistentVolumeClaim
-          - PersistentVolume
-          - ServiceAccount
-          - Role
-          - ClusterRole
-          - RoleBinding
-          - ClusterRoleBinding
+        kindMode: show
+        visibleKinds:
+          - Pod
+          - Service
+          - Ingress
+          - HTTPRoute
+          - Gateway
     - name: access-control
       displayName: Access control
       description: RBAC resources (Roles, ClusterRoles, their bindings) and the ServiceAccounts they grant permissions to.
       filters:
         groupByNamespace: true
-        hiddenKinds:
-          - Deployment
-          - ReplicaSet
-          - StatefulSet
-          - DaemonSet
-          - Job
-          - CronJob
-          - Service
-          - ConfigMap
-          - Secret
-          - PersistentVolumeClaim
-          - PersistentVolume
-          - Ingress
-          - HTTPRoute
-          - Gateway
+        kindMode: show
+        visibleKinds:
+          - Pod
+          - ServiceAccount
+          - Role
+          - ClusterRole
+          - RoleBinding
+          - ClusterRoleBinding
 
 # Bundled Neo4J subchart (https://helm.neo4j.com/neo4j).
 # Set neo4j.enabled to false to use an existing/external Neo4J instead; then

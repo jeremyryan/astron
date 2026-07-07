@@ -307,11 +307,19 @@ func TestApplyView(t *testing.T) {
 	if name != "web" {
 		t.Fatalf("expected projectionRef.name web, got %q", name)
 	}
-	hidden, _, _ := unstructured.NestedStringSlice(got.Object, "spec", "filters", "hiddenKinds")
-	for _, k := range hidden {
+	mode, _, _ := unstructured.NestedString(got.Object, "spec", "filters", "kindMode")
+	if mode != "show" {
+		t.Errorf("compute view should use allow-list mode, got %q", mode)
+	}
+	visible, _, _ := unstructured.NestedStringSlice(got.Object, "spec", "filters", "visibleKinds")
+	found := false
+	for _, k := range visible {
 		if k == "Pod" {
-			t.Errorf("compute view should not hide Pod: %v", hidden)
+			found = true
 		}
+	}
+	if !found {
+		t.Errorf("compute view should show Pod: %v", visible)
 	}
 }
 

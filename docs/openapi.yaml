@@ -261,6 +261,8 @@ components:
           items:
             type: string
           type: array
+        kindMode:
+          type: string
         labelFilters:
           items:
             $ref: '#/components/schemas/ApiLabelFilterDTO'
@@ -270,6 +272,10 @@ components:
         maxDistance:
           nullable: true
           type: integer
+        visibleKinds:
+          items:
+            type: string
+          type: array
       type: object
     ProjectorQueryResult:
       properties:

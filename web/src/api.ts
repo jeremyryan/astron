@@ -99,7 +99,10 @@ export interface ViewLabelFilter {
 }
 
 export interface ViewFilters {
+  // "hide" (hide-list, the default) or "show" (allow-list: only visibleKinds).
+  kindMode?: "hide" | "show";
   hiddenKinds?: string[];
+  visibleKinds?: string[];
   hiddenNamespaces?: string[];
   labelFilters?: ViewLabelFilter[];
   labelMode?: string;

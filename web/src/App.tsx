@@ -636,8 +636,14 @@ function GraphPanel({
   }, []);
   // Node whose YAML manifest is shown in the modal (null = closed).
   const [yamlNode, setYamlNode] = useState<GraphNode | null>(null);
-  // Kinds the user has hidden. Empty = show everything (the default).
+  // Resource-kind filter mode: "hide" (hide-list, the default) hides the kinds
+  // in hiddenKinds; "show" (allow-list) shows only the kinds in visibleKinds and
+  // hides everything else, so newly-captured kinds don't leak into the view.
+  const [kindMode, setKindMode] = useState<"hide" | "show">("hide");
+  // Kinds the user has hidden (hide mode). Empty = show everything (the default).
   const [hiddenKinds, setHiddenKinds] = useState<Set<string>>(new Set());
+  // Kinds the user has chosen to show (allow-list / show mode).
+  const [visibleKinds, setVisibleKinds] = useState<Set<string>>(new Set());
   // Namespaces the user has hidden ("" = cluster-scoped). Empty = show all.
   const [hiddenNamespaces, setHiddenNamespaces] = useState<Set<string>>(new Set());
   // Individual node ids the user has hidden from the graph via the resource
@@ -671,13 +677,20 @@ function GraphPanel({
   const kinds = useMemo(() => (data ? kindCounts(data) : []), [data]);
   const namespaces = useMemo(() => (data ? namespaceCounts(data) : []), [data]);
 
+  // Whether a given kind is visible under the current kind-filter mode.
+  const kindVisible = useCallback(
+    (kind: string) => (kindMode === "show" ? visibleKinds.has(kind) : !hiddenKinds.has(kind)),
+    [kindMode, hiddenKinds, visibleKinds],
+  );
+
   const filteredGraph = useMemo<Graph | undefined>(() => {
     if (!data) return undefined;
     const hasLabelFilter = labelFilters.some((f) => f.key.trim() !== "");
-    if (hiddenKinds.size === 0 && hiddenNamespaces.size === 0 && !hasLabelFilter) return data;
+    const kindFiltering = kindMode === "show" || hiddenKinds.size > 0;
+    if (!kindFiltering && hiddenNamespaces.size === 0 && !hasLabelFilter) return data;
     const nodes = data.nodes.filter(
       (n) =>
-        !hiddenKinds.has(n.kind) &&
+        kindVisible(n.kind) &&
         !hiddenNamespaces.has(n.namespace ?? "") &&
         matchesLabelFilters(n, labelFilters, labelMode),
     );
@@ -686,7 +699,7 @@ function GraphPanel({
       (e) => visibleIds.has(e.source) && visibleIds.has(e.target),
     );
     return { nodes, edges };
-  }, [data, hiddenKinds, hiddenNamespaces, labelFilters, labelMode]);
+  }, [data, kindMode, hiddenKinds, kindVisible, hiddenNamespaces, labelFilters, labelMode]);
 
   // Edges whose endpoints are both visible, used only for the relationship
   // legend. The full filtered graph (including individually-hidden nodes) is
@@ -715,15 +728,31 @@ function GraphPanel({
     return [...set].sort();
   }, [visibleEdgeTypesSource]);
 
-  const toggleKind = (kind: string) =>
-    setHiddenKinds((prev) => {
+  const toggleKind = (kind: string) => {
+    const setter = kindMode === "show" ? setVisibleKinds : setHiddenKinds;
+    setter((prev) => {
       const next = new Set(prev);
       if (next.has(kind)) next.delete(kind);
       else next.add(kind);
       return next;
     });
-  const showAll = () => setHiddenKinds(new Set());
-  const hideAll = () => setHiddenKinds(new Set(kinds.map((k) => k.kind)));
+  };
+  const showAll = () => {
+    if (kindMode === "show") setVisibleKinds(new Set(kinds.map((k) => k.kind)));
+    else setHiddenKinds(new Set());
+  };
+  const hideAll = () => {
+    if (kindMode === "show") setVisibleKinds(new Set());
+    else setHiddenKinds(new Set(kinds.map((k) => k.kind)));
+  };
+  // Switch hide-list <-> allow-list while preserving the currently-visible set.
+  const changeKindMode = (mode: "hide" | "show") => {
+    if (mode === kindMode) return;
+    const all = kinds.map((k) => k.kind);
+    if (mode === "show") setVisibleKinds(new Set(all.filter((k) => kindVisible(k))));
+    else setHiddenKinds(new Set(all.filter((k) => !kindVisible(k))));
+    setKindMode(mode);
+  };
 
   const toggleNamespace = (ns: string) =>
     setHiddenNamespaces((prev) => {
@@ -746,7 +775,9 @@ function GraphPanel({
   // Current filter state serialized into the View DTO shape, for saving.
   const currentFilters = useMemo<ViewFilters>(
     () => ({
-      hiddenKinds: [...hiddenKinds],
+      kindMode,
+      hiddenKinds: kindMode === "hide" ? [...hiddenKinds] : undefined,
+      visibleKinds: kindMode === "show" ? [...visibleKinds] : undefined,
       hiddenNamespaces: [...hiddenNamespaces],
       labelFilters: labelFilters
         .filter((f) => f.key.trim() !== "")
@@ -755,12 +786,23 @@ function GraphPanel({
       maxDistance: maxDistance ?? undefined,
       groupByNamespace,
     }),
-    [hiddenKinds, hiddenNamespaces, labelFilters, labelMode, maxDistance, groupByNamespace],
+    [
+      kindMode,
+      hiddenKinds,
+      visibleKinds,
+      hiddenNamespaces,
+      labelFilters,
+      labelMode,
+      maxDistance,
+      groupByNamespace,
+    ],
   );
 
   // Apply a saved view's filters to the panel state.
   const applyFilters = (f: ViewFilters) => {
+    setKindMode(f.kindMode === "show" ? "show" : "hide");
     setHiddenKinds(new Set(f.hiddenKinds ?? []));
+    setVisibleKinds(new Set(f.visibleKinds ?? []));
     setHiddenNamespaces(new Set(f.hiddenNamespaces ?? []));
     setLabelFilters(
       (f.labelFilters ?? []).map((lf) => ({
@@ -794,7 +836,10 @@ function GraphPanel({
     <div className="graph-panel">
       <FilterPanel
         kinds={kinds}
+        kindMode={kindMode}
+        onChangeKindMode={changeKindMode}
         hiddenKinds={hiddenKinds}
+        visibleKinds={visibleKinds}
         onToggleKind={toggleKind}
         onShowAll={showAll}
         onHideAll={hideAll}

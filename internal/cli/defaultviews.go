@@ -102,26 +102,28 @@ var alwaysVisibleKinds = map[string]bool{
 	"Pod": true,
 }
 
-// hiddenKindsFor returns the kinds a view should hide: the union of every other
-// category's kinds, excluding always-visible kinds, sorted for deterministic
-// output.
-func hiddenKindsFor(view defaultViewCategory) []string {
+// visibleKindsFor returns the kinds a view should show (an allow-list): the
+// category's own kinds plus the always-visible kinds, sorted for deterministic
+// output. An allow-list keeps the view focused even as new, uncategorized kinds
+// are captured by the projection.
+func visibleKindsFor(view defaultViewCategory) []string {
 	seen := map[string]bool{}
-	var hidden []string
-	for _, c := range defaultViewCategories {
-		if c.displayName == view.displayName {
-			continue
+	var visible []string
+	add := func(k string) {
+		if seen[k] {
+			return
 		}
-		for _, k := range c.kinds {
-			if seen[k] || alwaysVisibleKinds[k] {
-				continue
-			}
-			seen[k] = true
-			hidden = append(hidden, k)
-		}
+		seen[k] = true
+		visible = append(visible, k)
 	}
-	sort.Strings(hidden)
-	return hidden
+	for _, k := range view.kinds {
+		add(k)
+	}
+	for k := range alwaysVisibleKinds {
+		add(k)
+	}
+	sort.Strings(visible)
+	return visible
 }
 
 // defaultViewResourceName derives a GraphView's resource name from the
@@ -177,7 +179,8 @@ func buildDefaultView(namespace, projection string, view defaultViewCategory) Vi
 			Namespace: namespace,
 		},
 		Filters: ViewFilters{
-			HiddenKinds: hiddenKindsFor(view),
+			KindMode:     "show",
+			VisibleKinds: visibleKindsFor(view),
 		},
 	}
 }

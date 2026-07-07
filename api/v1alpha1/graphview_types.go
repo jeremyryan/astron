@@ -64,9 +64,24 @@ type ProjectionReference struct {
 // GraphViewFilters captures the filtering options applied to a projection's
 // graph when rendering a view. These mirror the interactive filters in the UI.
 type GraphViewFilters struct {
+	// kindMode selects how the resource-kind filter is interpreted: "hide"
+	// (a hide-list: everything is shown except hiddenKinds) or "show" (an
+	// allow-list: only visibleKinds are shown). An allow-list view is immune to
+	// newly-captured kinds appearing unexpectedly. Defaults to "hide".
+	// +optional
+	// +kubebuilder:validation:Enum=hide;show
+	// +kubebuilder:default=hide
+	KindMode string `json:"kindMode,omitempty"`
+
 	// hiddenKinds lists resource kinds to hide (e.g. "ConfigMap", "Secret").
+	// Used when kindMode is "hide".
 	// +optional
 	HiddenKinds []string `json:"hiddenKinds,omitempty"`
+
+	// visibleKinds lists the only resource kinds to show. Used when kindMode is
+	// "show" (allow-list); any kind not listed is hidden.
+	// +optional
+	VisibleKinds []string `json:"visibleKinds,omitempty"`
 
 	// hiddenNamespaces lists namespaces to hide.
 	// +optional
