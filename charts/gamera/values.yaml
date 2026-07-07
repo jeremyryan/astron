@@ -325,6 +325,7 @@ defaultViews:
           - PersistentVolume
           - Ingress
           - HTTPRoute
+          - Gateway
           - ServiceAccount
           - Role
           - ClusterRole
@@ -347,6 +348,7 @@ defaultViews:
           - Secret
           - Ingress
           - HTTPRoute
+          - Gateway
           - ServiceAccount
           - Role
           - ClusterRole
