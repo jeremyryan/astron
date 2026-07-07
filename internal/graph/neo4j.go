@@ -325,6 +325,98 @@ func (s *Neo4jStore) DeleteManualLink(ctx context.Context, projection Projection
 	return nil
 }
 
+// manualNoteProperty is the free-text note a user can attach to a manual link.
+// It is a normal (non-underscored) property, so it flows through ReadGraph like
+// any other relationship data and can be surfaced in the UI and GraphRAG cards.
+const manualNoteProperty = "note"
+
+// setManualLinkNoteCypher sets the note property on a manual relationship of the
+// given type between two nodes (by UID) within a projection.
+const setManualLinkNoteCypher = `
+MATCH (from:` + resourceLabel + ` {` + projectionProperty + `: $projection, uid: $fromID})-[r {` + projectionProperty + `: $projection}]->(to:` + resourceLabel + ` {` + projectionProperty + `: $projection, uid: $toID})
+WHERE type(r) = $relType AND coalesce(r.` + manualProperty + `, false) = true
+SET r.` + manualNoteProperty + ` = $note`
+
+// clearManualLinkNoteCypher removes the note property (used when the note is set
+// to empty) so the edge carries no empty-string clutter.
+const clearManualLinkNoteCypher = `
+MATCH (from:` + resourceLabel + ` {` + projectionProperty + `: $projection, uid: $fromID})-[r {` + projectionProperty + `: $projection}]->(to:` + resourceLabel + ` {` + projectionProperty + `: $projection, uid: $toID})
+WHERE type(r) = $relType AND coalesce(r.` + manualProperty + `, false) = true
+REMOVE r.` + manualNoteProperty
+
+// SetManualLinkNote sets or clears the note on a user-created relationship of
+// relType between two nodes of a projection. Only manual links are affected. It
+// is idempotent and does not error when the link is absent.
+func (s *Neo4jStore) SetManualLinkNote(ctx context.Context, projection ProjectionID, fromID, toID, relType, note string) error {
+	if fromID == "" || toID == "" {
+		return fmt.Errorf("both endpoint ids are required")
+	}
+	if relType == "" {
+		return fmt.Errorf("relationship type is required")
+	}
+	cypher := setManualLinkNoteCypher
+	if note == "" {
+		cypher = clearManualLinkNoteCypher
+	}
+
+	sess := s.session(ctx)
+	defer func() { _ = sess.Close(ctx) }()
+
+	_, err := sess.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		return tx.Run(ctx, cypher, map[string]any{
+			"projection": string(projection),
+			"fromID":     fromID,
+			"toID":       toID,
+			"relType":    relType,
+			"note":       note,
+		})
+	})
+	if err != nil {
+		return fmt.Errorf("setting manual link note for projection %q: %w", projection, err)
+	}
+	return nil
+}
+
+// manualLinksCypher returns every manual relationship of a projection with its
+// endpoints (by node key) and properties, in the same row shape as ReadGraph so
+// relFromProps can decode it.
+const manualLinksCypher = `
+MATCH (a:` + resourceLabel + ` {` + projectionProperty + `: $projection})-[r {` + projectionProperty + `: $projection}]->(b:` + resourceLabel + ` {` + projectionProperty + `: $projection})
+WHERE coalesce(r.` + manualProperty + `, false) = true
+RETURN collect({type: type(r), fromKey: a._key, toKey: b._key, props: properties(r)}) AS rels`
+
+// ManualLinks returns the user-created relationships of a projection, including
+// their properties (e.g. a note).
+func (s *Neo4jStore) ManualLinks(ctx context.Context, projection ProjectionID) ([]Relationship, error) {
+	sess := s.session(ctx)
+	defer func() { _ = sess.Close(ctx) }()
+
+	result, err := sess.ExecuteRead(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		res, err := tx.Run(ctx, manualLinksCypher, map[string]any{"projection": string(projection)})
+		if err != nil {
+			return nil, err
+		}
+		return res.Single(ctx)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("reading manual links for projection %q: %w", projection, err)
+	}
+
+	var out []Relationship
+	rec := result.(*neo4j.Record)
+	rawRels, _ := rec.Get("rels")
+	if rels, ok := rawRels.([]any); ok {
+		for _, r := range rels {
+			rel, ok := r.(map[string]any)
+			if !ok || rel["type"] == nil {
+				continue
+			}
+			out = append(out, relFromProps(rel))
+		}
+	}
+	return out, nil
+}
+
 // DeleteProjection removes all data owned by a projection.
 func (s *Neo4jStore) DeleteProjection(ctx context.Context, projection ProjectionID) error {
 	sess := s.session(ctx)

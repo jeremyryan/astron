@@ -178,7 +178,7 @@ function FilterSection({
                 transform: open ? "rotate(90deg)" : "none",
               }}
             />
-            <Text size="sm" fw={600}>
+            <Text size="sm" fw={700} c="brand.4">
               {title}
             </Text>
             {badge}
@@ -247,8 +247,8 @@ export function FilterPanel({
       <Stack gap="lg">
         <Group gap={6} align="center" justify="space-between" wrap="nowrap">
           <Group gap={6} align="center">
-            <IconFilter size={14} stroke={1.5} />
-            <Text size="xs" fw={700} tt="uppercase" c="dimmed">
+            <IconFilter size={14} stroke={1.5} color="var(--accent-warm)" />
+            <Text size="xs" fw={700} tt="uppercase" c="var(--accent-warm)">
               Filters
             </Text>
           </Group>

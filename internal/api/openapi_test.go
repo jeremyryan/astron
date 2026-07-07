@@ -74,6 +74,8 @@ func methodUpper(m string) string {
 		return http.MethodPost
 	case "put":
 		return http.MethodPut
+	case "patch":
+		return http.MethodPatch
 	case "delete":
 		return http.MethodDelete
 	default:

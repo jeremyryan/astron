@@ -164,6 +164,24 @@ func (p *Projector) DeleteLink(ctx context.Context, fromID, toID, relType string
 	return ls.DeleteManualLink(ctx, p.opts.ID, fromID, toID, relType)
 }
 
+// UpdateLinkNote sets (or clears) the free-text note on a user-defined link of
+// this projection, if the backing store supports manual links. It returns
+// ErrLinksNotSupported otherwise. After updating, it re-embeds the endpoints so
+// the note flows into GraphRAG cards.
+func (p *Projector) UpdateLinkNote(ctx context.Context, fromID, toID, relType, note string) error {
+	ls, ok := p.opts.Store.(graph.LinkStore)
+	if !ok {
+		return ErrLinksNotSupported
+	}
+	if err := ls.SetManualLinkNote(ctx, p.opts.ID, fromID, toID, relType, note); err != nil {
+		return err
+	}
+	// Re-sync so the note flows into the GraphRAG cards (and thus embeddings) of
+	// the link's endpoints on the next reconcile.
+	p.enqueue()
+	return nil
+}
+
 // enqueue requests a (debounced) re-sync without blocking the caller.
 func (p *Projector) enqueue() {
 	select {
@@ -230,10 +248,23 @@ func (p *Projector) Sync(ctx context.Context) (graph.Counts, error) {
 		return graph.Counts{}, err
 	}
 
+	// Fold user-created (manual) links into the edge set used to build GraphRAG
+	// cards, so their notes influence the endpoints' embeddings. Manual links are
+	// stored separately and preserved by Sync's pruning, so they aren't in the
+	// derived `edges` above.
+	cardEdges := edges
+	if ls, ok := p.opts.Store.(graph.LinkStore); ok {
+		if manual, mErr := ls.ManualLinks(ctx, p.opts.ID); mErr != nil {
+			logf.FromContext(ctx).Error(mErr, "reading manual links for embeddings failed")
+		} else if len(manual) > 0 {
+			cardEdges = append(append([]graph.Relationship{}, edges...), manual...)
+		}
+	}
+
 	// Refresh GraphRAG embeddings for any changed nodes. This is best-effort: a
 	// failure is logged but does not fail the sync, so the projected graph stays
 	// correct even if embeddings momentarily lag.
-	if err := p.refreshEmbeddings(ctx, nodes, edges); err != nil {
+	if err := p.refreshEmbeddings(ctx, nodes, cardEdges); err != nil {
 		logf.FromContext(ctx).Error(err, "refreshing embeddings failed")
 	}
 

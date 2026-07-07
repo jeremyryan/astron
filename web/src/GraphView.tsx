@@ -41,9 +41,12 @@ function phaseColor(status: unknown): string | undefined {
   if (typeof status !== "string" || status === "") return undefined;
   switch (status) {
     case "Running":
+      return "#4caf50"; // healthy
     case "Succeeded":
     case "Completed":
-      return "#4caf50"; // healthy / done
+      // Terminal success (e.g. a finished Job pod): not actively "healthy", so
+      // show the same neutral gray outline as non-status resources.
+      return undefined;
     case "Pending":
     case "ContainerCreating":
     case "PodInitializing":
@@ -182,9 +185,12 @@ interface Props {
   onAddLink: (sourceId: string, targetId: string) => void;
   // Called when the user deletes a user-created link via its context menu.
   onDeleteLink: (edge: GraphEdge) => void;
-  // Toggles whether an individual node is drawn (mirrors the resource list's
-  // per-node visibility toggle). hiddenIds is used to label the menu item.
-  onToggleVisibility: (id: string) => void;
+  // Called when the user picks "Edit" on a user-created link, to edit its note.
+  onEditLink: (edge: GraphEdge) => void;
+  // Sets the visibility of several nodes at once (used by the context menu's
+  // Hide/View item so it applies to the whole current selection). hiddenIds is
+  // also used to label the menu item.
+  onSetVisibility: (ids: string[], hidden: boolean) => void;
   hiddenIds: Set<string>;
   // Request to additively select a node on the canvas (Ctrl/Cmd-click in the
   // resource list) without centering or opening its details. The nonce makes
@@ -222,7 +228,8 @@ export function GraphView({
   onShowYaml,
   onAddLink,
   onDeleteLink,
-  onToggleVisibility,
+  onEditLink,
+  onSetVisibility,
   hiddenIds,
   additiveSelect,
   onSelectedIdsChange,
@@ -1407,7 +1414,22 @@ export function GraphView({
                 )
               }
               onClick={() => {
-                onToggleVisibility(menu.node.id);
+                // Direction of the action follows the clicked node's current
+                // state. When the clicked node is part of a multi-selection,
+                // apply it to every selected node; otherwise just this node.
+                const targetHidden = !hiddenIds.has(menu.node.id);
+                let ids = [menu.node.id];
+                const cy = cyRef.current;
+                if (cy) {
+                  const selIds = cy
+                    .nodes(":selected")
+                    .filter((n) => !n.isParent())
+                    .map((n) => n.id());
+                  if (selIds.length > 0 && selIds.includes(menu.node.id)) {
+                    ids = selIds;
+                  }
+                }
+                onSetVisibility(ids, targetHidden);
                 setMenu(null);
               }}
             >
@@ -1438,6 +1460,15 @@ export function GraphView({
                 {edgeMenu.edge.type} link
               </Text>
             </Menu.Label>
+            <Menu.Item
+              leftSection={<IconPencil size={16} stroke={1.5} />}
+              onClick={() => {
+                onEditLink(edgeMenu.edge);
+                setEdgeMenu(null);
+              }}
+            >
+              Edit
+            </Menu.Item>
             <Menu.Item
               color="red"
               leftSection={<IconTrash size={16} stroke={1.5} />}

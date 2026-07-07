@@ -77,6 +77,54 @@ func TestRenderCardRelationshipPhrasingAndPluralization(t *testing.T) {
 	}
 }
 
+func TestRenderCardIncludesLinkNote(t *testing.T) {
+	node := graph.Node{Ref: ref("Deployment", "shop", "web", "u-deploy")}
+	edges := []Edge{
+		{
+			Type:     "CUSTOM",
+			Peer:     ref("Service", "shop", "payments", "u-pay"),
+			Outgoing: true,
+			Note:     "depends on the payments API",
+		},
+	}
+	card := RenderCard(node, edges, DefaultOptions)
+	if !strings.Contains(card.Text, "Note on link to Service `payments`: depends on the payments API") {
+		t.Errorf("card text missing link note:\n  %q", card.Text)
+	}
+}
+
+func TestBuildCardsFoldsLinkNoteIntoBothEndpoints(t *testing.T) {
+	data := graph.GraphData{
+		Nodes: []graph.Node{
+			{Ref: ref("Deployment", "shop", "web", "u-web")},
+			{Ref: ref("Service", "shop", "payments", "u-pay")},
+		},
+		Relationships: []graph.Relationship{{
+			Type:       "CUSTOM",
+			From:       ref("Deployment", "shop", "web", "u-web"),
+			To:         ref("Service", "shop", "payments", "u-pay"),
+			Properties: map[string]any{"note": "runtime dependency"},
+			Manual:     true,
+		}},
+	}
+	cards := BuildCards(data, DefaultOptions)
+	var web, pay string
+	for _, c := range cards {
+		switch c.Ref.UID {
+		case "u-web":
+			web = c.Text
+		case "u-pay":
+			pay = c.Text
+		}
+	}
+	if !strings.Contains(web, "runtime dependency") {
+		t.Errorf("source card missing note: %q", web)
+	}
+	if !strings.Contains(pay, "runtime dependency") {
+		t.Errorf("target card missing note: %q", pay)
+	}
+}
+
 func TestRenderCardIncludesLabelsSorted(t *testing.T) {
 	node := graph.Node{
 		Ref:        ref("Pod", "shop", "web-7d9", "u-pod"),

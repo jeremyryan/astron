@@ -26,6 +26,8 @@ components:
       properties:
         from:
           type: string
+        note:
+          type: string
         to:
           type: string
         type:
@@ -80,6 +82,8 @@ components:
     ApiLinkResponse:
       properties:
         from:
+          type: string
+        note:
           type: string
         to:
           type: string
@@ -213,6 +217,17 @@ components:
         score:
           format: double
           type: number
+      type: object
+    ApiUpdateLinkReq:
+      properties:
+        from:
+          type: string
+        note:
+          type: string
+        to:
+          type: string
+        type:
+          type: string
       type: object
     ApiUpdateViewReq:
       properties:
@@ -425,6 +440,56 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
           description: Service Unavailable
       summary: Delete a user-defined edge between two nodes
+      tags:
+      - links
+    patch:
+      operationId: updateLink
+      parameters:
+      - description: Projection namespace
+        in: path
+        name: namespace
+        required: true
+        schema:
+          description: Projection namespace
+          type: string
+      - description: Projection name
+        in: path
+        name: name
+        required: true
+        schema:
+          description: Projection name
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiUpdateLinkReq'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiLinkResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+      summary: Set or clear the note on a user-defined edge
       tags:
       - links
     post:

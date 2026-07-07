@@ -8,10 +8,12 @@ import {
   Button,
   Group,
   Loader,
+  Modal,
   NavLink,
   ScrollArea,
   Stack,
   Text,
+  Textarea,
   Title,
   Tooltip,
   UnstyledButton,
@@ -22,7 +24,9 @@ import {
   getGraph,
   listProjections,
   listViews,
+  updateLink,
   type Graph,
+  type GraphEdge,
   type GraphNode,
   type GraphSelection,
   type Projection,
@@ -336,7 +340,7 @@ function ResourceList({
             size="xs"
             fw={700}
             tt="uppercase"
-            c="dimmed"
+            c="brand.4"
             style={{ letterSpacing: "0.06em" }}
           >
             {g.namespace}
@@ -429,7 +433,7 @@ function NodeDetails({ node }: { node: GraphNode | null }) {
     <Stack gap="md">
       <Group gap={8} wrap="nowrap" align="center">
         <img src={icon} width={22} height={22} alt="" />
-        <Title order={3} size="h4">
+        <Title order={3} size="h4" c="var(--accent-warm)">
           {node.kind}{" "}
           <Text span c="dimmed" size="sm" fw={400}>
             {node.apiVersion}
@@ -491,12 +495,14 @@ function renderEdgeProp(k: string, v: unknown) {
 
 function EdgeDetails({ selection }: { selection: Extract<GraphSelection, { type: "edge" }> }) {
   const { edge, source, target } = selection;
-  const props = Object.entries(edge.properties ?? {});
+  // The note is shown in its own section; other properties render below it.
+  const note = typeof edge.properties?.note === "string" ? edge.properties.note : "";
+  const props = Object.entries(edge.properties ?? {}).filter(([k]) => k !== "note");
   const refLabel = (node: GraphNode | undefined, fallback: string) =>
     node ? `${node.kind} ${node.namespace ? `${node.namespace}/` : ""}${node.name}` : fallback;
   return (
     <Stack gap="md">
-      <Title order={3} size="h4">
+      <Title order={3} size="h4" c="var(--accent-warm)">
         {edge.type}{" "}
         <Text span c="dimmed" size="sm" fw={400}>
           relationship
@@ -506,14 +512,72 @@ function EdgeDetails({ selection }: { selection: Extract<GraphSelection, { type:
         <Field label="From" value={refLabel(source, edge.source)} />
         <Field label="To" value={refLabel(target, edge.target)} />
       </Stack>
-      {props.length === 0 ? (
+      {edge.manual && (
+        <div>
+          <Text size="xs" c="dimmed" tt="uppercase" style={{ letterSpacing: "0.05em" }}>
+            Note
+          </Text>
+          {note ? (
+            <Text size="sm" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+              {note}
+            </Text>
+          ) : (
+            <Text size="sm" c="dimmed">
+              No note. Right-click the link and choose Edit to add one.
+            </Text>
+          )}
+        </div>
+      )}
+      {props.length > 0 && (
+        <Stack gap="md">{props.map(([k, v]) => renderEdgeProp(k, v))}</Stack>
+      )}
+      {!edge.manual && props.length === 0 && (
         <Text size="sm" c="dimmed">
           No relationship data.
         </Text>
-      ) : (
-        <Stack gap="md">{props.map(([k, v]) => renderEdgeProp(k, v))}</Stack>
       )}
     </Stack>
+  );
+}
+
+// LinkNoteModal edits the free-text note attached to a user-created link.
+function LinkNoteModal({
+  edge,
+  onClose,
+  onSave,
+}: {
+  edge: GraphEdge | null;
+  onClose: () => void;
+  onSave: (edge: GraphEdge, note: string) => void;
+}) {
+  const [note, setNote] = useState("");
+  useEffect(() => {
+    setNote(edge && typeof edge.properties?.note === "string" ? edge.properties.note : "");
+  }, [edge]);
+  return (
+    <Modal opened={edge !== null} onClose={onClose} title="Edit link note" size="lg">
+      <Stack gap="md">
+        <Text size="sm" c="dimmed">
+          Add a note to this link. It is stored on the relationship and used when
+          building GraphRAG embeddings.
+        </Text>
+        <Textarea
+          value={note}
+          onChange={(e) => setNote(e.currentTarget.value)}
+          placeholder="e.g. This service depends on the payments API at runtime."
+          autosize
+          minRows={3}
+          maxRows={10}
+          data-autofocus
+        />
+        <Group justify="flex-end" gap="sm">
+          <Button variant="default" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={() => edge && onSave(edge, note)}>Save</Button>
+        </Group>
+      </Stack>
+    </Modal>
   );
 }
 
@@ -636,10 +700,14 @@ function GraphPanel({
   }, []);
   // Node whose YAML manifest is shown in the modal (null = closed).
   const [yamlNode, setYamlNode] = useState<GraphNode | null>(null);
+
   // Resource-kind filter mode: "hide" (hide-list, the default) hides the kinds
   // in hiddenKinds; "show" (allow-list) shows only the kinds in visibleKinds and
   // hides everything else, so newly-captured kinds don't leak into the view.
   const [kindMode, setKindMode] = useState<"hide" | "show">("hide");
+
+  // The user-created link whose note is being edited (null = modal closed).
+  const [editLink, setEditLink] = useState<GraphEdge | null>(null);
   // Kinds the user has hidden (hide mode). Empty = show everything (the default).
   const [hiddenKinds, setHiddenKinds] = useState<Set<string>>(new Set());
   // Kinds the user has chosen to show (allow-list / show mode).
@@ -718,6 +786,18 @@ function GraphPanel({
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
+      return next;
+    });
+
+  // Set the visibility of several nodes at once (used by the graph context
+  // menu's Hide/View item so it acts on the whole current selection).
+  const setNodesVisibility = (ids: string[], hidden: boolean) =>
+    setHiddenNodeIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (hidden) next.add(id);
+        else next.delete(id);
+      }
       return next;
     });
 
@@ -897,7 +977,7 @@ function GraphPanel({
         {filteredGraph && (
           <GraphView
             graph={filteredGraph}
-            onToggleVisibility={toggleNodeVisibility}
+            onSetVisibility={setNodesVisibility}
             hiddenIds={hiddenNodeIds}
             additiveSelect={additiveSelect}
             onSelect={handleSelect}
@@ -926,6 +1006,7 @@ function GraphPanel({
                   // Best-effort; the edge stays if the delete fails.
                 });
             }}
+            onEditLink={setEditLink}
             exportName={`${projection.namespace}-${projection.name}`}
           />
         )}
@@ -938,6 +1019,20 @@ function GraphPanel({
         )}
       </div>
       <YamlModal node={yamlNode} onClose={() => setYamlNode(null)} />
+      <LinkNoteModal
+        edge={editLink}
+        onClose={() => setEditLink(null)}
+        onSave={(edge, note) => {
+          setEditLink(null);
+          updateLink(projection.namespace, projection.name, edge.source, edge.target, edge.type, note)
+            .then(() =>
+              queryClient.invalidateQueries({ queryKey: ["graph", projection.uid] }),
+            )
+            .catch(() => {
+              // Best-effort; the note simply won't be saved.
+            });
+        }}
+      />
       {inspectorCollapsed ? (
         <aside className="inspector inspector-collapsed">
           <div className="inspector-collapsed-inner">
@@ -1075,7 +1170,7 @@ export default function App() {
       </AppShell.Header>
 
       <AppShell.Navbar p="md">
-        <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="sm" style={{ letterSpacing: "0.08em" }}>
+        <Text size="xs" fw={700} tt="uppercase" c="var(--accent-warm)" mb="sm" style={{ letterSpacing: "0.08em" }}>
           Projections
         </Text>
         <AppShell.Section grow component={ScrollArea}>

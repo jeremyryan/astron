@@ -107,6 +107,8 @@ search, graph-neighborhood retrieval, grounded question answering, and guarded
 text-to-Cypher — over HTTP and via the [Model Context Protocol](https://modelcontextprotocol.io/).
 It is opt-in per `GraphProjection`.
 
+- **[UI User Guide](./docs/ui-guide.md)** — how to explore the cluster graph in
+  the web UI: filters, views, selection, custom links, layout, and shortcuts.
 - **[GraphRAG User Guide](./docs/graphrag-guide.md)** — enable it, configure a
   provider, call the API, and wire up the `gamera mcp-server`.
 - **[GraphRAG Design](./docs/graphrag.md)** — architecture and rationale.

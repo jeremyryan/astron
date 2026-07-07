@@ -45,11 +45,12 @@ type healthResponse struct {
 	Status string `json:"status"`
 }
 
-// linkResponse is the body returned when a manual link is created.
+// linkResponse is the body returned when a manual link is created or updated.
 type linkResponse struct {
 	From string `json:"from"`
 	To   string `json:"to"`
 	Type string `json:"type"`
+	Note string `json:"note,omitempty"`
 }
 
 // --- Request shapes (path + query + body) used only for documentation. ---
@@ -77,6 +78,11 @@ type ragQuestionReq struct {
 }
 
 type createLinkReq struct {
+	projectionPath
+	linkRequest
+}
+
+type updateLinkReq struct {
 	projectionPath
 	linkRequest
 }
@@ -172,6 +178,12 @@ func apiEndpoints() []endpoint {
 			method: http.MethodPost, path: "/api/projections/{namespace}/{name}/links", id: "createLink",
 			tag: "links", summary: "Create a user-defined edge between two nodes",
 			req: new(createLinkReq), resp: new(linkResponse), status: http.StatusCreated,
+			errors: []int{http.StatusBadRequest, http.StatusNotFound, http.StatusServiceUnavailable},
+		},
+		{
+			method: http.MethodPatch, path: "/api/projections/{namespace}/{name}/links", id: "updateLink",
+			tag: "links", summary: "Set or clear the note on a user-defined edge",
+			req: new(updateLinkReq), resp: new(linkResponse), status: http.StatusOK,
 			errors: []int{http.StatusBadRequest, http.StatusNotFound, http.StatusServiceUnavailable},
 		},
 		{

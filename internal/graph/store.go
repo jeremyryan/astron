@@ -73,6 +73,17 @@ type LinkStore interface {
 	// removed, so projector-derived edges are never affected. It is idempotent:
 	// deleting a link that is absent is not an error.
 	DeleteManualLink(ctx context.Context, projection ProjectionID, fromID, toID, relType string) error
+
+	// SetManualLinkNote sets (or, when note is empty, clears) the free-text note
+	// property on a manual relationship of relType between the two nodes within
+	// the projection. Only links flagged manual are affected. The note is
+	// surfaced on the edge in ReadGraph and fed into GraphRAG cards.
+	SetManualLinkNote(ctx context.Context, projection ProjectionID, fromID, toID, relType, note string) error
+
+	// ManualLinks returns the projection's user-created relationships (with their
+	// properties, e.g. a note). It lets the projector fold manual links into the
+	// GraphRAG cards it builds from the derived graph.
+	ManualLinks(ctx context.Context, projection ProjectionID) ([]Relationship, error)
 }
 
 // NodeEmbedding pairs a node's identity with the embedding vector derived from

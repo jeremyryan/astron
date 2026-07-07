@@ -236,6 +236,17 @@ func (m *Manager) DeleteLink(ctx context.Context, id graph.ProjectionID, fromID,
 	return p.DeleteLink(ctx, fromID, toID, relType)
 }
 
+// UpdateLinkNote sets (or clears) the free-text note on a user-defined link of a
+// running projection. It returns ErrNotRunning when no projector is serving the
+// projection, or ErrLinksNotSupported when the store cannot store manual links.
+func (m *Manager) UpdateLinkNote(ctx context.Context, id graph.ProjectionID, fromID, toID, relType, note string) error {
+	p, ok := m.Get(id)
+	if !ok {
+		return ErrNotRunning
+	}
+	return p.UpdateLinkNote(ctx, fromID, toID, relType, note)
+}
+
 // Search runs hybrid (vector + graph) retrieval against a running projection.
 // It returns ErrNotRunning when no projector is serving the projection, or
 // ErrRAGNotEnabled when the projection has no embedding configured.

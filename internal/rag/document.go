@@ -72,6 +72,9 @@ type Edge struct {
 	// Outgoing is true when the described node is the source of the edge
 	// (node -> Peer), false when it is the target (Peer -> node).
 	Outgoing bool
+	// Note is the free-text note attached to the edge (user-created links only).
+	// When present it is rendered into the card so it influences the embedding.
+	Note string
 }
 
 // relationshipPhrasing maps a known relationship type to the verb phrases used
@@ -120,11 +123,12 @@ func BuildCards(data graph.GraphData, opts Options) []Card {
 	edgesByID := make(map[string][]Edge)
 	for _, r := range data.Relationships {
 		fromID, toID := r.From.ID(), r.To.ID()
+		note := asString(r.Properties["note"])
 		edgesByID[fromID] = append(edgesByID[fromID], Edge{
-			Type: r.Type, Peer: resolve(r.To), Outgoing: true,
+			Type: r.Type, Peer: resolve(r.To), Outgoing: true, Note: note,
 		})
 		edgesByID[toID] = append(edgesByID[toID], Edge{
-			Type: r.Type, Peer: resolve(r.From), Outgoing: false,
+			Type: r.Type, Peer: resolve(r.From), Outgoing: false, Note: note,
 		})
 	}
 
@@ -147,6 +151,12 @@ func RenderCard(node graph.Node, edges []Edge, opts Options) Card {
 	b.WriteByte('.')
 
 	for _, clause := range relationshipClauses(edges) {
+		b.WriteByte(' ')
+		b.WriteString(clause)
+		b.WriteByte('.')
+	}
+
+	for _, clause := range noteClauses(edges) {
 		b.WriteByte(' ')
 		b.WriteString(clause)
 		b.WriteByte('.')
@@ -250,6 +260,30 @@ func relationshipClauses(edges []Edge) []string {
 		})
 		clauses = append(clauses, renderGroup(k.relType, k.outgoing, peers))
 	}
+	return clauses
+}
+
+// noteClauses renders one clause per edge that carries a note, tying the note to
+// its peer and direction, e.g. `Note on link to Service "payments": critical
+// dependency`. Clauses are sorted for deterministic output.
+func noteClauses(edges []Edge) []string {
+	var clauses []string
+	for _, e := range edges {
+		note := strings.TrimSpace(e.Note)
+		if note == "" {
+			continue
+		}
+		kind := e.Peer.Kind
+		if kind == "" {
+			kind = "Resource"
+		}
+		dir := "from"
+		if e.Outgoing {
+			dir = "to"
+		}
+		clauses = append(clauses, fmt.Sprintf("Note on link %s %s `%s`: %s", dir, kind, e.Peer.Name, note))
+	}
+	sort.Strings(clauses)
 	return clauses
 }
 
