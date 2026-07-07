@@ -17,7 +17,9 @@ limitations under the License.
 package cli
 
 import (
+	"bufio"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -25,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
+	"sigs.k8s.io/yaml"
 
 	gamerav1alpha1 "github.com/project-gamera/gamera/api/v1alpha1"
 )
@@ -38,6 +41,9 @@ type updateOptions struct {
 	// projection's scope.resources allow-list.
 	add    []string
 	remove []string
+	// file, when set, is a manifest file to update in place instead of the
+	// resource in the cluster.
+	file string
 }
 
 // newProjectionsUpdateCmd builds "projections update <namespace> <name>".
@@ -60,8 +66,10 @@ func newProjectionsUpdateCmd(opts *options) *cobra.Command {
 			"Note: when the projection has no explicit resource list (it captures the\n" +
 			"built-in default set), adding resources creates an explicit allow-list\n" +
 			"containing only the added kinds.\n\n" +
-			"It talks directly to the Kubernetes API (via your kubeconfig), not the\n" +
-			"Gamera read API, so the --server flag does not apply here.",
+			"By default it talks directly to the Kubernetes API (via your kubeconfig),\n" +
+			"not the Gamera read API. Pass -f/--file to instead edit a manifest file in\n" +
+			"place: the file must contain a GraphProjection with the given namespace and\n" +
+			"name, and only that document is rewritten.",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runUpdate(cmd, uopts, args[0], args[1])
@@ -76,12 +84,14 @@ func newProjectionsUpdateCmd(opts *options) *cobra.Command {
 		"Resource type(s) to add, as [group/]version/Kind (repeatable, comma-separated)")
 	cmd.Flags().StringSliceVar(&uopts.remove, "remove", nil,
 		"Resource type(s) to remove, as [group/]version/Kind or Kind (repeatable, comma-separated)")
+	cmd.Flags().StringVarP(&uopts.file, "file", "f", "",
+		"Update the GraphProjection in this manifest file instead of the cluster")
 
 	return cmd
 }
 
-// runUpdate fetches the projection, applies the requested resource changes and
-// writes it back.
+// runUpdate parses the requested changes and applies them either to a manifest
+// file (when -f/--file is set) or to the GraphProjection in the cluster.
 func runUpdate(cmd *cobra.Command, uopts *updateOptions, namespace, name string) error {
 	if len(uopts.add) == 0 && len(uopts.remove) == 0 {
 		return fmt.Errorf("nothing to do: specify at least one --add or --remove")
@@ -94,6 +104,10 @@ func runUpdate(cmd *cobra.Command, uopts *updateOptions, namespace, name string)
 	removeKinds, err := parseRemoveKinds(uopts.remove)
 	if err != nil {
 		return err
+	}
+
+	if uopts.file != "" {
+		return updateProjectionFile(cmd, uopts.file, namespace, name, add, removeKinds)
 	}
 
 	cfg, err := uopts.kube.restConfig()
@@ -123,47 +137,187 @@ func updateProjectionResources(cmd *cobra.Command, dyn dynamic.Interface, namesp
 		return fmt.Errorf("fetching GraphProjection %s/%s: %w", namespace, name, err)
 	}
 
-	existing, err := readResourceSelectors(obj)
+	change, err := mutateProjection(obj, add, removeKinds)
 	if err != nil {
-		return fmt.Errorf("reading resources of GraphProjection %s/%s: %w", namespace, name, err)
+		return fmt.Errorf("GraphProjection %s/%s: %w", namespace, name, err)
 	}
-	existingRels, err := readRelationshipRules(obj)
-	if err != nil {
-		return fmt.Errorf("reading relationships of GraphProjection %s/%s: %w", namespace, name, err)
-	}
-
-	updated, added, removed := applyResourceChanges(existing, add, removeKinds)
-
-	// Reconcile the well-known relationships: adding a kind pulls in the
-	// relationships defined for it, removing a kind drops the relationships that
-	// reference it.
-	addedKinds := newlyAddedKinds(existing, add)
-	updatedRels, relsAdded, relsRemoved := applyRelationshipChanges(existingRels, updated, addedKinds, removeKinds)
-
-	if added == 0 && removed == 0 && relsAdded == 0 && relsRemoved == 0 {
+	if change.empty() {
 		_, ferr := fmt.Fprintf(cmd.OutOrStdout(),
 			"graphprojection.gamera.gamera.io/%s unchanged in namespace %s\n", name, namespace)
 		return ferr
 	}
 
-	if added != 0 || removed != 0 {
-		if err := writeResourceSelectors(obj, updated); err != nil {
-			return fmt.Errorf("updating resources of GraphProjection %s/%s: %w", namespace, name, err)
-		}
-	}
-	if relsAdded != 0 || relsRemoved != 0 {
-		if err := writeRelationshipRules(obj, updatedRels); err != nil {
-			return fmt.Errorf("updating relationships of GraphProjection %s/%s: %w", namespace, name, err)
-		}
-	}
 	if _, err := ri.Update(ctx, obj, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("updating GraphProjection %s/%s: %w", namespace, name, err)
 	}
 
 	_, err = fmt.Fprintf(cmd.OutOrStdout(),
-		"graphprojection.gamera.gamera.io/%s updated in namespace %s (resources +%d/-%d, relationships +%d/-%d)\n",
-		name, namespace, added, removed, relsAdded, relsRemoved)
+		"graphprojection.gamera.gamera.io/%s updated in namespace %s (%s)\n",
+		name, namespace, change)
 	return err
+}
+
+// updateProjectionFile applies the add/remove changes to the GraphProjection in
+// the manifest file at path (matching the given namespace and name) and writes
+// the result back. Other documents in a multi-document file are preserved
+// verbatim; only the matched GraphProjection document is rewritten.
+func updateProjectionFile(cmd *cobra.Command, path, namespace, name string, add []gamerav1alpha1.ResourceSelector, removeKinds map[string]bool) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", path, err)
+	}
+
+	docs := splitYAMLDocuments(string(data))
+	matchIdx := -1
+	var matched *unstructured.Unstructured
+	for i, doc := range docs {
+		if strings.TrimSpace(doc) == "" {
+			continue
+		}
+		m := map[string]any{}
+		if err := yaml.Unmarshal([]byte(doc), &m); err != nil {
+			return fmt.Errorf("parsing %s (document %d): %w", path, i+1, err)
+		}
+		if len(m) == 0 {
+			continue
+		}
+		obj := &unstructured.Unstructured{Object: m}
+		if obj.GetKind() != "GraphProjection" {
+			continue
+		}
+		if obj.GetName() == name && obj.GetNamespace() == namespace {
+			matchIdx = i
+			matched = obj
+			break
+		}
+	}
+	if matchIdx < 0 {
+		return fmt.Errorf("no GraphProjection %q in namespace %q found in %s", name, namespace, path)
+	}
+
+	change, err := mutateProjection(matched, add, removeKinds)
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	if change.empty() {
+		_, ferr := fmt.Fprintf(cmd.OutOrStdout(),
+			"graphprojection.gamera.gamera.io/%s unchanged in %s\n", name, path)
+		return ferr
+	}
+
+	out, err := yaml.Marshal(matched.Object)
+	if err != nil {
+		return fmt.Errorf("marshaling updated GraphProjection: %w", err)
+	}
+	docs[matchIdx] = strings.TrimRight(string(out), "\n")
+
+	if err := os.WriteFile(path, []byte(joinYAMLDocuments(docs)), 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", path, err)
+	}
+	_, err = fmt.Fprintf(cmd.OutOrStdout(),
+		"graphprojection.gamera.gamera.io/%s updated in %s (%s)\n", name, path, change)
+	return err
+}
+
+// projectionChange records how many resource and relationship entries an update
+// added and removed.
+type projectionChange struct {
+	resourcesAdded, resourcesRemoved         int
+	relationshipsAdded, relationshipsRemoved int
+}
+
+// empty reports whether the update changed nothing.
+func (c projectionChange) empty() bool {
+	return c.resourcesAdded == 0 && c.resourcesRemoved == 0 &&
+		c.relationshipsAdded == 0 && c.relationshipsRemoved == 0
+}
+
+// String renders the change counts for the confirmation message.
+func (c projectionChange) String() string {
+	return fmt.Sprintf("resources +%d/-%d, relationships +%d/-%d",
+		c.resourcesAdded, c.resourcesRemoved, c.relationshipsAdded, c.relationshipsRemoved)
+}
+
+// mutateProjection applies the add/remove resource changes (and the resulting
+// relationship reconciliation) to the given GraphProjection object in place,
+// returning the counts of what changed. Adding a kind pulls in the well-known
+// relationships defined for it; removing a kind drops the relationships that
+// reference it.
+func mutateProjection(obj *unstructured.Unstructured, add []gamerav1alpha1.ResourceSelector, removeKinds map[string]bool) (projectionChange, error) {
+	existing, err := readResourceSelectors(obj)
+	if err != nil {
+		return projectionChange{}, fmt.Errorf("reading resources: %w", err)
+	}
+	existingRels, err := readRelationshipRules(obj)
+	if err != nil {
+		return projectionChange{}, fmt.Errorf("reading relationships: %w", err)
+	}
+
+	updated, added, removed := applyResourceChanges(existing, add, removeKinds)
+	addedKinds := newlyAddedKinds(existing, add)
+	updatedRels, relsAdded, relsRemoved := applyRelationshipChanges(existingRels, updated, addedKinds, removeKinds)
+
+	change := projectionChange{
+		resourcesAdded:       added,
+		resourcesRemoved:     removed,
+		relationshipsAdded:   relsAdded,
+		relationshipsRemoved: relsRemoved,
+	}
+	if change.empty() {
+		return change, nil
+	}
+
+	if added != 0 || removed != 0 {
+		if err := writeResourceSelectors(obj, updated); err != nil {
+			return projectionChange{}, fmt.Errorf("updating resources: %w", err)
+		}
+	}
+	if relsAdded != 0 || relsRemoved != 0 {
+		if err := writeRelationshipRules(obj, updatedRels); err != nil {
+			return projectionChange{}, fmt.Errorf("updating relationships: %w", err)
+		}
+	}
+	return change, nil
+}
+
+// splitYAMLDocuments splits a manifest into its documents on lines consisting
+// solely of the YAML separator "---", preserving each document's text.
+func splitYAMLDocuments(s string) []string {
+	var docs []string
+	var b strings.Builder
+	atStart := true
+	sc := bufio.NewScanner(strings.NewReader(s))
+	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	for sc.Scan() {
+		line := sc.Text()
+		if strings.TrimSpace(line) == "---" {
+			docs = append(docs, b.String())
+			b.Reset()
+			atStart = true
+			continue
+		}
+		if !atStart {
+			b.WriteByte('\n')
+		}
+		b.WriteString(line)
+		atStart = false
+	}
+	docs = append(docs, b.String())
+	return docs
+}
+
+// joinYAMLDocuments reassembles documents into a manifest, dropping empty
+// documents (e.g. a leading separator) and joining the rest with "---".
+func joinYAMLDocuments(docs []string) string {
+	var parts []string
+	for _, d := range docs {
+		d = strings.Trim(d, "\n")
+		if d == "" {
+			continue
+		}
+		parts = append(parts, d+"\n")
+	}
+	return strings.Join(parts, "---\n")
 }
 
 // newlyAddedKinds returns the set of kinds from add that were not already

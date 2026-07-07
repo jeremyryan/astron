@@ -19,6 +19,8 @@ package cli
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -266,5 +268,131 @@ func TestUpdateProjectionResourcesNotFound(t *testing.T) {
 		[]gamerav1alpha1.ResourceSelector{{Version: "v1", Kind: "Pod"}}, nil)
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("expected not-found error, got %v", err)
+	}
+}
+
+const fileProjection = `apiVersion: gamera.gamera.io/v1alpha1
+kind: GraphProjection
+metadata:
+  name: web
+  namespace: demo
+spec:
+  scope:
+    resources:
+    - kind: Pod
+      version: v1
+  relationships: []
+`
+
+func writeTempManifest(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "proj.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("writing temp manifest: %v", err)
+	}
+	return path
+}
+
+func TestUpdateFileAddsResourceAndRelationship(t *testing.T) {
+	path := writeTempManifest(t, fileProjection)
+
+	out, err := runCmd(t, "projections", "update", "demo", "web", "-f", path, "--add", "v1/Service")
+	if err != nil {
+		t.Fatalf("update -f failed: %v (%s)", err, out)
+	}
+	if !strings.Contains(out, "updated in "+path+" (resources +1/-0, relationships +1/-0)") {
+		t.Errorf("unexpected confirmation: %q", out)
+	}
+
+	s := string(mustReadFile(t, path))
+	if !strings.Contains(s, "kind: Service") || !strings.Contains(s, "kind: Pod") {
+		t.Errorf("expected Pod and Service in resources:\n%s", s)
+	}
+	if !strings.Contains(s, "name: service-selects-pod") || !strings.Contains(s, "strategy: LabelSelector") {
+		t.Errorf("expected service-selects-pod relationship:\n%s", s)
+	}
+}
+
+func mustReadFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	return data
+}
+
+func TestUpdateFileMultiDocumentPreservesOtherDocs(t *testing.T) {
+	content := fileProjection + `---
+# keep me
+apiVersion: gamera.gamera.io/v1alpha1
+kind: GraphView
+metadata:
+  name: web-compute
+  namespace: demo
+spec:
+  projectionRef:
+    name: web
+    namespace: demo
+`
+	path := writeTempManifest(t, content)
+
+	if _, err := runCmd(t, "projections", "update", "demo", "web", "-f", path, "--add", "v1/Service"); err != nil {
+		t.Fatalf("update -f failed: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	s := string(data)
+	if !strings.Contains(s, "# keep me") || !strings.Contains(s, "kind: GraphView") {
+		t.Errorf("expected the GraphView document to be preserved:\n%s", s)
+	}
+	if !strings.Contains(s, "name: service-selects-pod") {
+		t.Errorf("expected the projection to gain the relationship:\n%s", s)
+	}
+}
+
+func TestUpdateFileNotMatchingIsError(t *testing.T) {
+	path := writeTempManifest(t, fileProjection)
+	_, err := runCmd(t, "projections", "update", "demo", "other", "-f", path, "--add", "v1/Service")
+	if err == nil || !strings.Contains(err.Error(), "no GraphProjection") {
+		t.Fatalf("expected not-found error for mismatched name, got %v", err)
+	}
+}
+
+func TestUpdateFileUnchanged(t *testing.T) {
+	path := writeTempManifest(t, fileProjection)
+	before, _ := os.ReadFile(path)
+	// Pod is already present; adding it again is a no-op.
+	out, err := runCmd(t, "projections", "update", "demo", "web", "-f", path, "--add", "v1/Pod")
+	if err != nil {
+		t.Fatalf("update -f failed: %v", err)
+	}
+	if !strings.Contains(out, "unchanged in "+path) {
+		t.Errorf("expected unchanged message, got: %q", out)
+	}
+	after, _ := os.ReadFile(path)
+	if string(before) != string(after) {
+		t.Errorf("file should be untouched when nothing changed")
+	}
+}
+
+func TestSplitAndJoinYAMLDocuments(t *testing.T) {
+	in := "---\napiVersion: v1\nkind: A\n---\nkind: B\n"
+	docs := splitYAMLDocuments(in)
+	// Leading separator yields an empty first document.
+	nonEmpty := 0
+	for _, d := range docs {
+		if strings.TrimSpace(d) != "" {
+			nonEmpty++
+		}
+	}
+	if nonEmpty != 2 {
+		t.Fatalf("expected 2 non-empty documents, got %d from %q", nonEmpty, docs)
+	}
+	joined := joinYAMLDocuments(docs)
+	if strings.Count(joined, "---\n") != 1 {
+		t.Errorf("expected a single separator after dropping the empty leading doc: %q", joined)
+	}
+	if !strings.Contains(joined, "kind: A") || !strings.Contains(joined, "kind: B") {
+		t.Errorf("join lost content: %q", joined)
 	}
 }
