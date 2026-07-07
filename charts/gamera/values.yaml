@@ -392,6 +392,7 @@ defaultViews:
           - PersistentVolume
           - Ingress
           - HTTPRoute
+          - Gateway
 
 # Bundled Neo4J subchart (https://helm.neo4j.com/neo4j).
 # Set neo4j.enabled to false to use an existing/external Neo4J instead; then
