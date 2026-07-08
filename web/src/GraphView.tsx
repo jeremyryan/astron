@@ -974,6 +974,8 @@ export function GraphView({
     //   H           hides the selected node(s) from the graph
     //   C           centers the selection in the view
     //   E           expands the selection to the directly-connected nodes
+    //   J           joins the selected nodes: selects the nodes along the
+    //               shortest path between each pair, when one exists
     const ARROW_DELTAS: Record<string, [number, number]> = {
       ArrowUp: [0, -1],
       ArrowDown: [0, 1],
@@ -1013,7 +1015,15 @@ export function GraphView({
       // shortcuts (Ctrl-L, Ctrl-N, Ctrl-Y, ...).
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const key = e.key.toLowerCase();
-      if (key !== "y" && key !== "l" && key !== "h" && key !== "c" && key !== "e") return;
+      if (
+        key !== "y" &&
+        key !== "l" &&
+        key !== "h" &&
+        key !== "c" &&
+        key !== "e" &&
+        key !== "j"
+      )
+        return;
       const selected = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
       if (selected.empty()) return;
 
@@ -1036,6 +1046,24 @@ export function GraphView({
         // they can be shown again.
         e.preventDefault();
         onSetVisibility(selected.map((n) => n.id()), true);
+      } else if (key === "j") {
+        // Join: select the nodes along a shortest path (ignoring edge
+        // direction) between each pair of selected nodes, so a connecting path
+        // is formed where one exists. Pairs with no path are left as-is.
+        if (selected.length < 2) return;
+        e.preventDefault();
+        // Search only the visible, non-group part of the graph.
+        const pathNodes = cy
+          .nodes()
+          .filter((n) => !n.hasClass(GROUP_CLASS) && !n.hasClass("hidden"));
+        const eles = pathNodes.union(pathNodes.edgesWith(pathNodes));
+        const arr = selected.toArray() as NodeSingular[];
+        for (let i = 0; i < arr.length; i++) {
+          for (let j = i + 1; j < arr.length; j++) {
+            const res = eles.aStar({ root: arr[i], goal: arr[j], directed: false });
+            if (res.found) res.path.nodes().select();
+          }
+        }
       } else if (key === "e") {
         // Expand the selection by one hop: also select every visible node
         // directly connected to a currently-selected node. Pressing repeatedly
