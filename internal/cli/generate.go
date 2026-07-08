@@ -45,6 +45,9 @@ var graphProjectionGVR = schema.GroupVersionResource{
 	Resource: "graphprojections",
 }
 
+// configMapGVR is the resource used to fetch spec-overlay ConfigMaps.
+var configMapGVR = schema.GroupVersionResource{Version: "v1", Resource: "configmaps"}
+
 // graphViewGVR is the resource used to apply generated GraphViews.
 var graphViewGVR = schema.GroupVersionResource{
 	Group:    astronv1alpha1.GroupVersion.Group,
@@ -71,6 +74,11 @@ type generateOptions struct {
 	// allResources includes every namespaced kind that has instances, rather
 	// than just the standard common set.
 	allResources bool
+
+	// specConfigMap optionally references a ConfigMap ("name" or
+	// "namespace/name") whose "spec" key holds a YAML document merged into the
+	// generated GraphProjection spec.
+	specConfigMap string
 
 	// outputFile, when set (and not "-"), writes the manifest to a file instead
 	// of stdout.
@@ -120,6 +128,10 @@ func newGenerateCmd(opts *options) *cobra.Command {
 			"By default the manifest is written to stdout. Use --output-file to write\n" +
 			"it to a file, or --apply to create/update the GraphProjection in the\n" +
 			"cluster instead of emitting YAML.\n\n" +
+			"Use --spec-from-configmap to merge shared settings (for example a\n" +
+			"graphRAG configuration) into the generated spec. The referenced\n" +
+			"ConfigMap must contain a \"spec\" key holding a YAML document; its\n" +
+			"values are deep-merged over the generated spec.\n\n" +
 			"It talks directly to the Kubernetes API (via your kubeconfig), not the\n" +
 			"Astron read API, so the --server flag does not apply here.",
 		Args: cobra.ExactArgs(1),
@@ -156,6 +168,8 @@ func newGenerateCmd(opts *options) *cobra.Command {
 		"Write the generated manifest to this file instead of stdout (\"-\" means stdout)")
 	cmd.Flags().BoolVar(&gopts.apply, "apply", false,
 		"Create/update the GraphProjection in the cluster instead of emitting its manifest")
+	cmd.Flags().StringVar(&gopts.specConfigMap, "spec-from-configmap", "",
+		"ConfigMap (\"name\" or \"namespace/name\") whose \"spec\" key is a YAML document merged into the generated spec")
 
 	return cmd
 }
@@ -194,6 +208,16 @@ func runGenerate(cmd *cobra.Command, gopts *generateOptions, namespace string) e
 	}
 
 	manifest := buildManifest(gopts, namespace, selectors)
+
+	if gopts.specConfigMap != "" {
+		overlay, ovErr := loadSpecOverlay(cmd.Context(), dyn, namespace, gopts.specConfigMap)
+		if ovErr != nil {
+			return ovErr
+		}
+		if mErr := mergeSpecOverlay(&manifest, overlay); mErr != nil {
+			return mErr
+		}
+	}
 
 	viewManifests := make([]viewManifest, 0, len(views))
 	for _, v := range views {
@@ -344,6 +368,85 @@ func applyView(cmd *cobra.Command, dyn dynamic.Interface, manifest viewManifest)
 	}
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "graphview.astron.astron.io/%s %s in namespace %s\n", name, verb, ns)
 	return err
+}
+
+// loadSpecOverlay fetches the referenced ConfigMap ("name" or
+// "namespace/name", defaulting to the target namespace) and parses its "spec"
+// key as a YAML document.
+func loadSpecOverlay(ctx context.Context, dyn dynamic.Interface, defaultNamespace, ref string) (map[string]any, error) {
+	ns, name := defaultNamespace, ref
+	if idx := strings.Index(ref, "/"); idx >= 0 {
+		ns, name = ref[:idx], ref[idx+1:]
+	}
+	if ns == "" || name == "" {
+		return nil, fmt.Errorf("invalid --spec-from-configmap value %q: expected \"name\" or \"namespace/name\"", ref)
+	}
+
+	cm, err := dyn.Resource(configMapGVR).Namespace(ns).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("fetching ConfigMap %s/%s: %w", ns, name, err)
+	}
+	specYAML, found, err := unstructured.NestedString(cm.Object, "data", "spec")
+	if err != nil || !found {
+		return nil, fmt.Errorf("ConfigMap %s/%s has no \"spec\" key in its data", ns, name)
+	}
+
+	var overlay map[string]any
+	if err := yaml.Unmarshal([]byte(specYAML), &overlay); err != nil {
+		return nil, fmt.Errorf("parsing \"spec\" key of ConfigMap %s/%s as YAML: %w", ns, name, err)
+	}
+	return overlay, nil
+}
+
+// mergeSpecOverlay deep-merges the overlay document over the generated spec.
+// Overlay values win for scalars and lists; nested maps are merged
+// recursively. The result is validated by round-tripping it through the real
+// GraphProjectionSpec type so unknown fields are rejected early.
+func mergeSpecOverlay(manifest *projectionManifest, overlay map[string]any) error {
+	if len(overlay) == 0 {
+		return nil
+	}
+
+	base, err := json.Marshal(manifest.Spec)
+	if err != nil {
+		return fmt.Errorf("encoding generated spec: %w", err)
+	}
+	var baseMap map[string]any
+	if err := json.Unmarshal(base, &baseMap); err != nil {
+		return fmt.Errorf("decoding generated spec: %w", err)
+	}
+
+	merged, err := json.Marshal(deepMerge(baseMap, overlay))
+	if err != nil {
+		return fmt.Errorf("encoding merged spec: %w", err)
+	}
+
+	var spec astronv1alpha1.GraphProjectionSpec
+	dec := json.NewDecoder(bytes.NewReader(merged))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&spec); err != nil {
+		return fmt.Errorf("merged spec is not a valid GraphProjection spec: %w", err)
+	}
+	manifest.Spec = spec
+	return nil
+}
+
+// deepMerge recursively merges src into dst, with src winning for scalars and
+// lists. Both maps may be mutated; the merged map is returned.
+func deepMerge(dst, src map[string]any) map[string]any {
+	if dst == nil {
+		return src
+	}
+	for k, sv := range src {
+		if sm, ok := sv.(map[string]any); ok {
+			if dm, ok := dst[k].(map[string]any); ok {
+				dst[k] = deepMerge(dm, sm)
+				continue
+			}
+		}
+		dst[k] = sv
+	}
+	return dst
 }
 
 // discoverKinds enumerates the namespaced, listable resource types in the
