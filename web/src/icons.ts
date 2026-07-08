@@ -24,6 +24,7 @@ export {
   IconLayoutAlignCenter,
   IconLayoutDistributeHorizontal,
   IconLayoutDistributeVertical,
+  IconCircleDashed,
   IconTag,
   IconTagOff,
   IconCopy,
