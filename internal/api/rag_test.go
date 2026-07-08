@@ -160,3 +160,24 @@ func TestRAGAnswerMissingProjectionIsNotFound(t *testing.T) {
 		t.Fatalf("status = %d, want 404", rec.Code)
 	}
 }
+
+func TestRAGModelsNotRunningIsUnavailable(t *testing.T) {
+	proj := &astronv1alpha1.GraphProjection{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default", UID: types.UID("uid-1")},
+	}
+	srv := newTestServer(t, proj)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/projections/default/demo/rag/models", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503 (body: %s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRAGModelsMissingProjectionIsNotFound(t *testing.T) {
+	srv := newTestServer(t)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/projections/default/missing/rag/models", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}

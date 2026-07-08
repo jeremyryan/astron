@@ -162,6 +162,7 @@ func (m *Manager) Ensure(ctx context.Context, id graph.ProjectionID, namespace s
 			return nil, fmt.Errorf("building chat model: %w", err)
 		}
 		opts.Chat = chat
+		opts.ChatSettings = emb.Chat
 		if qs, ok := store.(graph.QueryStore); ok {
 			opts.QueryStore = qs
 		}
@@ -272,24 +273,35 @@ func (m *Manager) Neighborhood(ctx context.Context, id graph.ProjectionID, ref g
 // Query runs guarded text-to-Cypher against a running projection. It returns
 // ErrNotRunning when no projector is serving the projection, or
 // ErrChatNotEnabled when no chat model is configured.
-func (m *Manager) Query(ctx context.Context, id graph.ProjectionID, question string) (QueryResult, error) {
+func (m *Manager) Query(ctx context.Context, id graph.ProjectionID, question, model string) (QueryResult, error) {
 	p, ok := m.Get(id)
 	if !ok {
 		return QueryResult{}, ErrNotRunning
 	}
-	return p.Query(ctx, question)
+	return p.Query(ctx, question, model)
 }
 
 // Answer runs retrieval-augmented question answering against a running
 // projection. It returns ErrNotRunning when no projector is serving the
 // projection, ErrChatNotEnabled when no chat model is configured, or
 // ErrRAGNotEnabled when embeddings are not configured.
-func (m *Manager) Answer(ctx context.Context, id graph.ProjectionID, question string, opts SearchOptions) (AnswerResult, error) {
+func (m *Manager) Answer(ctx context.Context, id graph.ProjectionID, question, model string, opts SearchOptions) (AnswerResult, error) {
 	p, ok := m.Get(id)
 	if !ok {
 		return AnswerResult{}, ErrNotRunning
 	}
-	return p.Answer(ctx, question, opts)
+	return p.Answer(ctx, question, model, opts)
+}
+
+// ChatModels returns the chat models selectable for a running projection. It
+// returns ErrNotRunning when no projector is serving the projection, or
+// ErrChatNotEnabled when no chat model is configured.
+func (m *Manager) ChatModels(ctx context.Context, id graph.ProjectionID) (ChatModelList, error) {
+	p, ok := m.Get(id)
+	if !ok {
+		return ChatModelList{}, ErrNotRunning
+	}
+	return p.ChatModels(ctx)
 }
 
 // specHash produces a stable fingerprint of the inputs that affect a

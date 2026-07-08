@@ -4,6 +4,7 @@ export {
   IconTopologyStar3,
   IconHierarchy2,
   IconFilter,
+  IconSearch,
   IconEye,
   IconEyeOff,
   IconCode,
@@ -33,4 +34,7 @@ export {
   IconZoomOut,
   IconMaximize,
   IconLink,
+  IconMessageChatbot,
+  IconListTree,
+  IconSend2,
 } from "@tabler/icons-react";

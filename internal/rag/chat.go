@@ -37,6 +37,14 @@ type Message struct {
 	Content string
 }
 
+// ModelSelector is implemented by Chat backends that can produce a variant of
+// themselves targeting a different model with the same provider, credentials
+// and settings. It is used to honour per-request model overrides.
+type ModelSelector interface {
+	// WithModel returns a Chat identical to the receiver except for the model.
+	WithModel(model string) Chat
+}
+
 // Chat is a provider-agnostic chat-completion model used for text-to-Cypher and
 // answer synthesis. Like Embedder, it sits behind an interface so the backend
 // (OpenAI, Azure, Ollama, or a test fake) is swappable.
@@ -62,6 +70,11 @@ type ChatConfig struct {
 	// Temperature controls sampling. Defaults to 0 for deterministic,
 	// instruction-following output (well suited to Cypher generation).
 	Temperature float64
+	// AllowedModels is the admin policy for per-request model selection: empty
+	// allows only Model; a single "*" allows anything the provider offers;
+	// otherwise the listed names (plus Model) are allowed. It does not affect
+	// the Chat constructed by NewChat, only callers implementing selection.
+	AllowedModels []string
 }
 
 // NewChat constructs a Chat from resolved configuration. It performs no network

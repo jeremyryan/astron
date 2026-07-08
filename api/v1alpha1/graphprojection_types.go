@@ -119,6 +119,14 @@ type ChatModelConfig struct {
 	// providers.
 	// +optional
 	AuthSecretRef *EmbeddingSecretReference `json:"authSecretRef,omitempty"`
+
+	// allowedModels controls which chat models users may select per request
+	// (e.g. from the UI chat panel). When empty, only the configured model may
+	// be used. A single "*" entry allows any model the provider makes
+	// available; otherwise the listed model names (plus the configured model)
+	// are allowed.
+	// +optional
+	AllowedModels []string `json:"allowedModels,omitempty"`
 }
 
 // EmbeddingConfig selects and configures the embedding provider.

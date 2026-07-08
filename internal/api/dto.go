@@ -30,9 +30,15 @@ type projectionDTO struct {
 	Phase             string `json:"phase,omitempty"`
 	NodeCount         int64  `json:"nodeCount"`
 	RelationshipCount int64  `json:"relationshipCount"`
+	// ChatEnabled reports whether the projection has GraphRAG configured with a
+	// chat provider, i.e. whether the /rag/answer and /rag/query endpoints can
+	// serve natural-language questions for it.
+	ChatEnabled bool `json:"chatEnabled,omitempty"`
 }
 
 func projectionToDTO(p astronv1alpha1.GraphProjection) projectionDTO {
+	rag := p.Spec.GraphRAG
+	chatEnabled := rag != nil && rag.Enabled && rag.Chat != nil && rag.Chat.Enabled
 	return projectionDTO{
 		UID:               string(p.UID),
 		Namespace:         p.Namespace,
@@ -40,6 +46,7 @@ func projectionToDTO(p astronv1alpha1.GraphProjection) projectionDTO {
 		Phase:             p.Status.Phase,
 		NodeCount:         p.Status.NodeCount,
 		RelationshipCount: p.Status.RelationshipCount,
+		ChatEnabled:       chatEnabled,
 	}
 }
 

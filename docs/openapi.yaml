@@ -108,6 +108,8 @@ components:
       type: object
     ApiProjectionDTO:
       properties:
+        chatEnabled:
+          type: boolean
         name:
           type: string
         namespace:
@@ -159,6 +161,8 @@ components:
         hops:
           nullable: true
           type: integer
+        model:
+          type: string
         question:
           type: string
         topK:
@@ -290,6 +294,16 @@ components:
         visibleKinds:
           items:
             type: string
+          type: array
+      type: object
+    ProjectorChatModelList:
+      properties:
+        default:
+          type: string
+        models:
+          items:
+            type: string
+          nullable: true
           type: array
       type: object
     ProjectorQueryResult:
@@ -597,6 +611,52 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
           description: Service Unavailable
       summary: Retrieval-augmented answer to a natural-language question
+      tags:
+      - graphrag
+  /api/projections/{namespace}/{name}/rag/models:
+    get:
+      operationId: ragModels
+      parameters:
+      - description: Projection namespace
+        in: path
+        name: namespace
+        required: true
+        schema:
+          description: Projection namespace
+          type: string
+      - description: Projection name
+        in: path
+        name: name
+        required: true
+        schema:
+          description: Projection name
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectorChatModelList'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Internal Server Error
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+      summary: List the chat models selectable for a projection
       tags:
       - graphrag
   /api/projections/{namespace}/{name}/rag/neighborhood:

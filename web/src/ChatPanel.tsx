@@ -1,0 +1,236 @@
+import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  ActionIcon,
+  Box,
+  Group,
+  Loader,
+  ScrollArea,
+  Select,
+  Stack,
+  Text,
+  Textarea,
+  Tooltip,
+  UnstyledButton,
+} from "@mantine/core";
+import { askQuestion, getChatModels, type AnswerCard, type Projection } from "./api";
+import { iconForKindOrGeneric } from "./kinds";
+import { IconSend2 } from "./icons";
+
+// A single entry in the conversation. Assistant messages carry the resource
+// cards that grounded the answer so they can be listed as sources.
+interface ChatMessage {
+  id: string;
+  role: "user" | "assistant" | "error";
+  text: string;
+  sources?: AnswerCard[];
+}
+
+// SourceList renders the resources that grounded an answer as a compact list.
+// Clicking a source selects the corresponding node in the graph.
+function SourceList({
+  cards,
+  onSelectSource,
+}: {
+  cards: AnswerCard[];
+  onSelectSource?: (card: AnswerCard) => void;
+}) {
+  if (cards.length === 0) return null;
+  return (
+    <Stack gap={2} mt={6}>
+      <Text size="xs" c="dimmed" tt="uppercase" style={{ letterSpacing: "0.05em" }}>
+        Sources
+      </Text>
+      {cards.map((c) => {
+        const label = `${c.kind} ${c.namespace ? `${c.namespace}/` : ""}${c.name}`;
+        return (
+          <UnstyledButton
+            key={c.id}
+            className="chat-source"
+            onClick={() => onSelectSource?.(c)}
+            title={label}
+          >
+            <Group gap={6} wrap="nowrap" align="center">
+              <img src={iconForKindOrGeneric(c.kind)} width={12} height={12} alt="" />
+              <Text size="xs" c="dimmed" truncate>
+                {label}
+              </Text>
+            </Group>
+          </UnstyledButton>
+        );
+      })}
+    </Stack>
+  );
+}
+
+function MessageBubble({
+  message,
+  onSelectSource,
+}: {
+  message: ChatMessage;
+  onSelectSource?: (card: AnswerCard) => void;
+}) {
+  const isUser = message.role === "user";
+  return (
+    <Box
+      className={
+        isUser
+          ? "chat-bubble chat-bubble-user"
+          : message.role === "error"
+            ? "chat-bubble chat-bubble-error"
+            : "chat-bubble chat-bubble-assistant"
+      }
+    >
+      <Text size="sm" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+        {message.text}
+      </Text>
+      {message.sources && (
+        <SourceList cards={message.sources} onSelectSource={onSelectSource} />
+      )}
+    </Box>
+  );
+}
+
+// ChatPanel is a conversation view over the projection's GraphRAG answer
+// endpoint: the user asks natural-language questions about the cluster graph
+// and the configured chat provider replies with grounded answers.
+export function ChatPanel({
+  projection,
+  onSelectSource,
+}: {
+  projection: Projection;
+  // Called when the user clicks a source resource beneath an answer, so the
+  // host view can select the corresponding graph node.
+  onSelectSource?: (card: AnswerCard) => void;
+}) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [pending, setPending] = useState(false);
+  const viewportRef = useRef<HTMLDivElement>(null);
+
+  // Models the user may pick from (per the projection's allowedModels policy).
+  // When only the default is allowed the selector is hidden entirely.
+  const { data: chatModels } = useQuery({
+    queryKey: ["chat-models", projection.uid],
+    queryFn: () => getChatModels(projection.namespace, projection.name),
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+  const modelChoices = chatModels?.models ?? [];
+  // The user's explicit choice; null falls back to the projection default.
+  const [model, setModel] = useState<string | null>(null);
+  const selectedModel =
+    model && modelChoices.includes(model) ? model : (chatModels?.default ?? null);
+
+  // Keep the newest message in view as the conversation grows.
+  useEffect(() => {
+    viewportRef.current?.scrollTo({
+      top: viewportRef.current.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [messages, pending]);
+
+  const send = () => {
+    const question = input.trim();
+    if (!question || pending) return;
+    setInput("");
+    setMessages((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), role: "user", text: question },
+    ]);
+    setPending(true);
+    const override =
+      selectedModel && selectedModel !== chatModels?.default ? selectedModel : undefined;
+    askQuestion(projection.namespace, projection.name, question, override)
+      .then((answer) => {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            text: answer.answer,
+            sources: answer.retrieval.cards,
+          },
+        ]);
+      })
+      .catch((err: Error) => {
+        setMessages((prev) => [
+          ...prev,
+          { id: crypto.randomUUID(), role: "error", text: err.message },
+        ]);
+      })
+      .finally(() => setPending(false));
+  };
+
+  return (
+    <div className="chat-panel">
+      <ScrollArea className="chat-messages" type="scroll" viewportRef={viewportRef}>
+        <Stack gap="sm" p={14}>
+          {messages.length === 0 && (
+            <Text size="sm" c="dimmed">
+              Ask a question about the resources in this projection, e.g. “Which
+              pods mount a secret?” Answers are generated by the projection's
+              configured chat provider using the cluster graph.
+            </Text>
+          )}
+          {messages.map((m) => (
+            <MessageBubble key={m.id} message={m} onSelectSource={onSelectSource} />
+          ))}
+          {pending && (
+            <Group gap="xs" className="chat-bubble chat-bubble-assistant">
+              <Loader size="xs" />
+              <Text size="sm" c="dimmed">
+                Thinking…
+              </Text>
+            </Group>
+          )}
+        </Stack>
+      </ScrollArea>
+      <div className="chat-input-area">
+        {modelChoices.length > 1 && (
+          <Select
+            size="xs"
+            variant="unstyled"
+            className="chat-model-select"
+            aria-label="Chat model"
+            data={modelChoices}
+            value={selectedModel}
+            onChange={setModel}
+            allowDeselect={false}
+            searchable={modelChoices.length > 8}
+            comboboxProps={{ withinPortal: true }}
+          />
+        )}
+        <div className="chat-input">
+          <Textarea
+            value={input}
+            onChange={(e) => setInput(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                send();
+              }
+            }}
+            placeholder="Ask about this projection…"
+            autosize
+            minRows={1}
+            maxRows={5}
+            style={{ flex: 1 }}
+            disabled={pending}
+          />
+          <Tooltip label="Send" position="top" withArrow>
+            <ActionIcon
+              variant="filled"
+              size="lg"
+              aria-label="Send message"
+              onClick={send}
+              disabled={pending || input.trim() === ""}
+            >
+              <IconSend2 size={18} stroke={1.5} />
+            </ActionIcon>
+          </Tooltip>
+        </div>
+      </div>
+    </div>
+  );
+}

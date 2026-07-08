@@ -7,6 +7,9 @@ export interface Projection {
   phase?: string;
   nodeCount: number;
   relationshipCount: number;
+  // True when the projection has GraphRAG configured with a chat provider,
+  // enabling the natural-language answer endpoint (and the chat UI).
+  chatEnabled?: boolean;
 }
 
 export interface GraphNode {
@@ -145,6 +148,63 @@ export async function deleteView(namespace: string, name: string): Promise<void>
   await sendJSON<void>(
     "DELETE",
     `/api/views/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
+  );
+}
+
+// ----- GraphRAG chat -----
+
+// AnswerCard is a natural-language description of a resource that grounded an
+// answer.
+export interface AnswerCard {
+  id: string;
+  kind: string;
+  namespace?: string;
+  name: string;
+  text: string;
+}
+
+// Answer is the response of the RAG answer endpoint: the generated answer plus
+// the retrieval context that grounded it.
+export interface Answer {
+  question: string;
+  answer: string;
+  retrieval: {
+    query: string;
+    seeds: Array<{ id: string; kind: string; name: string; score: number }>;
+    cards: AnswerCard[];
+    subgraph: Graph;
+  };
+}
+
+// askQuestion sends a natural-language question about a projection's graph to
+// the configured chat provider and returns the grounded answer. model, when
+// set, overrides the projection's default chat model (it must be permitted by
+// the projection's allowedModels policy).
+export function askQuestion(
+  namespace: string,
+  name: string,
+  question: string,
+  model?: string,
+): Promise<Answer> {
+  return sendJSON<Answer>(
+    "POST",
+    `/api/projections/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/rag/answer`,
+    model ? { question, model } : { question },
+  ) as Promise<Answer>;
+}
+
+// ChatModels is the set of chat models a user may choose from for a
+// projection, plus the configured default.
+export interface ChatModels {
+  default: string;
+  models: string[];
+}
+
+// getChatModels lists the chat models selectable for a projection under its
+// allowedModels policy.
+export function getChatModels(namespace: string, name: string): Promise<ChatModels> {
+  return getJSON<ChatModels>(
+    `/api/projections/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/rag/models`,
   );
 }
 

@@ -70,6 +70,17 @@ func NewOpenAIChat(cfg OpenAIChatConfig) (*OpenAIChat, error) {
 // Model returns the configured model name.
 func (c *OpenAIChat) Model() string { return c.cfg.Model }
 
+// compile-time assertion that OpenAIChat supports model overrides.
+var _ ModelSelector = (*OpenAIChat)(nil)
+
+// WithModel returns a copy of the chat targeting a different model with the
+// same credentials, endpoint and settings.
+func (c *OpenAIChat) WithModel(model string) Chat {
+	cfg := c.cfg
+	cfg.Model = model
+	return &OpenAIChat{cfg: cfg, client: c.client}
+}
+
 type chatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`

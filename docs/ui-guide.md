@@ -308,6 +308,12 @@ These settings are persisted in your browser's local storage, so they persist ac
 | `Drag` | Pan the canvas |
 | `Scroll` | Zoom in/out |
 | `Esc` | Deselect the current node |
+| `Arrow keys` | Nudge the selected node(s) (hold `Shift` for a larger step) |
+| `Y` | Show the YAML manifest of the selected node |
+| `L` | Start creating a link from the selected node |
+| `H` | Hide the selected node(s) from the graph |
+| `C` | Center the selected node(s) in the view |
+| `E` | Expand the selection to include directly-connected nodes (press repeatedly to keep growing it) |
 | `Ctrl/Cmd + F` | (Browser search) Find in page |
 
 ---
