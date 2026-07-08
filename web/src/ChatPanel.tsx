@@ -1,17 +1,19 @@
 import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   ActionIcon,
   Box,
   Group,
   Loader,
   ScrollArea,
+  Select,
   Stack,
   Text,
   Textarea,
   Tooltip,
   UnstyledButton,
 } from "@mantine/core";
-import { askQuestion, type AnswerCard, type Projection } from "./api";
+import { askQuestion, getChatModels, type AnswerCard, type Projection } from "./api";
 import { iconForKindOrGeneric } from "./kinds";
 import { IconSend2 } from "./icons";
 
@@ -106,6 +108,20 @@ export function ChatPanel({
   const [pending, setPending] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
 
+  // Models the user may pick from (per the projection's allowedModels policy).
+  // When only the default is allowed the selector is hidden entirely.
+  const { data: chatModels } = useQuery({
+    queryKey: ["chat-models", projection.uid],
+    queryFn: () => getChatModels(projection.namespace, projection.name),
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+  const modelChoices = chatModels?.models ?? [];
+  // The user's explicit choice; null falls back to the projection default.
+  const [model, setModel] = useState<string | null>(null);
+  const selectedModel =
+    model && modelChoices.includes(model) ? model : (chatModels?.default ?? null);
+
   // Keep the newest message in view as the conversation grows.
   useEffect(() => {
     viewportRef.current?.scrollTo({
@@ -123,7 +139,9 @@ export function ChatPanel({
       { id: crypto.randomUUID(), role: "user", text: question },
     ]);
     setPending(true);
-    askQuestion(projection.namespace, projection.name, question)
+    const override =
+      selectedModel && selectedModel !== chatModels?.default ? selectedModel : undefined;
+    askQuestion(projection.namespace, projection.name, question, override)
       .then((answer) => {
         setMessages((prev) => [
           ...prev,
@@ -168,34 +186,50 @@ export function ChatPanel({
           )}
         </Stack>
       </ScrollArea>
-      <div className="chat-input">
-        <Textarea
-          value={input}
-          onChange={(e) => setInput(e.currentTarget.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              send();
-            }
-          }}
-          placeholder="Ask about this projection…"
-          autosize
-          minRows={1}
-          maxRows={5}
-          style={{ flex: 1 }}
-          disabled={pending}
-        />
-        <Tooltip label="Send" position="top" withArrow>
-          <ActionIcon
-            variant="filled"
-            size="lg"
-            aria-label="Send message"
-            onClick={send}
-            disabled={pending || input.trim() === ""}
-          >
-            <IconSend2 size={18} stroke={1.5} />
-          </ActionIcon>
-        </Tooltip>
+      <div className="chat-input-area">
+        {modelChoices.length > 1 && (
+          <Select
+            size="xs"
+            variant="unstyled"
+            className="chat-model-select"
+            aria-label="Chat model"
+            data={modelChoices}
+            value={selectedModel}
+            onChange={setModel}
+            allowDeselect={false}
+            searchable={modelChoices.length > 8}
+            comboboxProps={{ withinPortal: true }}
+          />
+        )}
+        <div className="chat-input">
+          <Textarea
+            value={input}
+            onChange={(e) => setInput(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                send();
+              }
+            }}
+            placeholder="Ask about this projection…"
+            autosize
+            minRows={1}
+            maxRows={5}
+            style={{ flex: 1 }}
+            disabled={pending}
+          />
+          <Tooltip label="Send" position="top" withArrow>
+            <ActionIcon
+              variant="filled"
+              size="lg"
+              aria-label="Send message"
+              onClick={send}
+              disabled={pending || input.trim() === ""}
+            >
+              <IconSend2 size={18} stroke={1.5} />
+            </ActionIcon>
+          </Tooltip>
+        </div>
       </div>
     </div>
   );

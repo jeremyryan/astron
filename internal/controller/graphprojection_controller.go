@@ -295,10 +295,11 @@ func (r *GraphProjectionReconciler) resolveEmbeddingConfig(ctx context.Context, 
 		}
 		cfg.ChatEnabled = true
 		cfg.Chat = rag.ChatConfig{
-			Provider: rag.Provider(chat.Provider),
-			Model:    chat.Model,
-			APIKey:   chatKey,
-			BaseURL:  chat.BaseURL,
+			Provider:      rag.Provider(chat.Provider),
+			Model:         chat.Model,
+			APIKey:        chatKey,
+			BaseURL:       chat.BaseURL,
+			AllowedModels: chat.AllowedModels,
 		}
 	}
 

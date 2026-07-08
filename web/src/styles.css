@@ -285,13 +285,26 @@ body {
   min-height: 0;
 }
 
+/* Pinned area below the message list: optional model selector + input row. */
+.chat-input-area {
+  border-top: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.chat-model-select {
+  padding: 4px 10px 0;
+}
+
+.chat-model-select input {
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-xs);
+}
+
 .chat-input {
   display: flex;
   align-items: flex-end;
   gap: 8px;
   padding: 10px;
-  border-top: 1px solid var(--border);
-  flex: 0 0 auto;
 }
 
 .chat-bubble {
