@@ -77,6 +77,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/projections/{namespace}/{name}/rag/neighborhood", s.handleRAGNeighborhood)
 	mux.HandleFunc("POST /api/projections/{namespace}/{name}/rag/query", s.handleRAGQuery)
 	mux.HandleFunc("POST /api/projections/{namespace}/{name}/rag/answer", s.handleRAGAnswer)
+	mux.HandleFunc("GET /api/projections/{namespace}/{name}/rag/models", s.handleRAGModels)
 	mux.HandleFunc("POST /api/projections/{namespace}/{name}/links", s.handleCreateLink)
 	mux.HandleFunc("PATCH /api/projections/{namespace}/{name}/links", s.handleUpdateLink)
 	mux.HandleFunc("DELETE /api/projections/{namespace}/{name}/links", s.handleDeleteLink)
@@ -248,6 +249,9 @@ type ragQuestionRequest struct {
 	TopK      int      `json:"topK"`
 	Hops      *int     `json:"hops"`
 	EdgeTypes []string `json:"edgeTypes"`
+	// Model optionally overrides the projection's configured chat model. It
+	// must be permitted by the projection's allowedModels policy.
+	Model string `json:"model,omitempty"`
 }
 
 // handleRAGQuery answers a question by generating and executing a guarded,
@@ -267,7 +271,7 @@ func (s *Server) handleRAGQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.projectors.Query(r.Context(), id, req.Question)
+	result, err := s.projectors.Query(r.Context(), id, req.Question, strings.TrimSpace(req.Model))
 	if err != nil {
 		s.writeQAError(w, err)
 		return
@@ -297,12 +301,27 @@ func (s *Server) handleRAGAnswer(w http.ResponseWriter, r *http.Request) {
 	}
 	opts := projector.SearchOptions{TopK: req.TopK, Hops: hops, EdgeTypes: req.EdgeTypes}
 
-	result, err := s.projectors.Answer(r.Context(), id, req.Question, opts)
+	result, err := s.projectors.Answer(r.Context(), id, req.Question, strings.TrimSpace(req.Model), opts)
 	if err != nil {
 		s.writeQAError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, answerToDTO(result))
+}
+
+// handleRAGModels returns the chat models a user may select for a projection
+// (per its allowedModels policy), along with the configured default.
+func (s *Server) handleRAGModels(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.projectionID(w, r)
+	if !ok {
+		return
+	}
+	result, err := s.projectors.ChatModels(r.Context(), id)
+	if err != nil {
+		s.writeQAError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // writeQAError maps answering/text-to-Cypher errors to responses. A not-running
@@ -314,6 +333,8 @@ func (s *Server) writeQAError(w http.ResponseWriter, err error) {
 		errors.Is(err, projector.ErrChatNotEnabled),
 		errors.Is(err, projector.ErrRAGNotEnabled):
 		writeError(w, http.StatusServiceUnavailable, err)
+	case errors.Is(err, projector.ErrModelNotAllowed):
+		writeError(w, http.StatusBadRequest, err)
 	default:
 		writeError(w, http.StatusInternalServerError, err)
 	}

@@ -27,6 +27,8 @@ type FakeChat struct {
 	// ReplyFunc, when set, computes the reply from the messages. It takes
 	// precedence over Reply.
 	ReplyFunc func([]Message) string
+	// ModelName, when non-empty, is reported by Model (default "fake").
+	ModelName string
 }
 
 // NewFakeChat returns a FakeChat that always returns the given reply (or echoes
@@ -52,7 +54,23 @@ func (f *FakeChat) Complete(_ context.Context, messages []Message) (string, erro
 }
 
 // Model identifies the fake chat model.
-func (f *FakeChat) Model() string { return "fake" }
+func (f *FakeChat) Model() string {
+	if f.ModelName != "" {
+		return f.ModelName
+	}
+	return "fake"
+}
 
-// compile-time assertion that FakeChat satisfies Chat.
-var _ Chat = (*FakeChat)(nil)
+// WithModel returns a copy of the fake reporting a different model name, so
+// per-request model selection can be exercised in tests and offline setups.
+func (f *FakeChat) WithModel(model string) Chat {
+	cp := *f
+	cp.ModelName = model
+	return &cp
+}
+
+// compile-time assertions that FakeChat satisfies Chat and ModelSelector.
+var (
+	_ Chat          = (*FakeChat)(nil)
+	_ ModelSelector = (*FakeChat)(nil)
+)

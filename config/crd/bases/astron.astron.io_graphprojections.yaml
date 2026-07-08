@@ -67,6 +67,16 @@ spec:
                       endpoint and query_cluster MCP tool). When omitted, those features are
                       disabled while semantic search remains available.
                     properties:
+                      allowedModels:
+                        description: |-
+                          allowedModels controls which chat models users may select per request
+                          (e.g. from the UI chat panel). When empty, only the configured model may
+                          be used. A single "*" entry allows any model the provider makes
+                          available; otherwise the listed model names (plus the configured model)
+                          are allowed.
+                        items:
+                          type: string
+                        type: array
                       authSecretRef:
                         description: |-
                           authSecretRef references a Secret containing the provider API key (key

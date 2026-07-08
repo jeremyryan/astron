@@ -41,7 +41,7 @@ func newQAProjector(store *retrievalStore, chat rag.Chat, embed bool) *Projector
 
 func TestQueryRequiresChat(t *testing.T) {
 	p := newQAProjector(&retrievalStore{data: sampleGraph()}, nil, false)
-	if _, err := p.Query(context.Background(), "how many pods?"); !errors.Is(err, ErrChatNotEnabled) {
+	if _, err := p.Query(context.Background(), "how many pods?", ""); !errors.Is(err, ErrChatNotEnabled) {
 		t.Fatalf("expected ErrChatNotEnabled, got %v", err)
 	}
 }
@@ -54,7 +54,7 @@ func TestQueryGeneratesValidatesAndExecutes(t *testing.T) {
 	chat := rag.NewFakeChat("```cypher\nMATCH (p:Pod {_projection: $projection}) RETURN count(p) AS n\n```")
 	p := newQAProjector(store, chat, false)
 
-	res, err := p.Query(context.Background(), "how many pods?")
+	res, err := p.Query(context.Background(), "how many pods?", "")
 	if err != nil {
 		t.Fatalf("Query: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestQueryRejectsUnsafeGeneratedCypher(t *testing.T) {
 	chat := rag.NewFakeChat("MATCH (p:Pod) DETACH DELETE p RETURN 1")
 	p := newQAProjector(store, chat, false)
 
-	_, err := p.Query(context.Background(), "delete the pods")
+	_, err := p.Query(context.Background(), "delete the pods", "")
 	if err == nil {
 		t.Fatal("expected unsafe generated cypher to be rejected")
 	}
@@ -86,7 +86,7 @@ func TestQueryRejectsUnsafeGeneratedCypher(t *testing.T) {
 
 func TestAnswerRequiresChat(t *testing.T) {
 	p := newQAProjector(&retrievalStore{data: sampleGraph()}, nil, true)
-	if _, err := p.Answer(context.Background(), "why?", SearchOptions{}); !errors.Is(err, ErrChatNotEnabled) {
+	if _, err := p.Answer(context.Background(), "why?", "", SearchOptions{}); !errors.Is(err, ErrChatNotEnabled) {
 		t.Fatalf("expected ErrChatNotEnabled, got %v", err)
 	}
 }
@@ -100,7 +100,7 @@ func TestAnswerRetrievesAndSynthesizes(t *testing.T) {
 	chat := rag.NewFakeChat("")
 	p := newQAProjector(store, chat, true)
 
-	res, err := p.Answer(context.Background(), "what owns the pod?", SearchOptions{TopK: 1, Hops: 1})
+	res, err := p.Answer(context.Background(), "what owns the pod?", "", SearchOptions{TopK: 1, Hops: 1})
 	if err != nil {
 		t.Fatalf("Answer: %v", err)
 	}
@@ -124,7 +124,113 @@ func TestAnswerRequiresEmbeddingForRetrieval(t *testing.T) {
 	store := &retrievalStore{data: sampleGraph()}
 	// chat enabled but embedding disabled: Search inside Answer should fail.
 	p := newQAProjector(store, rag.NewFakeChat("x"), false)
-	if _, err := p.Answer(context.Background(), "why?", SearchOptions{}); !errors.Is(err, ErrRAGNotEnabled) {
+	if _, err := p.Answer(context.Background(), "why?", "", SearchOptions{}); !errors.Is(err, ErrRAGNotEnabled) {
 		t.Fatalf("expected ErrRAGNotEnabled, got %v", err)
+	}
+}
+
+// newModelProjector builds a chat-enabled projector with an allowedModels
+// policy for exercising model listing and per-request overrides.
+func newModelProjector(store *retrievalStore, allowed []string) *Projector {
+	return New(Options{
+		ID:         "proj-models",
+		Store:      store,
+		QueryStore: store,
+		Chat:       &rag.FakeChat{ModelName: "default-model"},
+		ChatSettings: rag.ChatConfig{
+			Provider:      rag.ProviderFake,
+			Model:         "default-model",
+			AllowedModels: allowed,
+		},
+		Embedder:    rag.NewFakeEmbedder(8),
+		VectorStore: store,
+	})
+}
+
+func TestChatModelsDefaultOnly(t *testing.T) {
+	p := newModelProjector(&retrievalStore{data: sampleGraph()}, nil)
+	got, err := p.ChatModels(context.Background())
+	if err != nil {
+		t.Fatalf("ChatModels: %v", err)
+	}
+	if got.Default != "default-model" || len(got.Models) != 1 || got.Models[0] != "default-model" {
+		t.Fatalf("unexpected models: %+v", got)
+	}
+}
+
+func TestChatModelsExplicitListIncludesDefault(t *testing.T) {
+	p := newModelProjector(&retrievalStore{data: sampleGraph()}, []string{"gpt-b", "gpt-a"})
+	got, err := p.ChatModels(context.Background())
+	if err != nil {
+		t.Fatalf("ChatModels: %v", err)
+	}
+	want := []string{"default-model", "gpt-a", "gpt-b"}
+	if got.Default != "default-model" || len(got.Models) != len(want) {
+		t.Fatalf("unexpected models: %+v", got)
+	}
+	for i, w := range want {
+		if got.Models[i] != w {
+			t.Fatalf("models[%d] = %q, want %q (all: %v)", i, got.Models[i], w, got.Models)
+		}
+	}
+}
+
+func TestChatModelsWildcardUsesProviderList(t *testing.T) {
+	// The fake provider lists exactly one model, "fake"; the default must still
+	// be included.
+	p := newModelProjector(&retrievalStore{data: sampleGraph()}, []string{"*"})
+	got, err := p.ChatModels(context.Background())
+	if err != nil {
+		t.Fatalf("ChatModels: %v", err)
+	}
+	want := []string{"default-model", "fake"}
+	if len(got.Models) != len(want) || got.Models[0] != want[0] || got.Models[1] != want[1] {
+		t.Fatalf("unexpected models: %+v", got)
+	}
+}
+
+func TestChatModelsRequiresChat(t *testing.T) {
+	p := newQAProjector(&retrievalStore{data: sampleGraph()}, nil, false)
+	if _, err := p.ChatModels(context.Background()); !errors.Is(err, ErrChatNotEnabled) {
+		t.Fatalf("expected ErrChatNotEnabled, got %v", err)
+	}
+}
+
+func TestAnswerModelOverrideDeniedByPolicy(t *testing.T) {
+	store := &retrievalStore{data: sampleGraph(), hits: []graph.VectorHit{hit("u-pod", 0.9)}}
+
+	// Empty policy: only the default model may be used.
+	p := newModelProjector(store, nil)
+	if _, err := p.Answer(context.Background(), "why?", "gpt-x", SearchOptions{TopK: 1}); !errors.Is(err, ErrModelNotAllowed) {
+		t.Fatalf("expected ErrModelNotAllowed, got %v", err)
+	}
+	// Explicit list: models outside it are rejected.
+	p = newModelProjector(store, []string{"gpt-a"})
+	if _, err := p.Answer(context.Background(), "why?", "gpt-x", SearchOptions{TopK: 1}); !errors.Is(err, ErrModelNotAllowed) {
+		t.Fatalf("expected ErrModelNotAllowed, got %v", err)
+	}
+	// The configured default is always accepted, regardless of policy.
+	if _, err := p.Answer(context.Background(), "why?", "default-model", SearchOptions{TopK: 1}); err != nil {
+		t.Fatalf("default model must be allowed, got %v", err)
+	}
+}
+
+func TestAnswerModelOverrideAllowed(t *testing.T) {
+	store := &retrievalStore{data: sampleGraph(), hits: []graph.VectorHit{hit("u-pod", 0.9)}}
+	p := newModelProjector(store, []string{"gpt-a"})
+	if _, err := p.Answer(context.Background(), "why?", "gpt-a", SearchOptions{TopK: 1}); err != nil {
+		t.Fatalf("allowed model rejected: %v", err)
+	}
+	// Wildcard policy passes unknown models through to the provider.
+	p = newModelProjector(store, []string{"*"})
+	if _, err := p.Answer(context.Background(), "why?", "anything-goes", SearchOptions{TopK: 1}); err != nil {
+		t.Fatalf("wildcard policy rejected model: %v", err)
+	}
+}
+
+func TestQueryModelOverrideDenied(t *testing.T) {
+	p := newModelProjector(&retrievalStore{data: sampleGraph()}, nil)
+	if _, err := p.Query(context.Background(), "how many pods?", "gpt-x"); !errors.Is(err, ErrModelNotAllowed) {
+		t.Fatalf("expected ErrModelNotAllowed, got %v", err)
 	}
 }

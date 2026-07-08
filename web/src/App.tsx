@@ -1180,7 +1180,16 @@ function GraphPanel({
                   className="inspector-body"
                   style={onChatTab ? undefined : { display: "none" }}
                 >
-                  <ChatPanel key={projection.uid} projection={projection} />
+                  <ChatPanel
+                    key={projection.uid}
+                    projection={projection}
+                    onSelectSource={(card) => {
+                      // Resolve the source card to its graph node and select
+                      // it (centering it on the canvas and showing details).
+                      const node = data?.nodes.find((n) => n.id === card.id);
+                      if (node) handleSelect({ type: "node", node });
+                    }}
+                  />
                 </div>
               )}
               </div>
