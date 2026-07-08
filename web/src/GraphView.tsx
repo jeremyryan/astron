@@ -192,10 +192,10 @@ interface Props {
   // also used to label the menu item.
   onSetVisibility: (ids: string[], hidden: boolean) => void;
   hiddenIds: Set<string>;
-  // Request to additively select a node on the canvas (Ctrl/Cmd-click in the
+  // Request to toggle a node's selection on the canvas (clicks in the
   // resource list) without centering or opening its details. The nonce makes
   // repeated requests for the same node re-trigger.
-  additiveSelect: { id: string; nonce: number } | null;
+  toggleSelect: { id: string; nonce: number } | null;
   // Called whenever the set of selected (real) nodes changes, with their ids.
   // Lets the inspector highlight every selected resource in its list view.
   onSelectedIdsChange?: (ids: string[]) => void;
@@ -231,7 +231,7 @@ export function GraphView({
   onEditLink,
   onSetVisibility,
   hiddenIds,
-  additiveSelect,
+  toggleSelect,
   onSelectedIdsChange,
   groupByNamespace,
   showEdgeLabels,
@@ -1160,16 +1160,19 @@ export function GraphView({
     }
   }, [selectedId, maxDistance]);
 
-  // Additive selection from the resource list (Ctrl/Cmd-click): add the node to
-  // the canvas selection without clearing others, centering, or opening its
-  // details — so several nodes can be gathered into a multi-selection.
+  // Selection toggling from the resource list: Ctrl/Cmd-click adds or removes
+  // the node from the canvas selection without clearing others, centering, or
+  // opening its details — so several nodes can be gathered into (or dropped
+  // from) a multi-selection. A plain click on an already-selected resource
+  // also arrives here to unselect it.
   useEffect(() => {
     const cy = cyRef.current;
-    if (!cy || !additiveSelect) return;
-    const node = cy.getElementById(additiveSelect.id);
+    if (!cy || !toggleSelect) return;
+    const node = cy.getElementById(toggleSelect.id);
     if (node.empty()) return;
-    node.select();
-  }, [additiveSelect]);
+    if (node.selected()) node.unselect();
+    else node.select();
+  }, [toggleSelect]);
 
   // Align the currently selected nodes onto a common axis: "horizontal" puts
   // them in a row (shared Y = their average), "vertical" in a column (shared X).

@@ -299,7 +299,7 @@ function groupResources(nodes: GraphNode[]) {
 
 // ResourceList is shown in the inspector when nothing is selected: a browsable
 // index of the visible resources grouped by namespace then kind. Clicking a
-// resource name selects that node.
+// resource name selects that node; clicking it again unselects it.
 function ResourceList({
   nodes,
   onSelect,
@@ -717,15 +717,16 @@ function GraphPanel({
   // Individual node ids the user has hidden from the graph via the resource
   // list. They remain listed (so they can be shown again), just not drawn.
   const [hiddenNodeIds, setHiddenNodeIds] = useState<Set<string>>(new Set());
-  // Ctrl/Cmd-click in the resource list additively selects a node on the canvas
-  // without centering or opening its details. The nonce re-triggers the effect
-  // for repeat clicks on the same node.
-  const [additiveSelect, setAdditiveSelect] = useState<{ id: string; nonce: number } | null>(
+  // Clicks in the resource list toggle a node's canvas selection without
+  // centering or opening its details (Ctrl/Cmd-click toggles it in or out of
+  // the multi-selection; a plain click on a selected resource unselects it).
+  // The nonce re-triggers the effect for repeat clicks on the same node.
+  const [toggleSelect, setToggleSelect] = useState<{ id: string; nonce: number } | null>(
     null,
   );
-  const additiveSelectCount = useRef(0);
-  const selectNodeAdditively = (id: string) =>
-    setAdditiveSelect({ id, nonce: (additiveSelectCount.current += 1) });
+  const toggleSelectCount = useRef(0);
+  const toggleNodeSelection = (id: string) =>
+    setToggleSelect({ id, nonce: (toggleSelectCount.current += 1) });
   // Max hops from the selected node to keep visible; null = all (no fading).
   const [maxDistance, setMaxDistance] = useState<number | null>(null);
   // Whether to group resources into compound nodes by namespace.
@@ -979,7 +980,7 @@ function GraphPanel({
             graph={filteredGraph}
             onSetVisibility={setNodesVisibility}
             hiddenIds={hiddenNodeIds}
-            additiveSelect={additiveSelect}
+            toggleSelect={toggleSelect}
             onSelect={handleSelect}
             onSelectedIdsChange={(ids) => setSelectedIds(new Set(ids))}
             selectedId={selectedNode?.id ?? null}
@@ -1091,11 +1092,17 @@ function GraphPanel({
                       nodes={filteredGraph?.nodes ?? []}
                       selectedIds={selectedIds}
                       hiddenIds={hiddenNodeIds}
-                      onSelect={(node, opts) =>
-                        opts?.additive
-                          ? selectNodeAdditively(node.id)
-                          : handleSelect({ type: "node", node })
-                      }
+                      onSelect={(node, opts) => {
+                        if (opts?.additive) {
+                          toggleNodeSelection(node.id);
+                        } else if (selectedIds.has(node.id)) {
+                          // Clicking an already-selected resource unselects it.
+                          handleSelect(null);
+                          toggleNodeSelection(node.id);
+                        } else {
+                          handleSelect({ type: "node", node });
+                        }
+                      }}
                       onToggleVisibility={toggleNodeVisibility}
                     />
                   )}

@@ -18,8 +18,9 @@ export default defineConfig({
   server: {
     port: 5173,
     // During local development, proxy API calls to the operator's API server.
+    // Override the target with ASTRON_API_URL (e.g. a custom port-forward).
     proxy: {
-      "/api": "http://localhost:8082",
+      "/api": process.env.ASTRON_API_URL ?? "http://localhost:8082",
     },
   },
 });
