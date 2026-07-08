@@ -10,6 +10,7 @@ import {
   IconTrash,
   IconLayoutAlignCenter,
   IconLayoutAlignMiddle,
+  IconCircleDashed,
   IconLayoutDistributeHorizontal,
   IconLayoutDistributeVertical,
   IconPencil,
@@ -257,6 +258,9 @@ export function GraphView({
   // lets the canvas event handlers, registered once, read the live value.
   const [linkingSourceId, setLinkingSourceId] = useState<string | null>(null);
   const linkingRef = useRef<string | null>(null);
+  // Set when a press-drag on an edge rotated its target node, so the edge
+  // "tap" fired on release is swallowed instead of selecting the edge.
+  const edgeRotatedRef = useRef(false);
   // Ref mirror of onSelectedIdsChange so the once-registered cytoscape handler
   // always calls the latest callback without rebuilding the graph.
   const selectedIdsCbRef = useRef(onSelectedIdsChange);
@@ -547,6 +551,12 @@ export function GraphView({
     });
     cy.on("tap", "edge", (evt) => {
       if (linkingRef.current) return;
+      // A drag that rotated the edge's target node shouldn't also select the
+      // edge on release.
+      if (edgeRotatedRef.current) {
+        edgeRotatedRef.current = false;
+        return;
+      }
       setMenu(null);
       setEdgeMenu(null);
       const edge = graphRef.current.edges.find((e) => e.id === evt.target.id());
@@ -826,6 +836,77 @@ export function GraphView({
       el.style.cursor = groupAtLabel(evt.position) ? "grab" : "";
     });
 
+    // --- Rotate a link's target node around its source ---------------------
+    // Press on an edge and drag: the edge's target node orbits the edge's
+    // source node at a fixed radius (the current link length), following the
+    // pointer's angle. This lets a node be swung a full 360° around the node
+    // its link comes from. A plain click (no movement) still selects the edge.
+    let edgeRotate:
+      | { targetId: string; sourceId: string; radius: number; start: { x: number; y: number }; active: boolean }
+      | null = null;
+
+    cy.on("tapstart", "edge", (evt) => {
+      if (linkingRef.current) return;
+      const oe = evt.originalEvent as MouseEvent | undefined;
+      if (oe && (oe.button !== 0 || oe.shiftKey)) return;
+      const edge = evt.target;
+      const src = edge.source() as NodeSingular;
+      const tgt = edge.target() as NodeSingular;
+      if (src.hasClass(GROUP_CLASS) || tgt.hasClass(GROUP_CLASS)) return;
+      const sp = src.position();
+      const tp = tgt.position();
+      const radius = Math.hypot(tp.x - sp.x, tp.y - sp.y);
+      if (radius === 0) return;
+      edgeRotate = {
+        targetId: tgt.id(),
+        sourceId: src.id(),
+        radius,
+        start: { x: evt.position.x, y: evt.position.y },
+        active: false,
+      };
+    });
+
+    cy.on("tapdrag", (evt) => {
+      if (!edgeRotate) return;
+      // Ignore tiny jitters so a plain click still selects the edge rather
+      // than nudging the target node.
+      if (!edgeRotate.active) {
+        const moved = Math.hypot(
+          evt.position.x - edgeRotate.start.x,
+          evt.position.y - edgeRotate.start.y,
+        );
+        if (moved < 4) return;
+        edgeRotate.active = true;
+        cy.userPanningEnabled(false);
+        cy.boxSelectionEnabled(false);
+        el.style.cursor = "grabbing";
+      }
+      const center = cy.getElementById(edgeRotate.sourceId).position();
+      const dx = evt.position.x - center.x;
+      const dy = evt.position.y - center.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist === 0) return;
+      // Place the target on the circle around the source, at the pointer's angle.
+      cy.getElementById(edgeRotate.targetId).position({
+        x: center.x + (dx / dist) * edgeRotate.radius,
+        y: center.y + (dy / dist) * edgeRotate.radius,
+      });
+    });
+
+    const endEdgeRotate = () => {
+      if (!edgeRotate) return;
+      if (edgeRotate.active) {
+        // Swallow the edge "tap" that fires on release after a real rotation.
+        edgeRotatedRef.current = true;
+        cy.userPanningEnabled(true);
+        cy.boxSelectionEnabled(true);
+        el.style.cursor = "";
+      }
+      edgeRotate = null;
+    };
+    cy.on("tapend", endEdgeRotate);
+    window.addEventListener("mouseup", endEdgeRotate);
+
     // Suppress the browser's native context menu over the canvas.
     const handleContextMenu = (e: MouseEvent) => e.preventDefault();
     containerRef.current.addEventListener("contextmenu", handleContextMenu);
@@ -907,6 +988,7 @@ export function GraphView({
       window.removeEventListener("keyup", trackShift);
       window.removeEventListener("mouseup", endDrag);
       window.removeEventListener("mouseup", endGroupDrag);
+      window.removeEventListener("mouseup", endEdgeRotate);
       container.removeEventListener("contextmenu", handleContextMenu);
       cy.destroy();
       cyRef.current = null;
@@ -1219,6 +1301,41 @@ export function GraphView({
     });
   };
 
+  // Arrange the selected nodes in a circle: each node sits at the same distance
+  // from the selection's center of mass, evenly spaced by angle. Nodes keep
+  // their current angular order around the center so the arrangement reads as a
+  // gentle "rounding out" rather than a shuffle. Needs at least three nodes.
+  const arrangeSelectedInCircle = () => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    const nodes = cy
+      .nodes(":selected")
+      .filter((n) => !n.hasClass(GROUP_CLASS))
+      .toArray() as NodeSingular[];
+    if (nodes.length < 3) return;
+    const cx = nodes.reduce((s, n) => s + n.position().x, 0) / nodes.length;
+    const cy0 = nodes.reduce((s, n) => s + n.position().y, 0) / nodes.length;
+    // Radius: the average distance from the center, but never so small that
+    // neighbouring nodes on the circle would overlap (~60 units apart).
+    const avg =
+      nodes.reduce((s, n) => s + Math.hypot(n.position().x - cx, n.position().y - cy0), 0) /
+      nodes.length;
+    const radius = Math.max(avg, (60 * nodes.length) / (2 * Math.PI));
+    const sorted = [...nodes].sort(
+      (a, b) =>
+        Math.atan2(a.position().y - cy0, a.position().x - cx) -
+        Math.atan2(b.position().y - cy0, b.position().x - cx),
+    );
+    const step = (2 * Math.PI) / sorted.length;
+    // Anchor the spacing at the first node's current angle so the circle forms
+    // around where the nodes already are.
+    const start = Math.atan2(sorted[0].position().y - cy0, sorted[0].position().x - cx);
+    sorted.forEach((n, i) => {
+      const a = start + i * step;
+      n.position({ x: cx + radius * Math.cos(a), y: cy0 + radius * Math.sin(a) });
+    });
+  };
+
   // Zoom in or out by a fixed factor, anchored on the center of the viewport so
   // the graph grows / shrinks in place rather than drifting.
   const zoomBy = (factor: number) => {
@@ -1305,6 +1422,16 @@ export function GraphView({
                     onClick={() => distributeSelected("vertical")}
                   >
                     <IconLayoutDistributeHorizontal size={18} stroke={1.5} />
+                  </ActionIcon>
+                </Tooltip>
+                <Tooltip label="Arrange in a circle" position="bottom" withArrow>
+                  <ActionIcon
+                    variant="default"
+                    size="lg"
+                    aria-label="Arrange selected nodes in a circle"
+                    onClick={arrangeSelectedInCircle}
+                  >
+                    <IconCircleDashed size={18} stroke={1.5} />
                   </ActionIcon>
                 </Tooltip>
               </>
@@ -1438,8 +1565,6 @@ export function GraphView({
             >
               {hiddenIds.has(menu.node.id) ? "View" : "Hide"}
             </Menu.Item>
-            {/* Edit is not implemented yet. */}
-            <Menu.Item leftSection={<IconPencil size={16} stroke={1.5} />}>Edit</Menu.Item>
           </Menu.Dropdown>
         </Menu>
       )}
