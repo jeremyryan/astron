@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import {
   ActionIcon,
   Anchor,
@@ -15,6 +16,7 @@ import {
   Tabs,
   Text,
   Textarea,
+  TextInput,
   Title,
   Tooltip,
   UnstyledButton,
@@ -59,39 +61,47 @@ import {
   IconHierarchy2,
   IconListTree,
   IconMessageChatbot,
+  IconSearch,
   IconSettings,
   IconTag,
   IconTagOff,
   IconTopologyStar3,
 } from "./icons";
 
+// projectionPath / viewPath build the client-side routes for a projection and
+// for one of its saved views: /<projection> and /<projection>/<view>.
+function projectionPath(name: string): string {
+  return `/${encodeURIComponent(name)}`;
+}
+function viewPath(projectionName: string, viewName: string): string {
+  return `/${encodeURIComponent(projectionName)}/${encodeURIComponent(viewName)}`;
+}
+
 // ProjectionNavItem renders one projection in the navbar with its saved Views
 // nested beneath it. Clicking the projection selects it (custom filters);
-// clicking a view selects the projection and applies that view's filters.
+// clicking a view selects the projection and applies that view's filters. The
+// current selection comes from the URL (/<projection>[/<view>]).
 function ProjectionNavItem({
   projection,
-  selected,
-  activeView,
-  onSelectProjection,
-  onSelectView,
+  selectedName,
+  activeViewName,
 }: {
   projection: Projection;
-  selected?: Projection;
-  activeView: View | null;
-  onSelectProjection: (p: Projection) => void;
-  onSelectView: (p: Projection, v: View) => void;
+  selectedName?: string;
+  activeViewName?: string;
 }) {
+  const navigate = useNavigate();
   const { data: views } = useQuery({
     queryKey: ["views", projection.namespace, projection.name],
     queryFn: () => listViews(projection.namespace, projection.name),
   });
-  const isSelected = selected?.uid === projection.uid;
+  const isSelected = projection.name === selectedName;
   const items = views ?? [];
   return (
     <Box>
       <NavLink
-        active={isSelected && !activeView}
-        onClick={() => onSelectProjection(projection)}
+        active={isSelected && !activeViewName}
+        onClick={() => navigate(projectionPath(projection.name))}
         leftSection={<IconHierarchy2 size={16} stroke={1.5} />}
         label={<Text fw={600}>{projection.name}</Text>}
         description={`${projection.namespace} · ${projection.phase ?? "—"} · ${projection.nodeCount}n / ${projection.relationshipCount}e`}
@@ -101,12 +111,8 @@ function ProjectionNavItem({
         <NavLink
           key={v.uid ?? `${v.namespace}/${v.name}`}
           pl={28}
-          active={
-            isSelected &&
-            activeView?.namespace === v.namespace &&
-            activeView?.name === v.name
-          }
-          onClick={() => onSelectView(projection, v)}
+          active={isSelected && activeViewName === v.name}
+          onClick={() => navigate(viewPath(projection.name, v.name))}
           leftSection={<IconBookmark size={14} stroke={1.5} />}
           label={v.displayName || v.name}
         />
@@ -116,15 +122,11 @@ function ProjectionNavItem({
 }
 
 function ProjectionList({
-  selected,
-  activeView,
-  onSelectProjection,
-  onSelectView,
+  selectedName,
+  activeViewName,
 }: {
-  selected?: Projection;
-  activeView: View | null;
-  onSelectProjection: (p: Projection) => void;
-  onSelectView: (p: Projection, v: View) => void;
+  selectedName?: string;
+  activeViewName?: string;
 }) {
   const { data, isLoading, error } = useQuery({
     queryKey: ["projections"],
@@ -160,10 +162,8 @@ function ProjectionList({
         <ProjectionNavItem
           key={p.uid}
           projection={p}
-          selected={selected}
-          activeView={activeView}
-          onSelectProjection={onSelectProjection}
-          onSelectView={onSelectView}
+          selectedName={selectedName}
+          activeViewName={activeViewName}
         />
       ))}
     </Stack>
@@ -317,7 +317,15 @@ function ResourceList({
   hiddenIds: Set<string>;
   onToggleVisibility: (id: string) => void;
 }) {
-  const groups = useMemo(() => groupResources(nodes), [nodes]);
+
+  // Free-text filter applied to resource names (case-insensitive substring).
+  const [search, setSearch] = useState("");
+  const filteredNodes = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return nodes;
+    return nodes.filter((n) => n.name.toLowerCase().includes(q));
+  }, [nodes, search]);
+  const groups = useMemo(() => groupResources(filteredNodes), [filteredNodes]);
   // Kind sections the user has collapsed, keyed by "<namespace>/<kind>".
   const [collapsedKinds, setCollapsedKinds] = useState<Set<string>>(new Set());
   const toggleKindCollapsed = (key: string) =>
@@ -338,6 +346,19 @@ function ResourceList({
       <Text size="xs" c="dimmed">
         Select a node to inspect it, or pick a resource below.
       </Text>
+      <TextInput
+        size="xs"
+        placeholder="Search resources by name…"
+        aria-label="Search resources by name"
+        leftSection={<IconSearch size={14} stroke={1.5} />}
+        value={search}
+        onChange={(e) => setSearch(e.currentTarget.value)}
+      />
+      {groups.length === 0 && (
+        <Text size="sm" c="dimmed">
+          No resources match “{search.trim()}”.
+        </Text>
+      )}
       {groups.map((g) => (
         <Stack gap="xs" key={g.namespace}>
           <Text
@@ -1171,21 +1192,99 @@ function GraphPanel({
   );
 }
 
-export default function App() {
-  const [selected, setSelected] = useState<Projection>();
-  // The saved view currently applied (null = custom/unsaved filters).
-  const [activeView, setActiveView] = useState<View | null>(null);
+// NotFoundPage is shown when the URL names a projection or view that doesn't
+// exist (or matches no route at all).
+function NotFoundPage({ message }: { message?: string }) {
+  return (
+    <Stack align="center" justify="center" h="100%" gap="sm" p="xl">
+      <Title order={2} c="var(--accent-warm)">
+        404
+      </Title>
+      <Text c="dimmed" ta="center">
+        {message ?? "This page could not be found."}
+      </Text>
+      <Button component={Link} to="/" variant="default" mt="sm">
+        Back to projections
+      </Button>
+    </Stack>
+  );
+}
+
+// ProjectionRoute resolves the /:projection[/:view] URL params against the
+// projection and view lists, rendering the graph panel on a match and a 404
+// page when either name is unknown.
+function ProjectionRoute() {
+  const { projection: projectionName, view: viewName } = useParams();
+  const navigate = useNavigate();
+  const {
+    data: projections,
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ["projections"],
+    queryFn: listProjections,
+    refetchInterval: 10_000,
+  });
+  const projection = projections?.find((p) => p.name === projectionName);
+  // Resolve the view name once the projection is known. Shares the cache with
+  // the navbar's per-projection views query.
+  const viewsQuery = useQuery({
+    queryKey: ["views", projection?.namespace, projection?.name],
+    queryFn: () => listViews(projection!.namespace, projection!.name),
+    enabled: !!projection && !!viewName,
+  });
+
+  if (isLoading)
+    return (
+      <Group gap="xs" p="md">
+        <Loader size="sm" />
+        <Text c="dimmed">Loading projections…</Text>
+      </Group>
+    );
+  if (error)
+    return (
+      <Text c="red" p="md">
+        {(error as Error).message}
+      </Text>
+    );
+  if (!projection)
+    return <NotFoundPage message={`Projection “${projectionName}” was not found.`} />;
+
+  let activeView: View | null = null;
+  if (viewName) {
+    if (viewsQuery.isLoading)
+      return (
+        <Group gap="xs" p="md">
+          <Loader size="sm" />
+          <Text c="dimmed">Loading views…</Text>
+        </Group>
+      );
+    activeView = viewsQuery.data?.find((v) => v.name === viewName) ?? null;
+    if (!activeView)
+      return (
+        <NotFoundPage
+          message={`View “${viewName}” was not found on projection “${projection.name}”.`}
+        />
+      );
+  }
+
+  return (
+    <GraphPanel
+      projection={projection}
+      activeView={activeView}
+      onActiveViewChange={(v) =>
+        navigate(v ? viewPath(projection.name, v.name) : projectionPath(projection.name))
+      }
+    />
+  );
+}
+
+// Shell is the persistent chrome (header + projections navbar) wrapped around
+// every route's content.
+function Shell({ children }: { children: ReactNode }) {
+  const { projection: projectionName, view: viewName } = useParams();
   // Whether the settings modal is open.
   const [settingsOpen, setSettingsOpen] = useState(false);
-
-  const selectProjection = (p: Projection) => {
-    setSelected(p);
-    setActiveView(null);
-  };
-  const selectView = (p: Projection, v: View) => {
-    setSelected(p);
-    setActiveView(v);
-  };
 
   return (
     <AppShell header={{ height: 52 }} navbar={{ width: 260, breakpoint: "sm" }} padding={0}>
@@ -1235,30 +1334,57 @@ export default function App() {
           Projections
         </Text>
         <AppShell.Section grow component={ScrollArea}>
-          <ProjectionList
-            selected={selected}
-            activeView={activeView}
-            onSelectProjection={selectProjection}
-            onSelectView={selectView}
-          />
+          <ProjectionList selectedName={projectionName} activeViewName={viewName} />
         </AppShell.Section>
       </AppShell.Navbar>
 
-      <AppShell.Main className="app-main">
-        {selected ? (
-          <GraphPanel
-            projection={selected}
-            activeView={activeView}
-            onActiveViewChange={setActiveView}
-          />
-        ) : (
-          <Text c="dimmed" p="md">
-            Choose a projection to view its graph.
-          </Text>
-        )}
-      </AppShell.Main>
+      <AppShell.Main className="app-main">{children}</AppShell.Main>
 
       <SettingsModal opened={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </AppShell>
+  );
+}
+
+// App wires the URL to the UI: /<projection> selects a projection by name and
+// /<projection>/<view> additionally applies one of its saved views. Unknown
+// paths (or unknown projection/view names) render a 404 page.
+export default function App() {
+  return (
+    <Routes>
+      <Route
+        path="/"
+        element={
+          <Shell>
+            <Text c="dimmed" p="md">
+              Choose a projection to view its graph.
+            </Text>
+          </Shell>
+        }
+      />
+      <Route
+        path="/:projection"
+        element={
+          <Shell>
+            <ProjectionRoute />
+          </Shell>
+        }
+      />
+      <Route
+        path="/:projection/:view"
+        element={
+          <Shell>
+            <ProjectionRoute />
+          </Shell>
+        }
+      />
+      <Route
+        path="*"
+        element={
+          <Shell>
+            <NotFoundPage />
+          </Shell>
+        }
+      />
+    </Routes>
   );
 }

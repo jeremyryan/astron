@@ -4,6 +4,7 @@ export {
   IconTopologyStar3,
   IconHierarchy2,
   IconFilter,
+  IconSearch,
   IconEye,
   IconEyeOff,
   IconCode,
