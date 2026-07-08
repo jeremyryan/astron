@@ -58,6 +58,7 @@ import {
   IconEye,
   IconEyeOff,
   IconFileCode,
+  IconHelp,
   IconHierarchy2,
   IconListTree,
   IconMessageChatbot,
@@ -305,12 +306,14 @@ function groupResources(nodes: GraphNode[]) {
 // index of the visible resources grouped by namespace then kind. Clicking a
 // resource name selects that node; clicking it again unselects it.
 function ResourceList({
+  projectionName,
   nodes,
   onSelect,
   selectedIds,
   hiddenIds,
   onToggleVisibility,
 }: {
+  projectionName: string;
   nodes: GraphNode[];
   onSelect: (node: GraphNode, opts?: { additive?: boolean }) => void;
   selectedIds: Set<string>;
@@ -343,9 +346,33 @@ function ResourceList({
     );
   return (
     <Stack gap="lg">
-      <Text size="xs" c="dimmed">
-        Select a node to inspect it, or pick a resource below.
-      </Text>
+      <Group gap={6} align="center" wrap="nowrap">
+        <Text
+          size="sm"
+          fw={700}
+          c="var(--accent-warm)"
+          truncate
+          style={{ flex: 1, minWidth: 0 }}
+          title={projectionName}
+        >
+          {projectionName}
+        </Text>
+        <Tooltip
+          label="Select a node to inspect it, or pick a resource below."
+          position="left"
+          withArrow
+          multiline
+          maw={220}
+        >
+          <IconHelp
+            size={16}
+            stroke={1.5}
+            color="var(--mantine-color-dimmed)"
+            aria-label="Help"
+            style={{ flex: "0 0 auto" }}
+          />
+        </Tooltip>
+      </Group>
       <TextInput
         size="xs"
         placeholder="Search resources by name…"
@@ -1154,6 +1181,7 @@ function GraphPanel({
                     <NodeDetails node={selectedNode} />
                   ) : (
                     <ResourceList
+                      projectionName={projection.name}
                       nodes={filteredGraph?.nodes ?? []}
                       selectedIds={selectedIds}
                       hiddenIds={hiddenNodeIds}
