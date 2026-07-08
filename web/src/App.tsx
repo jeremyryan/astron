@@ -12,6 +12,7 @@ import {
   NavLink,
   ScrollArea,
   Stack,
+  Tabs,
   Text,
   Textarea,
   Title,
@@ -43,6 +44,7 @@ import {
   type LabelMatchMode,
 } from "./Filters";
 import { YamlModal } from "./YamlModal";
+import { ChatPanel } from "./ChatPanel";
 import { SettingsModal } from "./SettingsModal";
 import { useSettings } from "./settings";
 import { colorForRelationship, iconForKindOrGeneric } from "./kinds";
@@ -55,6 +57,8 @@ import {
   IconEyeOff,
   IconFileCode,
   IconHierarchy2,
+  IconListTree,
+  IconMessageChatbot,
   IconSettings,
   IconTag,
   IconTagOff,
@@ -689,6 +693,10 @@ function GraphPanel({
   const [showResourceList, setShowResourceList] = useState(false);
   // Whether the inspector panel is collapsed to a thin strip.
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  // Which inspector tab is active. The chat tab is only offered when the
+  // projection has a GraphRAG chat provider configured.
+  const [inspectorTab, setInspectorTab] = useState<"resources" | "chat">("resources");
+  const chatEnabled = !!projection.chatEnabled;
   // Whether the left filters panel is collapsed to a thin strip.
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
   // Selecting/inspecting an element returns from the list to the detail view.
@@ -696,7 +704,11 @@ function GraphPanel({
   // onSelect changes, so an inline function here would relayout on every render.
   const handleSelect = useCallback((sel: GraphSelection | null) => {
     setSelection(sel);
-    if (sel) setShowResourceList(false);
+    if (sel) {
+      setShowResourceList(false);
+      // Inspecting an element brings the resources/details tab forward.
+      setInspectorTab("resources");
+    }
   }, []);
   // Node whose YAML manifest is shown in the modal (null = closed).
   const [yamlNode, setYamlNode] = useState<GraphNode | null>(null);
@@ -912,6 +924,12 @@ function GraphPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projection.uid, activeView]);
 
+  // Selecting a different projection returns the inspector to the resource tab
+  // (the chat conversation is per-projection and may not exist on the new one).
+  useEffect(() => {
+    setInspectorTab("resources");
+  }, [projection.uid]);
+
   return (
     <div className="graph-panel">
       <FilterPanel
@@ -1052,11 +1070,12 @@ function GraphPanel({
         (() => {
           const showDetails =
             !showResourceList && (selection?.type === "edge" || !!selectedNode);
+          const onChatTab = chatEnabled && inspectorTab === "chat";
           return (
             <aside className="inspector">
               <div className="inspector-panel">
               <div className="inspector-header">
-                {showDetails ? (
+                {showDetails && !onChatTab ? (
                   <Button
                     variant="subtle"
                     color="gray"
@@ -1080,7 +1099,32 @@ function GraphPanel({
                   </ActionIcon>
                 </Tooltip>
               </div>
-              <ScrollArea className="inspector-body" type="scroll">
+              {chatEnabled && (
+                <Tabs
+                  value={inspectorTab}
+                  onChange={(v) => setInspectorTab(v === "chat" ? "chat" : "resources")}
+                >
+                  <Tabs.List grow>
+                    <Tabs.Tab
+                      value="resources"
+                      leftSection={<IconListTree size={14} stroke={1.5} />}
+                    >
+                      Resources
+                    </Tabs.Tab>
+                    <Tabs.Tab
+                      value="chat"
+                      leftSection={<IconMessageChatbot size={14} stroke={1.5} />}
+                    >
+                      Chat
+                    </Tabs.Tab>
+                  </Tabs.List>
+                </Tabs>
+              )}
+              <ScrollArea
+                className="inspector-body"
+                type="scroll"
+                style={onChatTab ? { display: "none" } : undefined}
+              >
                 <Box p={14}>
                   {showDetails && selection?.type === "edge" ? (
                     <EdgeDetails selection={selection} />
@@ -1101,6 +1145,16 @@ function GraphPanel({
                   )}
                 </Box>
               </ScrollArea>
+              {/* Keep the chat mounted (hidden) so the conversation survives
+                  switching back to the resources tab. */}
+              {chatEnabled && (
+                <div
+                  className="inspector-body"
+                  style={onChatTab ? undefined : { display: "none" }}
+                >
+                  <ChatPanel key={projection.uid} projection={projection} />
+                </div>
+              )}
               </div>
             </aside>
           );

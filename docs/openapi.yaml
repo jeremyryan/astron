@@ -108,6 +108,8 @@ components:
       type: object
     ApiProjectionDTO:
       properties:
+        chatEnabled:
+          type: boolean
         name:
           type: string
         namespace:

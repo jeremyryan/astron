@@ -32,4 +32,7 @@ export {
   IconZoomOut,
   IconMaximize,
   IconLink,
+  IconMessageChatbot,
+  IconListTree,
+  IconSend2,
 } from "@tabler/icons-react";
