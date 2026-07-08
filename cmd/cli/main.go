@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Command astron is the command-line client for Project Astron. It talks to a
+// Command astron is the command-line client for Astron. It talks to a
 // running operator's read API to inspect projections and the graph they
 // materialize.
 package main

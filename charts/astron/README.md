@@ -1,6 +1,6 @@
 # Astron Helm Chart
 
-Deploys the **Project Astron** operator — which projects Kubernetes cluster
+Deploys the **Astron** operator — which projects Kubernetes cluster
 resources and their relationships into a Neo4J graph — together with the
 `GraphProjection` CRD, RBAC, and (optionally) a bundled Neo4J database.
 

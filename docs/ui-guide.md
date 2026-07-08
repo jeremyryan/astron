@@ -360,7 +360,7 @@ These settings are persisted in your browser's local storage, so they persist ac
 
 ## Feedback & Support
 
-Found a bug or have a feature request? Open an issue on the [Project Astron repository](https://github.com/your-org/astron). Include:
+Found a bug or have a feature request? Open an issue on the [Astron repository](https://github.com/your-org/astron). Include:
 
 - Steps to reproduce
 - Screenshots or a short video
