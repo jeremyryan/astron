@@ -18,7 +18,8 @@
     "cytoscape-dagre": "^2.5.0",
     "cytoscape-fcose": "^2.2.0",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.18.1"
   },
   "devDependencies": {
     "@types/cytoscape": "^3.21.8",

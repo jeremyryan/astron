@@ -911,11 +911,14 @@ export function GraphView({
     const handleContextMenu = (e: MouseEvent) => e.preventDefault();
     containerRef.current.addEventListener("contextmenu", handleContextMenu);
 
-    // Keyboard shortcuts acting on the currently selected node(s):
+    // Keyboard shortcuts acting on the currently selected node(s). Single keys
+    // (no modifiers) are only active while at least one node is selected:
     //   Arrow keys  nudge the selection (hold Shift for a larger step)
-    //   L           starts an "Add Link" gesture from the single selected node
-    //   Ctrl/Cmd-C  centers it in the view
-    //   Ctrl/Cmd-Y  opens its YAML manifest modal
+    //   Y           opens the YAML manifest modal (single node)
+    //   L           starts an "Add Link" gesture (single node)
+    //   H           hides the selected node(s) from the graph
+    //   C           centers the selection in the view
+    //   E           expands the selection to the directly-connected nodes
     const ARROW_DELTAS: Record<string, [number, number]> = {
       ArrowUp: [0, -1],
       ArrowDown: [0, 1],
@@ -950,30 +953,47 @@ export function GraphView({
         return;
       }
 
-      // L (no modifiers): start linking from the single selected node, mirroring
-      // the "Add Link" context-menu action. A plain key avoids clashing with
-      // browser shortcuts (Ctrl-N/Ctrl-L are reserved). No effect with zero or
-      // multiple nodes selected, or while a link is already being drawn.
-      if (e.key.toLowerCase() === "l" && !(e.ctrlKey || e.metaKey || e.altKey)) {
-        if (linkingRef.current) return;
-        const selectedNodes = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
-        if (selectedNodes.length !== 1) return;
-        e.preventDefault();
-        setLinkingSourceId(selectedNodes.first().id());
-        return;
-      }
-
-      if (!(e.ctrlKey || e.metaKey)) return;
+      // Single-key shortcuts (no modifiers), available only while at least one
+      // node is selected. Plain keys avoid clashing with reserved browser
+      // shortcuts (Ctrl-L, Ctrl-N, Ctrl-Y, ...).
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
       const key = e.key.toLowerCase();
-      if (key !== "c" && key !== "y") return;
-      const selected = cy.nodes(":selected");
+      if (key !== "y" && key !== "l" && key !== "h" && key !== "c" && key !== "e") return;
+      const selected = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
       if (selected.empty()) return;
-      e.preventDefault();
-      if (key === "c") {
-        cy.animate({ center: { eles: selected }, duration: 200 });
-      } else {
+
+      if (key === "y") {
+        // YAML manifest for the single selected node.
+        if (selected.length !== 1) return;
         const found = graphRef.current.nodes.find((n) => n.id === selected.first().id());
-        if (found) onShowYaml(found);
+        if (!found) return;
+        e.preventDefault();
+        onShowYaml(found);
+      } else if (key === "l") {
+        // Start linking from the single selected node, mirroring the "Add Link"
+        // context-menu action. No effect with multiple nodes selected, or while
+        // a link is already being drawn.
+        if (linkingRef.current || selected.length !== 1) return;
+        e.preventDefault();
+        setLinkingSourceId(selected.first().id());
+      } else if (key === "h") {
+        // Hide the selected node(s); they stay listed in the resource list so
+        // they can be shown again.
+        e.preventDefault();
+        onSetVisibility(selected.map((n) => n.id()), true);
+      } else if (key === "e") {
+        // Expand the selection by one hop: also select every visible node
+        // directly connected to a currently-selected node. Pressing repeatedly
+        // keeps growing the selection along connections.
+        e.preventDefault();
+        selected
+          .neighborhood("node")
+          .filter((n) => !n.hasClass(GROUP_CLASS) && !n.hasClass("hidden"))
+          .select();
+      } else {
+        // "c": center the selection in the view.
+        e.preventDefault();
+        cy.animate({ center: { eles: selected }, duration: 200 });
       }
     };
     window.addEventListener("keydown", handleKeyDown);
