@@ -403,6 +403,118 @@ func TestDeleteProjection(t *testing.T) {
 	}
 }
 
+func specConfigMap(namespace, name, spec string) *unstructured.Unstructured {
+	u := obj("v1", "ConfigMap", namespace, name)
+	if spec != "" {
+		_ = unstructured.SetNestedField(u.Object, spec, "data", "spec")
+	}
+	return u
+}
+
+func TestLoadSpecOverlay(t *testing.T) {
+	scheme := runtime.NewScheme()
+	gvrToListKind := map[schema.GroupVersionResource]string{configMapGVR: "ConfigMapList"}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind,
+		specConfigMap(demoNS, "shared-spec", "graphRAG:\n  enabled: true\n"),
+		specConfigMap("astron", "global-spec", "resyncInterval: 15m\n"),
+		specConfigMap(demoNS, "no-spec", ""),
+		specConfigMap(demoNS, "bad-spec", "{not yaml: ["),
+	)
+	ctx := context.Background()
+
+	// Bare name resolves in the target namespace.
+	overlay, err := loadSpecOverlay(ctx, dyn, demoNS, "shared-spec")
+	if err != nil {
+		t.Fatalf("loadSpecOverlay: %v", err)
+	}
+	rag, ok := overlay["graphRAG"].(map[string]any)
+	if !ok || rag["enabled"] != true {
+		t.Fatalf("unexpected overlay: %+v", overlay)
+	}
+
+	// namespace/name resolves in the named namespace.
+	overlay, err = loadSpecOverlay(ctx, dyn, demoNS, "astron/global-spec")
+	if err != nil {
+		t.Fatalf("loadSpecOverlay (namespace/name): %v", err)
+	}
+	if overlay["resyncInterval"] != "15m" {
+		t.Fatalf("unexpected overlay: %+v", overlay)
+	}
+
+	// Missing ConfigMap, missing "spec" key, and invalid YAML all error clearly.
+	if _, err := loadSpecOverlay(ctx, dyn, demoNS, "absent"); err == nil || !strings.Contains(err.Error(), "fetching ConfigMap") {
+		t.Errorf("expected fetch error, got %v", err)
+	}
+	if _, err := loadSpecOverlay(ctx, dyn, demoNS, "no-spec"); err == nil || !strings.Contains(err.Error(), `no "spec" key`) {
+		t.Errorf("expected missing-key error, got %v", err)
+	}
+	if _, err := loadSpecOverlay(ctx, dyn, demoNS, "bad-spec"); err == nil || !strings.Contains(err.Error(), "parsing") {
+		t.Errorf("expected parse error, got %v", err)
+	}
+	if _, err := loadSpecOverlay(ctx, dyn, demoNS, "/name"); err == nil || !strings.Contains(err.Error(), "invalid") {
+		t.Errorf("expected invalid-reference error, got %v", err)
+	}
+}
+
+func TestMergeSpecOverlay(t *testing.T) {
+	gopts := &generateOptions{
+		options:           &options{},
+		neo4jURI:          "neo4j://example:7687",
+		neo4jDatabase:     "neo4j",
+		neo4jSecret:       "creds",
+		resyncInterval:    "10m",
+		withRelationships: true,
+	}
+	m := buildManifest(gopts, demoNS, []astronv1alpha1.ResourceSelector{pod, service})
+
+	overlay := map[string]any{
+		"graphRAG": map[string]any{
+			"enabled": true,
+			"embedding": map[string]any{
+				"provider": "openai",
+				"model":    "text-embedding-3-small",
+			},
+		},
+		"neo4j": map[string]any{"database": "override"},
+	}
+	if err := mergeSpecOverlay(&m, overlay); err != nil {
+		t.Fatalf("mergeSpecOverlay: %v", err)
+	}
+
+	// Overlay values are applied.
+	if m.Spec.GraphRAG == nil || !m.Spec.GraphRAG.Enabled || m.Spec.GraphRAG.Embedding.Model != "text-embedding-3-small" {
+		t.Errorf("graphRAG overlay not merged: %+v", m.Spec.GraphRAG)
+	}
+	// Nested maps merge: the overridden key wins, siblings survive.
+	if m.Spec.Neo4j.Database != "override" {
+		t.Errorf("expected neo4j.database override, got %q", m.Spec.Neo4j.Database)
+	}
+	if m.Spec.Neo4j.URI != "neo4j://example:7687" {
+		t.Errorf("generated neo4j.uri lost in merge: %q", m.Spec.Neo4j.URI)
+	}
+	// Generated fields not present in the overlay are untouched.
+	if len(m.Spec.Scope.Namespaces) != 1 || m.Spec.Scope.Namespaces[0] != demoNS {
+		t.Errorf("scope lost in merge: %+v", m.Spec.Scope)
+	}
+	if len(m.Spec.Relationships) == 0 {
+		t.Errorf("relationships lost in merge")
+	}
+
+	// Unknown fields in the overlay are rejected.
+	if err := mergeSpecOverlay(&m, map[string]any{"bogusField": 1}); err == nil {
+		t.Fatal("expected error for unknown overlay field")
+	}
+
+	// An empty overlay is a no-op.
+	before := m.Spec
+	if err := mergeSpecOverlay(&m, nil); err != nil {
+		t.Fatalf("empty overlay: %v", err)
+	}
+	if m.Spec.Neo4j != before.Neo4j {
+		t.Errorf("empty overlay changed spec")
+	}
+}
+
 func TestParseDuration(t *testing.T) {
 	d, err := parseDuration("5m")
 	if err != nil || d == nil || d.Minutes() != 5 {
