@@ -101,8 +101,9 @@ spec:
                         - name
                         type: object
                       baseURL:
-                        description: baseURL overrides the provider API base, required
-                          for azure and ollama.
+                        description: |-
+                          baseURL overrides the provider API base, required for azure, ollama and
+                          litellm.
                         type: string
                       enabled:
                         description: enabled turns on natural-language answering and
@@ -113,12 +114,16 @@ spec:
                         type: string
                       provider:
                         default: openai
-                        description: provider is the chat backend to use.
+                        description: |-
+                          provider is the chat backend to use. "litellm" targets a LiteLLM proxy
+                          (OpenAI-compatible), which aggregates many upstream vendors behind one
+                          endpoint and pairs well with allowedModels: ["*"].
                         enum:
                         - fake
                         - openai
                         - azure
                         - ollama
+                        - litellm
                         type: string
                     type: object
                   embedding:
@@ -150,8 +155,8 @@ spec:
                         type: object
                       baseURL:
                         description: |-
-                          baseURL overrides the provider API base, required for azure and ollama and
-                          optional for openai-compatible servers.
+                          baseURL overrides the provider API base, required for azure, ollama and
+                          litellm, and optional for openai-compatible servers.
                         type: string
                       dimensions:
                         description: |-
@@ -164,12 +169,15 @@ spec:
                         type: string
                       provider:
                         default: openai
-                        description: provider is the embedding backend to use.
+                        description: |-
+                          provider is the embedding backend to use. "litellm" targets a LiteLLM
+                          proxy (OpenAI-compatible).
                         enum:
                         - fake
                         - openai
                         - azure
                         - ollama
+                        - litellm
                         type: string
                     type: object
                   enabled:

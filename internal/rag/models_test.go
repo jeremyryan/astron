@@ -117,3 +117,45 @@ func TestOpenAIChatWithModel(t *testing.T) {
 		t.Fatalf("request used model %q, want gpt-other", gotModel)
 	}
 }
+
+func TestLiteLLMRequiresBaseURL(t *testing.T) {
+	if _, err := NewChat(ChatConfig{Provider: ProviderLiteLLM, Model: "gpt-4o-mini", APIKey: "k"}); err == nil {
+		t.Fatal("expected NewChat to require a baseURL for litellm")
+	}
+	if _, err := NewEmbedder(EmbedderConfig{Provider: ProviderLiteLLM, Model: "m", APIKey: "k"}); err == nil {
+		t.Fatal("expected NewEmbedder to require a baseURL for litellm")
+	}
+}
+
+func TestLiteLLMIsOpenAICompatible(t *testing.T) {
+	// NewChat must construct an OpenAI-compatible client for litellm.
+	chat, err := NewChat(ChatConfig{
+		Provider: ProviderLiteLLM, Model: "gpt-4o-mini", APIKey: "k", BaseURL: "http://litellm:4000/v1",
+	})
+	if err != nil {
+		t.Fatalf("NewChat: %v", err)
+	}
+	if _, ok := chat.(*OpenAIChat); !ok {
+		t.Fatalf("expected *OpenAIChat, got %T", chat)
+	}
+
+	// And ListModels must enumerate through the proxy's /models endpoint.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/models" {
+			t.Errorf("path = %q, want /models", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]string{{"id": "claude-sonnet"}, {"id": "gpt-4o"}},
+		})
+	}))
+	defer ts.Close()
+	models, err := ListModels(context.Background(), ChatConfig{
+		Provider: ProviderLiteLLM, APIKey: "k", BaseURL: ts.URL,
+	})
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	if len(models) != 2 || models[0] != "claude-sonnet" || models[1] != "gpt-4o" {
+		t.Fatalf("unexpected models: %v", models)
+	}
+}
