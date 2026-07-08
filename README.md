@@ -1,6 +1,6 @@
-# Project Astron
+# Astron
 
-Project Astron is a Kubernetes operator that visualizes, explores, and helps you
+Astron is a Kubernetes operator that visualizes, explores, and helps you
 understand a cluster. It watches cluster resources and projects them — and the
 relationships between them — into a [Neo4J](https://neo4j.com/) graph, then
 serves a web UI to explore that graph.

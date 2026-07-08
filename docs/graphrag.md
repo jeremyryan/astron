@@ -1,4 +1,4 @@
-# GraphRAG for Project Astron — Design
+# GraphRAG for Astron — Design
 
 > **This is the design/architecture document.** For task-oriented usage —
 > enabling GraphRAG, configuring providers, calling the API, and wiring the MCP

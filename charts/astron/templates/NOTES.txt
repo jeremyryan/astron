@@ -1,4 +1,4 @@
-Project Astron has been installed.
+Astron has been installed.
 
 Release:   {{ .Release.Name }}
 Namespace: {{ .Release.Namespace }}
