@@ -311,6 +311,19 @@ body {
   border: 1px solid var(--border);
 }
 
+/* Clickable source resource beneath an assistant answer. */
+.chat-source {
+  display: block;
+  width: 100%;
+  border-radius: 4px;
+  padding: 1px 4px;
+  cursor: pointer;
+}
+
+.chat-source:hover {
+  background: var(--mantine-color-dark-5);
+}
+
 .chat-bubble-error {
   align-self: flex-start;
   background: color-mix(in srgb, var(--mantine-color-red-9) 25%, transparent);
