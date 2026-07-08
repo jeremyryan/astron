@@ -35,6 +35,10 @@ const (
 	ProviderAzureOpenAI Provider = "azure"
 	// ProviderOllama targets a local Ollama server's OpenAI-compatible endpoint.
 	ProviderOllama Provider = "ollama"
+	// ProviderLiteLLM targets a LiteLLM proxy (OpenAI-compatible). LiteLLM
+	// aggregates many upstream vendors behind one endpoint, so it pairs well
+	// with per-request model selection (allowedModels: ["*"]).
+	ProviderLiteLLM Provider = "litellm"
 )
 
 // EmbedderConfig is the resolved configuration for constructing an Embedder. It
@@ -61,6 +65,11 @@ func NewEmbedder(cfg EmbedderConfig) (Embedder, error) {
 	case "", ProviderFake:
 		return NewFakeEmbedder(cfg.Dimensions), nil
 
+	case ProviderLiteLLM:
+		if cfg.BaseURL == "" {
+			return nil, fmt.Errorf("embedding provider %q requires a baseURL", cfg.Provider)
+		}
+		fallthrough
 	case ProviderOpenAI, ProviderAzureOpenAI, ProviderOllama:
 		return NewOpenAIEmbedder(OpenAIConfig{
 			APIKey:     cfg.APIKey,

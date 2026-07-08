@@ -73,6 +73,8 @@ the graph alone.
 - An **embedding provider** for search/answer. Options:
   - **OpenAI** or **Azure OpenAI** — an API key.
   - **Ollama** — a local server, no key.
+  - **LiteLLM** — a [LiteLLM proxy](https://docs.litellm.ai/) routing to many
+    upstream vendors behind one OpenAI-compatible endpoint.
   - **fake** — a built-in, deterministic, no-network embedder for wiring/tests
     only (not useful for real retrieval quality).
 - A **chat model** (only for `answer`/`query`): same provider options.
@@ -160,14 +162,15 @@ See [`charts/astron/values.yaml`](../charts/astron/values.yaml) for every
 
 ## Choosing an embedding/chat provider
 
-`provider` accepts `openai`, `azure`, `ollama`, or `fake`. All of them speak the
-OpenAI-compatible API shape.
+`provider` accepts `openai`, `azure`, `ollama`, `litellm`, or `fake`. All of
+them speak the OpenAI-compatible API shape.
 
 | Provider | `baseURL` | API key | Notes |
 |----------|-----------|---------|-------|
 | `openai` | optional (defaults to the public API) | required | The simplest setup. |
 | `azure` | **required** — your resource endpoint | required | Point `baseURL` at your Azure OpenAI deployment. |
 | `ollama` | **required** — e.g. `http://ollama.astron.svc:11434/v1` | not needed | Fully local; good for air-gapped clusters. |
+| `litellm` | **required** — e.g. `http://litellm.astron.svc:4000/v1` | required (a LiteLLM virtual key) | One endpoint routing to many vendors. The proxy's curated model list works well with `chat.allowedModels: ["*"]`, which offers exactly the models the key may use. |
 | `fake` | — | — | Deterministic, no network. Wiring/dev only; do **not** rely on result quality. |
 
 The same `provider` set applies to both `embedding` and `chat`; they are

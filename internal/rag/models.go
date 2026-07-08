@@ -29,9 +29,11 @@ import (
 
 // ListModels returns the chat model identifiers the provider in cfg makes
 // available, using the provider credentials server-side. For OpenAI-compatible
-// backends (OpenAI, Ollama's /v1 endpoint) it queries GET {base}/models. Azure
-// OpenAI cannot enumerate deployments through the data-plane API, so only the
-// configured model is returned.
+// backends (OpenAI, Ollama's /v1 endpoint, LiteLLM proxies) it queries
+// GET {base}/models; a LiteLLM proxy returns the models it is configured to
+// route, respecting the key's permissions. Azure OpenAI cannot enumerate
+// deployments through the data-plane API, so only the configured model is
+// returned.
 func ListModels(ctx context.Context, cfg ChatConfig) ([]string, error) {
 	switch Provider(strings.ToLower(string(cfg.Provider))) {
 	case "", ProviderFake:
@@ -41,7 +43,7 @@ func ListModels(ctx context.Context, cfg ChatConfig) ([]string, error) {
 			return nil, nil
 		}
 		return []string{cfg.Model}, nil
-	case ProviderOpenAI, ProviderOllama:
+	case ProviderOpenAI, ProviderOllama, ProviderLiteLLM:
 		return listOpenAIModels(ctx, cfg)
 	default:
 		return nil, fmt.Errorf("chat models: unsupported provider %q", cfg.Provider)

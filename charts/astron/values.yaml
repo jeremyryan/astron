@@ -269,13 +269,13 @@ defaultProjection:
     # -- Enable embedding generation and semantic retrieval.
     enabled: false
     embedding:
-      # -- Embedding backend: fake | openai | azure | ollama.
+      # -- Embedding backend: fake | openai | azure | ollama | litellm.
       provider: openai
       # -- Embedding model name.
       model: text-embedding-3-small
       # -- Optional fixed vector length (model-dependent; 0 = model default).
       dimensions: 1536
-      # -- API base override (required for azure/ollama).
+      # -- API base override (required for azure/ollama/litellm).
       baseURL: ""
       # -- Secret holding the provider API key. Omit for fake/ollama.
       authSecretRef:
@@ -293,16 +293,20 @@ defaultProjection:
       # -- Enable natural-language answering (/rag/answer) and text-to-Cypher
       # (/rag/query, query_cluster MCP tool). Requires a chat model.
       enabled: false
-      # -- Chat backend: fake | openai | azure | ollama.
+      # -- Chat backend: fake | openai | azure | ollama | litellm.
       provider: openai
       # -- Chat model name.
       model: gpt-4o-mini
-      # -- API base override (required for azure/ollama).
+      # -- API base override (required for azure/ollama/litellm).
       baseURL: ""
       # -- Secret holding the chat provider API key. Omit for fake/ollama.
       authSecretRef:
         name: astron-chat
         apiKeyKey: apiKey
+      # -- Chat models users may select per request (e.g. from the UI chat
+      # panel): [] allows only the configured model; ["*"] allows anything the
+      # provider lists (useful with litellm); or list explicit model names.
+      allowedModels: []
 
 # Default Views (saved filter sets) created on deploy for the default
 # projection. Each view hides the resource kinds not relevant to it (the filter

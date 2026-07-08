@@ -83,6 +83,11 @@ func NewChat(cfg ChatConfig) (Chat, error) {
 	switch Provider(strings.ToLower(string(cfg.Provider))) {
 	case "", ProviderFake:
 		return NewFakeChat(""), nil
+	case ProviderLiteLLM:
+		if cfg.BaseURL == "" {
+			return nil, fmt.Errorf("chat provider %q requires a baseURL", cfg.Provider)
+		}
+		fallthrough
 	case ProviderOpenAI, ProviderAzureOpenAI, ProviderOllama:
 		return NewOpenAIChat(OpenAIChatConfig{
 			APIKey:      cfg.APIKey,

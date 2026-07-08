@@ -1302,7 +1302,7 @@ function Shell({ children }: { children: ReactNode }) {
           <Group gap="sm" align="center" wrap="nowrap">
             <IconTopologyStar3 size={22} stroke={1.5} color="var(--mantine-color-brand-6)" />
             <Title order={1} size="h4" c="white">
-              Project Astron
+              Astron
             </Title>
             <Text size="xs" c="dimmed">
               Kubernetes Cluster Graph

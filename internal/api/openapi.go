@@ -237,7 +237,7 @@ func buildOpenAPIReflector() (*openapi3.Reflector, error) {
 	r.SpecEns().Info.
 		WithTitle("Astron API").
 		WithVersion(openAPIVersion).
-		WithDescription("HTTP API for Project Astron: read the projected Kubernetes " +
+		WithDescription("HTTP API for Astron: read the projected Kubernetes " +
 			"resource graph, run GraphRAG retrieval, manage manual links and saved views.")
 
 	for _, e := range apiEndpoints() {
