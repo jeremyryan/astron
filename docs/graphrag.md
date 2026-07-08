@@ -1,4 +1,4 @@
-# GraphRAG for Project Astron — Design
+# GraphRAG for Astron — Design
 
 > **This is the design/architecture document.** For task-oriented usage —
 > enabling GraphRAG, configuring providers, calling the API, and wiring the MCP
@@ -253,7 +253,7 @@ spec:
   graphRAG:
     enabled: true
     embedding:
-      provider: openai            # openai | azure | ollama
+      provider: openai            # openai | azure | ollama | litellm
       model: text-embedding-3-small
       dimensions: 1536
       authSecretRef:
@@ -265,7 +265,7 @@ spec:
       similarity: cosine
     chat:                          # optional: answering + text-to-Cypher
       enabled: true
-      provider: openai             # openai | azure | ollama
+      provider: openai             # openai | azure | ollama | litellm
       model: gpt-4o-mini
       authSecretRef:
         name: astron-chat

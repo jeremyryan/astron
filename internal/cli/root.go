@@ -50,8 +50,8 @@ func newRootCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "astron",
-		Short: "Inspect Project Astron projections and graphs",
-		Long: "astron is the command-line client for Project Astron.\n\n" +
+		Short: "Inspect Astron projections and graphs",
+		Long: "astron is the command-line client for Astron.\n\n" +
 			"It talks to a running operator's read API to list GraphProjections\n" +
 			"and explore the resource graph they materialize into Neo4J.",
 		SilenceUsage:  true,
