@@ -703,8 +703,22 @@ export function GraphView({
       | { grabbedId: string; last: { x: number; y: number }; followerIds: string[] }
       | null = null;
 
+    // Shift-drag "rotate": with several nodes selected, Shift+dragging one of
+    // them spins the whole selection around its centroid instead of moving it.
+    // Each node keeps its distance from the (fixed) centroid; the rotation
+    // angle follows the grabbed node's angle around that point.
+    let rotateState:
+      | {
+          grabbedId: string;
+          center: { x: number; y: number };
+          startAngle: number;
+          nodes: { id: string; dx: number; dy: number }[];
+        }
+      | null = null;
+
     cy.on("grab", "node", (evt) => {
       const grabbed = evt.target as NodeSingular;
+      rotateState = null;
       if (grabbed.hasClass(GROUP_CLASS)) {
         dragState = null;
         return;
@@ -712,6 +726,26 @@ export function GraphView({
       // Nodes that move together under cytoscape's own drag: the selection if the
       // grabbed node belongs to it, otherwise just the grabbed node.
       const selected = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
+      const oe = evt.originalEvent as MouseEvent | undefined;
+      if (oe?.shiftKey && grabbed.selected() && selected.length > 1) {
+        // Rotation mode: capture the selection's centroid, every node's offset
+        // from it, and the grabbed node's starting angle around it.
+        const pts = (selected.toArray() as NodeSingular[]).map((n) => ({
+          id: n.id(),
+          ...n.position(),
+        }));
+        const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+        const cyy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+        const gp = grabbed.position();
+        rotateState = {
+          grabbedId: grabbed.id(),
+          center: { x: cx, y: cyy },
+          startAngle: Math.atan2(gp.y - cyy, gp.x - cx),
+          nodes: pts.map((p) => ({ id: p.id, dx: p.x - cx, dy: p.y - cyy })),
+        };
+        dragState = null;
+        return;
+      }
       const moving = grabbed.selected() && selected.nonempty() ? selected : grabbed;
       const movingIds = new Set((moving.toArray() as NodeSingular[]).map((n) => n.id()));
       // Followers pulled along on Shift+drag: the directly-connected neighbours
@@ -727,6 +761,26 @@ export function GraphView({
     });
 
     cy.on("drag", "node", (evt) => {
+      if (rotateState) {
+        // Cytoscape fires "drag" per moving node; act once, off the grabbed node.
+        if ((evt.target as NodeSingular).id() !== rotateState.grabbedId) return;
+        const gp = cy.getElementById(rotateState.grabbedId).position();
+        const { center, startAngle, nodes } = rotateState;
+        // Ignore positions too close to the centroid, where the angle is noise.
+        if (Math.hypot(gp.x - center.x, gp.y - center.y) < 1) return;
+        const delta = Math.atan2(gp.y - center.y, gp.x - center.x) - startAngle;
+        const cos = Math.cos(delta);
+        const sin = Math.sin(delta);
+        // Place every selected node (the grabbed one included, snapping it back
+        // onto its own circle) at its original offset rotated by the delta.
+        for (const { id, dx, dy } of nodes) {
+          cy.getElementById(id).position({
+            x: center.x + dx * cos - dy * sin,
+            y: center.y + dx * sin + dy * cos,
+          });
+        }
+        return;
+      }
       if (!dragState) return;
       // Cytoscape fires "drag" per moving node; act once, off the grabbed node.
       if ((evt.target as NodeSingular).id() !== dragState.grabbedId) return;
@@ -749,6 +803,7 @@ export function GraphView({
 
     cy.on("free", "node", () => {
       dragState = null;
+      rotateState = null;
     });
 
     // --- Drag a whole namespace by grabbing its name -----------------------
@@ -1245,9 +1300,9 @@ export function GraphView({
   }, [linkingSourceId, onAddLink]);
 
   // Reflect an externally-driven selection (e.g. clicking a resource in the
-  // inspector list) onto the canvas: select and center the node. A node picked
-  // by tapping the canvas is already :selected by the time this runs, so taps
-  // are ignored here and never trigger an unwanted recenter.
+  // inspector list) onto the canvas by selecting the node. A node picked by
+  // tapping the canvas is already :selected by the time this runs, so taps are
+  // ignored here.
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy || !selectedId) return;
@@ -1255,12 +1310,7 @@ export function GraphView({
     if (node.empty() || node.selected()) return;
     cy.elements().unselect();
     node.select();
-    // When a distance filter is active the fading effect already refits the
-    // view, so only center here otherwise.
-    if (maxDistance === null) {
-      cy.animate({ center: { eles: node }, duration: 250 });
-    }
-  }, [selectedId, maxDistance]);
+  }, [selectedId]);
 
   // Selection toggling from the resource list: Ctrl/Cmd-click adds or removes
   // the node from the canvas selection without clearing others, centering, or
