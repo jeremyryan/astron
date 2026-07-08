@@ -175,6 +175,12 @@ func apiEndpoints() []endpoint {
 			errors: []int{http.StatusBadRequest, http.StatusNotFound, http.StatusServiceUnavailable, http.StatusInternalServerError},
 		},
 		{
+			method: http.MethodGet, path: "/api/projections/{namespace}/{name}/rag/models", id: "ragModels",
+			tag: "graphrag", summary: "List the chat models selectable for a projection",
+			req: new(projectionPath), resp: new(projector.ChatModelList), status: http.StatusOK,
+			errors: []int{http.StatusNotFound, http.StatusServiceUnavailable, http.StatusInternalServerError},
+		},
+		{
 			method: http.MethodPost, path: "/api/projections/{namespace}/{name}/links", id: "createLink",
 			tag: "links", summary: "Create a user-defined edge between two nodes",
 			req: new(createLinkReq), resp: new(linkResponse), status: http.StatusCreated,

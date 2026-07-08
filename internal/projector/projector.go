@@ -82,6 +82,10 @@ type Options struct {
 	// text-to-Cypher (see Answer and Query). When nil, those features are
 	// disabled.
 	Chat rag.Chat
+	// ChatSettings is the resolved chat configuration behind Chat. It carries
+	// the provider credentials used to enumerate available models and the
+	// AllowedModels policy for per-request model overrides.
+	ChatSettings rag.ChatConfig
 	// QueryStore, when set, enables guarded read-only Cypher execution for
 	// text-to-Cypher. Typically the same backend as Store.
 	QueryStore graph.QueryStore
@@ -128,6 +132,11 @@ type Projector struct {
 	cardHashes       map[string]string // node ID -> hash of the last embedded card
 	vectorIndexReady bool
 	lastEmbedTime    time.Time
+
+	// provider model-list cache (see ChatModels), guarded by modelsMu.
+	modelsMu       sync.Mutex
+	cachedModels   []string
+	cachedModelsAt time.Time
 }
 
 // New constructs a Projector from the given options.

@@ -177,17 +177,35 @@ export interface Answer {
 }
 
 // askQuestion sends a natural-language question about a projection's graph to
-// the configured chat provider and returns the grounded answer.
+// the configured chat provider and returns the grounded answer. model, when
+// set, overrides the projection's default chat model (it must be permitted by
+// the projection's allowedModels policy).
 export function askQuestion(
   namespace: string,
   name: string,
   question: string,
+  model?: string,
 ): Promise<Answer> {
   return sendJSON<Answer>(
     "POST",
     `/api/projections/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/rag/answer`,
-    { question },
+    model ? { question, model } : { question },
   ) as Promise<Answer>;
+}
+
+// ChatModels is the set of chat models a user may choose from for a
+// projection, plus the configured default.
+export interface ChatModels {
+  default: string;
+  models: string[];
+}
+
+// getChatModels lists the chat models selectable for a projection under its
+// allowedModels policy.
+export function getChatModels(namespace: string, name: string): Promise<ChatModels> {
+  return getJSON<ChatModels>(
+    `/api/projections/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/rag/models`,
+  );
 }
 
 // ----- Links (user-created edges) -----

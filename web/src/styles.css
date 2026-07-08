@@ -285,13 +285,26 @@ body {
   min-height: 0;
 }
 
+/* Pinned area below the message list: optional model selector + input row. */
+.chat-input-area {
+  border-top: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.chat-model-select {
+  padding: 4px 10px 0;
+}
+
+.chat-model-select input {
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-xs);
+}
+
 .chat-input {
   display: flex;
   align-items: flex-end;
   gap: 8px;
   padding: 10px;
-  border-top: 1px solid var(--border);
-  flex: 0 0 auto;
 }
 
 .chat-bubble {
@@ -309,6 +322,19 @@ body {
   align-self: flex-start;
   background: var(--mantine-color-dark-6);
   border: 1px solid var(--border);
+}
+
+/* Clickable source resource beneath an assistant answer. */
+.chat-source {
+  display: block;
+  width: 100%;
+  border-radius: 4px;
+  padding: 1px 4px;
+  cursor: pointer;
+}
+
+.chat-source:hover {
+  background: var(--mantine-color-dark-5);
 }
 
 .chat-bubble-error {
