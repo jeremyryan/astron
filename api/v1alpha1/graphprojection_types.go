@@ -100,9 +100,11 @@ type ChatModelConfig struct {
 	// +optional
 	Enabled bool `json:"enabled,omitempty"`
 
-	// provider is the chat backend to use.
+	// provider is the chat backend to use. "litellm" targets a LiteLLM proxy
+	// (OpenAI-compatible), which aggregates many upstream vendors behind one
+	// endpoint and pairs well with allowedModels: ["*"].
 	// +optional
-	// +kubebuilder:validation:Enum=fake;openai;azure;ollama
+	// +kubebuilder:validation:Enum=fake;openai;azure;ollama;litellm
 	// +kubebuilder:default=openai
 	Provider string `json:"provider,omitempty"`
 
@@ -110,7 +112,8 @@ type ChatModelConfig struct {
 	// +optional
 	Model string `json:"model,omitempty"`
 
-	// baseURL overrides the provider API base, required for azure and ollama.
+	// baseURL overrides the provider API base, required for azure, ollama and
+	// litellm.
 	// +optional
 	BaseURL string `json:"baseURL,omitempty"`
 
@@ -131,9 +134,10 @@ type ChatModelConfig struct {
 
 // EmbeddingConfig selects and configures the embedding provider.
 type EmbeddingConfig struct {
-	// provider is the embedding backend to use.
+	// provider is the embedding backend to use. "litellm" targets a LiteLLM
+	// proxy (OpenAI-compatible).
 	// +optional
-	// +kubebuilder:validation:Enum=fake;openai;azure;ollama
+	// +kubebuilder:validation:Enum=fake;openai;azure;ollama;litellm
 	// +kubebuilder:default=openai
 	Provider string `json:"provider,omitempty"`
 
@@ -141,8 +145,8 @@ type EmbeddingConfig struct {
 	// +optional
 	Model string `json:"model,omitempty"`
 
-	// baseURL overrides the provider API base, required for azure and ollama and
-	// optional for openai-compatible servers.
+	// baseURL overrides the provider API base, required for azure, ollama and
+	// litellm, and optional for openai-compatible servers.
 	// +optional
 	BaseURL string `json:"baseURL,omitempty"`
 
