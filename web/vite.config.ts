@@ -2,10 +2,12 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 // Build a self-contained SPA that is embedded into and served by the Astron
-// operator binary. Relative base so assets resolve under any mount path.
+// operator binary. The base must be absolute ("/") so that asset URLs resolve
+// correctly from nested client-side routes like /<projection>/<view> (the
+// operator's spaHandler serves index.html for any non-asset path).
 export default defineConfig({
   plugins: [react()],
-  base: "./",
+  base: "/",
   // Pre-bundle the large @tabler/icons-react barrel so the dev server stays
   // fast and doesn't spawn a module per icon on cold start.
   optimizeDeps: {
