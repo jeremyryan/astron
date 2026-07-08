@@ -272,6 +272,51 @@ body {
   font-weight: 600;
 }
 
+/* Chat tab: a column with a scrollable message list above a pinned input row. */
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.chat-messages {
+  flex: 1;
+  min-height: 0;
+}
+
+.chat-input {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.chat-bubble {
+  border-radius: 8px;
+  padding: 8px 10px;
+  max-width: 92%;
+}
+
+.chat-bubble-user {
+  align-self: flex-end;
+  background: var(--mantine-color-brand-9, var(--mantine-color-dark-5));
+}
+
+.chat-bubble-assistant {
+  align-self: flex-start;
+  background: var(--mantine-color-dark-6);
+  border: 1px solid var(--border);
+}
+
+.chat-bubble-error {
+  align-self: flex-start;
+  background: color-mix(in srgb, var(--mantine-color-red-9) 25%, transparent);
+  border: 1px solid var(--mantine-color-red-9);
+}
+
 /* Clickable resource name in the inspector's resource browser (shown when no
    node is selected). */
 .resource-link {

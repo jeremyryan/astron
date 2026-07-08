@@ -90,6 +90,60 @@ func TestListProjections(t *testing.T) {
 	if len(got) != 1 || got[0].Name != "demo" || got[0].NodeCount != 5 || got[0].Phase != "Ready" {
 		t.Fatalf("unexpected projections: %+v", got)
 	}
+	if got[0].ChatEnabled {
+		t.Fatalf("chatEnabled = true for projection without GraphRAG chat")
+	}
+}
+
+func TestListProjectionsChatEnabled(t *testing.T) {
+	// chatEnabled must be reported only when GraphRAG and its chat model are
+	// both enabled.
+	objs := []client.Object{
+		&astronv1alpha1.GraphProjection{
+			ObjectMeta: metav1.ObjectMeta{Name: "chat", Namespace: "default", UID: types.UID("u1")},
+			Spec: astronv1alpha1.GraphProjectionSpec{
+				GraphRAG: &astronv1alpha1.GraphRAGSpec{
+					Enabled: true,
+					Chat:    &astronv1alpha1.ChatModelConfig{Enabled: true, Provider: "fake"},
+				},
+			},
+		},
+		&astronv1alpha1.GraphProjection{
+			ObjectMeta: metav1.ObjectMeta{Name: "no-chat", Namespace: "default", UID: types.UID("u2")},
+			Spec: astronv1alpha1.GraphProjectionSpec{
+				GraphRAG: &astronv1alpha1.GraphRAGSpec{Enabled: true},
+			},
+		},
+		&astronv1alpha1.GraphProjection{
+			ObjectMeta: metav1.ObjectMeta{Name: "rag-disabled", Namespace: "default", UID: types.UID("u3")},
+			Spec: astronv1alpha1.GraphProjectionSpec{
+				GraphRAG: &astronv1alpha1.GraphRAGSpec{
+					Chat: &astronv1alpha1.ChatModelConfig{Enabled: true},
+				},
+			},
+		},
+	}
+	srv := newTestServer(t, objs...)
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/projections", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+
+	var got []projectionDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"chat": true, "no-chat": false, "rag-disabled": false}
+	if len(got) != len(want) {
+		t.Fatalf("got %d projections, want %d", len(got), len(want))
+	}
+	for _, p := range got {
+		if p.ChatEnabled != want[p.Name] {
+			t.Errorf("projection %q chatEnabled = %v, want %v", p.Name, p.ChatEnabled, want[p.Name])
+		}
+	}
 }
 
 func TestListProjectionsSorted(t *testing.T) {
