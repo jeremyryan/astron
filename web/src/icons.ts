@@ -20,6 +20,7 @@ export {
   IconTrash,
   IconBookmark,
   IconGrid3x3,
+  IconHelp,
   IconDownload,
   IconLayoutAlignMiddle,
   IconLayoutAlignCenter,
