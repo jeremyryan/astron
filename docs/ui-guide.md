@@ -306,6 +306,8 @@ These settings are persisted in your browser's local storage, so they persist ac
 |----------|--------|
 | `Click` | Select a node |
 | `Drag` | Pan the canvas |
+| `Shift + Drag` (on a node) | Move the node(s), pulling directly-connected nodes along |
+| `Ctrl/Cmd + Drag` (on a selected node, multiple selected) | Rotate the selection around its center point |
 | `Scroll` | Zoom in/out |
 | `Esc` | Deselect the current node |
 | `Arrow keys` | Nudge the selected node(s) (hold `Shift` for a larger step) |
