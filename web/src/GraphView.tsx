@@ -392,6 +392,35 @@ export function GraphView({
           selector: "edge.no-label",
           style: { "text-opacity": 0, "text-background-opacity": 0 },
         },
+        // The transient marker showing the pivot point while a rotation drag is
+        // in progress: a small warm dot with a white ring. It ignores pointer
+        // events so it never interferes with the drag itself.
+        {
+          selector: ".rotate-pivot",
+          style: {
+            shape: "ellipse",
+            width: 9,
+            height: 9,
+            "background-color": "#e8785a",
+            "background-opacity": 0.95,
+            "border-width": 2,
+            "border-color": "#fff",
+            "border-opacity": 0.9,
+            label: "",
+            events: "no",
+            "z-index": 9999,
+          },
+        },
+        // Highlights the node acting as the pivot while a link's target is
+        // being rotated around it.
+        {
+          selector: ".rotate-pivot-node",
+          style: {
+            "border-width": 3,
+            "border-color": "#e8785a",
+            "border-opacity": 1,
+          },
+        },
         // The transient node tracking the cursor while drawing a new link. It is
         // invisible and ignores pointer events so taps fall through to the real
         // node beneath it.
@@ -716,6 +745,25 @@ export function GraphView({
         }
       | null = null;
 
+    // Transient marker showing the point the nodes are rotating around. It is
+    // unselectable/ungrabbable and skipped by the data-reconciliation effect
+    // (ids starting with "__").
+    const PIVOT_ID = "__rotate_pivot__";
+    const showPivotMarker = (pos: { x: number; y: number }) => {
+      removePivotMarker();
+      cy.add({
+        group: "nodes",
+        data: { id: PIVOT_ID },
+        position: { x: pos.x, y: pos.y },
+        classes: "rotate-pivot",
+        selectable: false,
+        grabbable: false,
+      });
+    };
+    const removePivotMarker = () => {
+      cy.getElementById(PIVOT_ID).remove();
+    };
+
     cy.on("grab", "node", (evt) => {
       const grabbed = evt.target as NodeSingular;
       rotateState = null;
@@ -743,6 +791,7 @@ export function GraphView({
           startAngle: Math.atan2(gp.y - cyy, gp.x - cx),
           nodes: pts.map((p) => ({ id: p.id, dx: p.x - cx, dy: p.y - cyy })),
         };
+        showPivotMarker({ x: cx, y: cyy });
         dragState = null;
         return;
       }
@@ -803,7 +852,10 @@ export function GraphView({
 
     cy.on("free", "node", () => {
       dragState = null;
-      rotateState = null;
+      if (rotateState) {
+        rotateState = null;
+        removePivotMarker();
+      }
     });
 
     // --- Drag a whole namespace by grabbing its name -----------------------
@@ -935,6 +987,8 @@ export function GraphView({
         cy.userPanningEnabled(false);
         cy.boxSelectionEnabled(false);
         el.style.cursor = "grabbing";
+        // Mark the source node as the pivot the target is rotating around.
+        cy.getElementById(edgeRotate.sourceId).addClass("rotate-pivot-node");
       }
       const center = cy.getElementById(edgeRotate.sourceId).position();
       const dx = evt.position.x - center.x;
@@ -951,6 +1005,7 @@ export function GraphView({
     const endEdgeRotate = () => {
       if (!edgeRotate) return;
       if (edgeRotate.active) {
+        cy.getElementById(edgeRotate.sourceId).removeClass("rotate-pivot-node");
         // Swallow the edge "tap" that fires on release after a real rotation.
         edgeRotatedRef.current = true;
         cy.userPanningEnabled(true);

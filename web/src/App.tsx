@@ -350,6 +350,7 @@ function ResourceList({
         <Text
           size="sm"
           fw={700}
+          tt="uppercase"
           c="var(--accent-warm)"
           truncate
           style={{ flex: 1, minWidth: 0 }}
