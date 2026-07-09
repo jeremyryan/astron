@@ -732,10 +732,11 @@ export function GraphView({
       | { grabbedId: string; last: { x: number; y: number }; followerIds: string[] }
       | null = null;
 
-    // Shift-drag "rotate": with several nodes selected, Shift+dragging one of
+    // Ctrl-drag "rotate": with several nodes selected, Ctrl+dragging one of
     // them spins the whole selection around its centroid instead of moving it.
     // Each node keeps its distance from the (fixed) centroid; the rotation
-    // angle follows the grabbed node's angle around that point.
+    // angle follows the grabbed node's angle around that point. (Shift+drag is
+    // reserved for the "pull" above, which works for any number of nodes.)
     let rotateState:
       | {
           grabbedId: string;
@@ -764,6 +765,15 @@ export function GraphView({
       cy.getElementById(PIVOT_ID).remove();
     };
 
+    // The node the pointer actually pressed to start the gesture. Cytoscape
+    // fires "grab" for every node dragged along with a selection, so the grab
+    // handler alone can't tell which one is under the cursor; "tapstart" fires
+    // only for the pressed node.
+    let pressedNodeId: string | null = null;
+    cy.on("tapstart", "node", (evt) => {
+      pressedNodeId = (evt.target as NodeSingular).id();
+    });
+
     cy.on("grab", "node", (evt) => {
       const grabbed = evt.target as NodeSingular;
       rotateState = null;
@@ -775,18 +785,25 @@ export function GraphView({
       // grabbed node belongs to it, otherwise just the grabbed node.
       const selected = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
       const oe = evt.originalEvent as MouseEvent | undefined;
-      if (oe?.shiftKey && grabbed.selected() && selected.length > 1) {
+      // Cmd serves as the rotate modifier on macOS, where Ctrl+click is the
+      // OS's right-click gesture.
+      if ((oe?.ctrlKey || oe?.metaKey) && grabbed.selected() && selected.length > 1) {
         // Rotation mode: capture the selection's centroid, every node's offset
-        // from it, and the grabbed node's starting angle around it.
+        // from it, and the handle's starting angle around it. The handle is
+        // the node the pointer pressed (not whichever companion fired this
+        // grab event), so the rotation circle is the one that node sits on.
+        const handle =
+          pressedNodeId !== null ? cy.getElementById(pressedNodeId) : grabbed;
+        const handleNode = handle.nonempty() && handle.selected() ? handle : grabbed;
         const pts = (selected.toArray() as NodeSingular[]).map((n) => ({
           id: n.id(),
           ...n.position(),
         }));
         const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
         const cyy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
-        const gp = grabbed.position();
+        const gp = handleNode.position();
         rotateState = {
-          grabbedId: grabbed.id(),
+          grabbedId: handleNode.id(),
           center: { x: cx, y: cyy },
           startAngle: Math.atan2(gp.y - cyy, gp.x - cx),
           nodes: pts.map((p) => ({ id: p.id, dx: p.x - cx, dy: p.y - cyy })),
