@@ -768,10 +768,21 @@ export function GraphView({
     // The node the pointer actually pressed to start the gesture. Cytoscape
     // fires "grab" for every node dragged along with a selection, so the grab
     // handler alone can't tell which one is under the cursor; "tapstart" fires
-    // only for the pressed node.
+    // only for the pressed node. Note that grab fires *before* tapstart within
+    // the same mousedown, so a rotation initialized during grab starts from a
+    // stale handle and is re-anchored here to the node actually pressed.
     let pressedNodeId: string | null = null;
     cy.on("tapstart", "node", (evt) => {
-      pressedNodeId = (evt.target as NodeSingular).id();
+      const pressed = evt.target as NodeSingular;
+      pressedNodeId = pressed.id();
+      if (rotateState && pressed.selected() && !pressed.hasClass(GROUP_CLASS)) {
+        const p = pressed.position();
+        rotateState.grabbedId = pressed.id();
+        rotateState.startAngle = Math.atan2(
+          p.y - rotateState.center.y,
+          p.x - rotateState.center.x,
+        );
+      }
     });
 
     cy.on("grab", "node", (evt) => {
