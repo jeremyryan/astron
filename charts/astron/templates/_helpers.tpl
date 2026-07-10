@@ -103,3 +103,10 @@ chart names its primary ClusterIP service after the release name, not neo4j.name
 {{- printf "neo4j://%s.%s.svc.cluster.local:7687" .Release.Name .Release.Namespace }}
 {{- end }}
 {{- end }}
+
+{{/*
+Name of the ConfigMap holding default configuration for new projections.
+*/}}
+{{- define "astron.projectionDefaultsName" -}}
+{{- default (printf "%s-projection-defaults" (include "astron.fullname" .)) .Values.projectionDefaults.name }}
+{{- end }}

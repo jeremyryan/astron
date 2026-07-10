@@ -43,7 +43,6 @@ type ChatModelList struct {
 	Models  []string `json:"models"`
 }
 
-
 // QueryResult is the outcome of a text-to-Cypher query: the generated Cypher
 // and the rows it produced.
 type QueryResult struct {
