@@ -129,6 +129,9 @@ func TestAnswerRequiresEmbeddingForRetrieval(t *testing.T) {
 	}
 }
 
+// defaultModel is the model name reported by the fake chat in these tests.
+const defaultModel = "default-model"
+
 // newModelProjector builds a chat-enabled projector with an allowedModels
 // policy for exercising model listing and per-request overrides.
 func newModelProjector(store *retrievalStore, allowed []string) *Projector {
@@ -136,10 +139,10 @@ func newModelProjector(store *retrievalStore, allowed []string) *Projector {
 		ID:         "proj-models",
 		Store:      store,
 		QueryStore: store,
-		Chat:       &rag.FakeChat{ModelName: "default-model"},
+		Chat:       &rag.FakeChat{ModelName: defaultModel},
 		ChatSettings: rag.ChatConfig{
 			Provider:      rag.ProviderFake,
-			Model:         "default-model",
+			Model:         defaultModel,
 			AllowedModels: allowed,
 		},
 		Embedder:    rag.NewFakeEmbedder(8),
@@ -153,7 +156,7 @@ func TestChatModelsDefaultOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ChatModels: %v", err)
 	}
-	if got.Default != "default-model" || len(got.Models) != 1 || got.Models[0] != "default-model" {
+	if got.Default != defaultModel || len(got.Models) != 1 || got.Models[0] != defaultModel {
 		t.Fatalf("unexpected models: %+v", got)
 	}
 }
@@ -164,8 +167,8 @@ func TestChatModelsExplicitListIncludesDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ChatModels: %v", err)
 	}
-	want := []string{"default-model", "gpt-a", "gpt-b"}
-	if got.Default != "default-model" || len(got.Models) != len(want) {
+	want := []string{defaultModel, "gpt-a", "gpt-b"}
+	if got.Default != defaultModel || len(got.Models) != len(want) {
 		t.Fatalf("unexpected models: %+v", got)
 	}
 	for i, w := range want {
@@ -183,7 +186,7 @@ func TestChatModelsWildcardUsesProviderList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ChatModels: %v", err)
 	}
-	want := []string{"default-model", "fake"}
+	want := []string{defaultModel, "fake"}
 	if len(got.Models) != len(want) || got.Models[0] != want[0] || got.Models[1] != want[1] {
 		t.Fatalf("unexpected models: %+v", got)
 	}
@@ -210,7 +213,7 @@ func TestAnswerModelOverrideDeniedByPolicy(t *testing.T) {
 		t.Fatalf("expected ErrModelNotAllowed, got %v", err)
 	}
 	// The configured default is always accepted, regardless of policy.
-	if _, err := p.Answer(context.Background(), "why?", "default-model", SearchOptions{TopK: 1}); err != nil {
+	if _, err := p.Answer(context.Background(), "why?", defaultModel, SearchOptions{TopK: 1}); err != nil {
 		t.Fatalf("default model must be allowed, got %v", err)
 	}
 }
