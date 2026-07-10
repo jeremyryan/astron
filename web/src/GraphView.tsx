@@ -442,6 +442,20 @@ export function GraphView({
             events: "no",
           },
         },
+        // The Shift+drag box-selection overlay: mostly transparent fill with a
+        // visible border, so the nodes and edges beneath it stay readable while
+        // the selection area is being drawn.
+        {
+          selector: "core",
+          style: {
+            "selection-box-color": "#16a3b8",
+            "selection-box-opacity": 0.12,
+            "selection-box-border-color": "#16a3b8",
+            "selection-box-border-width": 1,
+            // The typings require every Core style property; only the
+            // selection-box ones are being overridden here.
+          } as unknown as cytoscape.Css.Core,
+        },
         // A selected edge keeps its relationship color; a thin white "outline"
         // edge is drawn just behind it (added by the select/unselect handler)
         // so both the line and the arrowhead get a white stroke. Both are forced
@@ -1059,6 +1073,8 @@ export function GraphView({
     //   E           expands the selection to the directly-connected nodes
     //   J           joins the selected nodes: selects the nodes along the
     //               shortest path between each pair, when one exists
+    //   A           selects everything connected to the selection, directly
+    //               or indirectly (the whole connected component)
     const ARROW_DELTAS: Record<string, [number, number]> = {
       ArrowUp: [0, -1],
       ArrowDown: [0, 1],
@@ -1104,7 +1120,8 @@ export function GraphView({
         key !== "h" &&
         key !== "c" &&
         key !== "e" &&
-        key !== "j"
+        key !== "j" &&
+        key !== "a"
       )
         return;
       const selected = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
@@ -1147,6 +1164,22 @@ export function GraphView({
             if (res.found) res.path.nodes().select();
           }
         }
+      } else if (key === "a") {
+        // Select the connected component(s) of the selection: every visible
+        // node reachable from a selected node through any chain of links,
+        // ignoring edge direction.
+        e.preventDefault();
+        const reachable = cy
+          .nodes()
+          .filter((n) => !n.hasClass(GROUP_CLASS) && !n.hasClass("hidden"));
+        const eles = reachable.union(reachable.edgesWith(reachable));
+        eles.bfs({
+          roots: selected,
+          directed: false,
+          visit: (n) => {
+            n.select();
+          },
+        });
       } else if (key === "e") {
         // Expand the selection by one hop: also select every visible node
         // directly connected to a currently-selected node. Pressing repeatedly

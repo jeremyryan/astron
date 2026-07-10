@@ -58,7 +58,7 @@ func (f *FakeChat) Model() string {
 	if f.ModelName != "" {
 		return f.ModelName
 	}
-	return "fake"
+	return string(ProviderFake)
 }
 
 // WithModel returns a copy of the fake reporting a different model name, so

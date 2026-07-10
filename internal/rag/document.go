@@ -180,13 +180,16 @@ func RenderCard(node graph.Node, edges []Edge, opts Options) Card {
 	return Card{Ref: node.Ref, Text: text, Hash: hex.EncodeToString(sum[:])}
 }
 
+// fallbackKind labels a resource whose Kind is unknown in rendered card text.
+const fallbackKind = "Resource"
+
 // identityClause renders the leading "what is this" clause, e.g.
 // "Pod `web-7d9` in namespace `shop`" or, for cluster-scoped resources,
 // "Namespace `shop`".
 func identityClause(ref graph.Ref) string {
 	kind := ref.Kind
 	if kind == "" {
-		kind = "Resource"
+		kind = fallbackKind
 	}
 	if ref.Namespace == "" {
 		return fmt.Sprintf("%s `%s`", kind, ref.Name)
@@ -275,7 +278,7 @@ func noteClauses(edges []Edge) []string {
 		}
 		kind := e.Peer.Kind
 		if kind == "" {
-			kind = "Resource"
+			kind = fallbackKind
 		}
 		dir := "from"
 		if e.Outgoing {
@@ -302,7 +305,7 @@ func renderGroup(relType string, outgoing bool, peers []graph.Ref) string {
 	for _, p := range peers {
 		kind := p.Kind
 		if kind == "" {
-			kind = "Resource"
+			kind = fallbackKind
 		}
 		if _, seen := byKind[kind]; !seen {
 			kindOrder = append(kindOrder, kind)

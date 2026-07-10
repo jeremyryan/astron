@@ -39,6 +39,9 @@ import (
 )
 
 // graphProjectionGVR is the resource used to apply generated manifests.
+// kindGraphProjection is the CRD kind for projection manifests.
+const kindGraphProjection = "GraphProjection"
+
 var graphProjectionGVR = schema.GroupVersionResource{
 	Group:    astronv1alpha1.GroupVersion.Group,
 	Version:  astronv1alpha1.GroupVersion.Version,
@@ -375,8 +378,8 @@ func applyView(cmd *cobra.Command, dyn dynamic.Interface, manifest viewManifest)
 // key as a YAML document.
 func loadSpecOverlay(ctx context.Context, dyn dynamic.Interface, defaultNamespace, ref string) (map[string]any, error) {
 	ns, name := defaultNamespace, ref
-	if idx := strings.Index(ref, "/"); idx >= 0 {
-		ns, name = ref[:idx], ref[idx+1:]
+	if before, after, ok := strings.Cut(ref, "/"); ok {
+		ns, name = before, after
 	}
 	if ns == "" || name == "" {
 		return nil, fmt.Errorf("invalid --spec-from-configmap value %q: expected \"name\" or \"namespace/name\"", ref)
@@ -603,7 +606,7 @@ func buildManifest(gopts *generateOptions, namespace string, selectors []astronv
 
 	return projectionManifest{
 		APIVersion: astronv1alpha1.GroupVersion.String(),
-		Kind:       "GraphProjection",
+		Kind:       kindGraphProjection,
 		Metadata:   manifestMeta{Name: name, Namespace: namespace},
 		Spec:       spec,
 	}

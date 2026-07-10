@@ -150,7 +150,13 @@ func (p *Projector) AddLink(ctx context.Context, fromID, toID, relType string) e
 	if !ok {
 		return ErrLinksNotSupported
 	}
-	return ls.AddManualLink(ctx, p.opts.ID, fromID, toID, relType)
+	if err := ls.AddManualLink(ctx, p.opts.ID, fromID, toID, relType); err != nil {
+		return err
+	}
+	// Re-sync so the new link flows into the GraphRAG cards (and thus
+	// embeddings) of its endpoints without waiting for the next resync.
+	p.enqueue()
+	return nil
 }
 
 // DeleteLink removes a user-defined link between two nodes of this projection,
@@ -161,7 +167,13 @@ func (p *Projector) DeleteLink(ctx context.Context, fromID, toID, relType string
 	if !ok {
 		return ErrLinksNotSupported
 	}
-	return ls.DeleteManualLink(ctx, p.opts.ID, fromID, toID, relType)
+	if err := ls.DeleteManualLink(ctx, p.opts.ID, fromID, toID, relType); err != nil {
+		return err
+	}
+	// Re-sync so the removed link (and any note it carried) drops out of the
+	// endpoints' GraphRAG cards and embeddings promptly.
+	p.enqueue()
+	return nil
 }
 
 // UpdateLinkNote sets (or clears) the free-text note on a user-defined link of
