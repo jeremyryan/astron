@@ -442,6 +442,20 @@ export function GraphView({
             events: "no",
           },
         },
+        // The Shift+drag box-selection overlay: mostly transparent fill with a
+        // visible border, so the nodes and edges beneath it stay readable while
+        // the selection area is being drawn.
+        {
+          selector: "core",
+          style: {
+            "selection-box-color": "#16a3b8",
+            "selection-box-opacity": 0.12,
+            "selection-box-border-color": "#16a3b8",
+            "selection-box-border-width": 1,
+            // The typings require every Core style property; only the
+            // selection-box ones are being overridden here.
+          } as unknown as cytoscape.Css.Core,
+        },
         // A selected edge keeps its relationship color; a thin white "outline"
         // edge is drawn just behind it (added by the select/unselect handler)
         // so both the line and the arrowhead get a white stroke. Both are forced
