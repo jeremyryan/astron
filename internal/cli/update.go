@@ -182,7 +182,7 @@ func updateProjectionFile(cmd *cobra.Command, path, namespace, name string, add 
 			continue
 		}
 		obj := &unstructured.Unstructured{Object: m}
-		if obj.GetKind() != "GraphProjection" {
+		if obj.GetKind() != kindGraphProjection {
 			continue
 		}
 		if obj.GetName() == name && obj.GetNamespace() == namespace {

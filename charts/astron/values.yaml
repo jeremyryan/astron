@@ -148,6 +148,20 @@ connection:
   # -- Key in the credentials Secret holding the password.
   passwordKey: "password"
 
+# ConfigMap holding the default configuration for new GraphProjections. Its
+# `spec` key is a partial GraphProjection spec carrying the Neo4J connection
+# details from `connection` above, for tooling to merge into generated
+# manifests (e.g. `astron projections generate --spec-from-configmap <name>`).
+projectionDefaults:
+  # -- Create the projection-defaults ConfigMap.
+  enabled: true
+  # -- Name of the ConfigMap. Generated from the release when empty
+  # ("<fullname>-projection-defaults").
+  name: ""
+  # -- Extra partial GraphProjection spec merged into the `spec` key after the
+  # Neo4J connection block (e.g. resyncInterval, graphRAG defaults).
+  extraSpec: {}
+
 # Optionally create a default GraphProjection on install.
 defaultProjection:
   # -- Create a GraphProjection resource pointing at the configured Neo4J.
