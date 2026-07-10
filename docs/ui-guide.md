@@ -317,6 +317,7 @@ These settings are persisted in your browser's local storage, so they persist ac
 | `C` | Center the selected node(s) in the view |
 | `E` | Expand the selection to include directly-connected nodes (press repeatedly to keep growing it) |
 | `J` | Join the selected nodes: also select the nodes along the shortest path between each pair, if one exists |
+| `A` | Select all nodes connected to the selection, directly or indirectly |
 | `Ctrl/Cmd + F` | (Browser search) Find in page |
 
 ---
