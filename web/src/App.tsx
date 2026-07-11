@@ -48,6 +48,7 @@ import {
 import { YamlModal } from "./YamlModal";
 import { ChatPanel } from "./ChatPanel";
 import { SettingsModal } from "./SettingsModal";
+import { ShortcutsModal } from "./ShortcutsModal";
 import { useSettings } from "./settings";
 import { colorForRelationship, iconForKindOrGeneric } from "./kinds";
 import {
@@ -1323,6 +1324,8 @@ function Shell({ children }: { children: ReactNode }) {
   const { projection: projectionName, view: viewName } = useParams();
   // Whether the settings modal is open.
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Whether the keyboard-shortcuts help modal is open.
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   return (
     <AppShell header={{ height: 52 }} navbar={{ width: 260, breakpoint: "sm" }} padding={0}>
@@ -1352,6 +1355,17 @@ function Shell({ children }: { children: ReactNode }) {
                 <IconFileCode size={20} stroke={1.5} />
               </ActionIcon>
             </Tooltip>
+            <Tooltip label="Keyboard shortcuts" position="bottom" withArrow>
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                size="lg"
+                aria-label="Keyboard shortcuts"
+                onClick={() => setShortcutsOpen(true)}
+              >
+                <IconHelp size={20} stroke={1.5} />
+              </ActionIcon>
+            </Tooltip>
             <Tooltip label="Settings" position="bottom" withArrow>
               <ActionIcon
                 variant="subtle"
@@ -1379,6 +1393,7 @@ function Shell({ children }: { children: ReactNode }) {
       <AppShell.Main className="app-main">{children}</AppShell.Main>
 
       <SettingsModal opened={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <ShortcutsModal opened={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
     </AppShell>
   );
 }
