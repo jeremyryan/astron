@@ -1075,6 +1075,8 @@ export function GraphView({
     //               shortest path between each pair, when one exists
     //   A           selects everything connected to the selection, directly
     //               or indirectly (the whole connected component)
+    //   Shift+H     hides every node except the selection; with nothing
+    //               selected, unhides all nodes
     const ARROW_DELTAS: Record<string, [number, number]> = {
       ArrowUp: [0, -1],
       ArrowDown: [0, 1],
@@ -1125,6 +1127,26 @@ export function GraphView({
       )
         return;
       const selected = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
+
+      // Shift+H: focus the view on the selection by hiding every other node,
+      // or — with nothing selected — bring every hidden node back.
+      if (key === "h" && e.shiftKey) {
+        e.preventDefault();
+        if (selected.empty()) {
+          onSetVisibility(
+            graphRef.current.nodes.map((n) => n.id),
+            false,
+          );
+        } else {
+          const selIds = new Set(selected.map((n) => n.id()));
+          onSetVisibility(
+            graphRef.current.nodes.filter((n) => !selIds.has(n.id)).map((n) => n.id),
+            true,
+          );
+        }
+        return;
+      }
+      if (e.shiftKey) return;
       if (selected.empty()) return;
 
       if (key === "y") {
