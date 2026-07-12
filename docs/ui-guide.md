@@ -319,6 +319,7 @@ These settings are persisted in your browser's local storage, so they persist ac
 | `E` | Expand the selection to include directly-connected nodes (press repeatedly to keep growing it) |
 | `J` | Join the selected nodes: also select the nodes along the shortest path between each pair, if one exists |
 | `A` | Select all nodes connected to the selection, directly or indirectly |
+| `Shift + D` | Deselect all nodes |
 | `Ctrl/Cmd + F` | (Browser search) Find in page |
 
 ---

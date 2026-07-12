@@ -1077,6 +1077,7 @@ export function GraphView({
     //               or indirectly (the whole connected component)
     //   Shift+H     hides every node except the selection; with nothing
     //               selected, unhides all nodes
+    //   Shift+D     deselects all nodes
     const ARROW_DELTAS: Record<string, [number, number]> = {
       ArrowUp: [0, -1],
       ArrowDown: [0, 1],
@@ -1123,7 +1124,8 @@ export function GraphView({
         key !== "c" &&
         key !== "e" &&
         key !== "j" &&
-        key !== "a"
+        key !== "a" &&
+        key !== "d"
       )
         return;
       const selected = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
@@ -1146,7 +1148,17 @@ export function GraphView({
         }
         return;
       }
+      // Shift+D: clear the selection (and the inspector's detail view).
+      if (key === "d" && e.shiftKey) {
+        if (selected.empty()) return;
+        e.preventDefault();
+        cy.elements().unselect();
+        onSelect(null);
+        return;
+      }
       if (e.shiftKey) return;
+      // "d" is only meaningful with Shift (handled above).
+      if (key === "d") return;
       if (selected.empty()) return;
 
       if (key === "y") {

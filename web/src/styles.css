@@ -261,7 +261,6 @@ body {
 /* A resource hidden from the graph via the list's visibility toggle. */
 .resource-link-hidden {
   color: var(--muted);
-  text-decoration: line-through;
   opacity: 0.7;
 }
 
