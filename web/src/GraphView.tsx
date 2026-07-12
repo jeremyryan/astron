@@ -17,6 +17,11 @@ import {
   IconZoomIn,
   IconZoomOut,
   IconMaximize,
+  IconFocus2,
+  IconArrowsMaximize,
+  IconRoute,
+  IconTopologyStar3,
+  IconX,
 } from "./icons";
 import cytoscape, { type Core, type ElementDefinition, type NodeSingular } from "cytoscape";
 import dagre from "cytoscape-dagre";
@@ -208,6 +213,21 @@ interface Props {
   exportName?: string;
 }
 
+// Selection-centric actions shared by the keyboard shortcuts and the node
+// context menu, implemented against the live cytoscape instance.
+interface GraphActions {
+  showYaml(id: string): void;
+  startLink(id: string): void;
+  hide(ids: string[]): void;
+  hideOthers(ids: string[]): void;
+  unhideAll(): void;
+  center(ids: string[]): void;
+  expand(ids: string[]): void;
+  join(ids: string[]): void;
+  selectConnected(ids: string[]): void;
+  deselectAll(): void;
+}
+
 // Context menu anchored at a viewport position for a right-clicked node.
 interface EdgeMenu {
   x: number;
@@ -261,6 +281,9 @@ export function GraphView({
   // Set when a press-drag on an edge rotated its target node, so the edge
   // "tap" fired on release is swallowed instead of selecting the edge.
   const edgeRotatedRef = useRef(false);
+  // Shared selection-action implementations, populated by the canvas effect
+  // and used by both the keyboard shortcuts and the node context menu.
+  const actionsRef = useRef<GraphActions | null>(null);
   // Ref mirror of onSelectedIdsChange so the once-registered cytoscape handler
   // always calls the latest callback without rebuilding the graph.
   const selectedIdsCbRef = useRef(onSelectedIdsChange);
@@ -1063,6 +1086,92 @@ export function GraphView({
     const handleContextMenu = (e: MouseEvent) => e.preventDefault();
     containerRef.current.addEventListener("contextmenu", handleContextMenu);
 
+    // A collection built from node ids (skipping any that no longer exist).
+    const byIds = (ids: string[]) => {
+      let col = cy.collection();
+      for (const id of ids) col = col.union(cy.getElementById(id));
+      return col;
+    };
+    // The visible, non-group subgraph that path/connectivity searches run on.
+    const searchableEles = () => {
+      const ns = cy.nodes().filter((n) => !n.hasClass(GROUP_CLASS) && !n.hasClass("hidden"));
+      return ns.union(ns.edgesWith(ns));
+    };
+
+    // Shared implementations of the selection-centric actions; the keyboard
+    // shortcuts below and the node context menu both delegate here so the two
+    // stay in sync.
+    const actions: GraphActions = {
+      showYaml: (id) => {
+        const found = graphRef.current.nodes.find((n) => n.id === id);
+        if (found) onShowYaml(found);
+      },
+      startLink: (id) => {
+        if (!linkingRef.current) setLinkingSourceId(id);
+      },
+      // Hidden nodes stay listed in the resource list so they can be shown
+      // again.
+      hide: (ids) => onSetVisibility(ids, true),
+      hideOthers: (ids) => {
+        const keep = new Set(ids);
+        onSetVisibility(
+          graphRef.current.nodes.filter((n) => !keep.has(n.id)).map((n) => n.id),
+          true,
+        );
+      },
+      unhideAll: () =>
+        onSetVisibility(
+          graphRef.current.nodes.map((n) => n.id),
+          false,
+        ),
+      center: (ids) => {
+        const eles = byIds(ids);
+        if (eles.nonempty()) cy.animate({ center: { eles }, duration: 200 });
+      },
+      // Expand by one hop: select the given nodes plus every visible node
+      // directly connected to them. Repeating keeps growing the selection.
+      expand: (ids) => {
+        const col = byIds(ids);
+        col.select();
+        col
+          .neighborhood("node")
+          .filter((n) => !n.hasClass(GROUP_CLASS) && !n.hasClass("hidden"))
+          .select();
+      },
+      // Join: select the nodes along a shortest path (ignoring edge direction)
+      // between each pair, so a connecting path is formed where one exists.
+      // Pairs with no path are left as-is.
+      join: (ids) => {
+        const eles = searchableEles();
+        const arr = byIds(ids).toArray() as NodeSingular[];
+        for (let i = 0; i < arr.length; i++) {
+          for (let j = i + 1; j < arr.length; j++) {
+            const res = eles.aStar({ root: arr[i], goal: arr[j], directed: false });
+            if (res.found) res.path.nodes().select();
+          }
+        }
+      },
+      // Select the connected component(s): every visible node reachable from
+      // the given nodes through any chain of links, ignoring edge direction.
+      selectConnected: (ids) => {
+        const roots = byIds(ids);
+        if (roots.empty()) return;
+        roots.select();
+        searchableEles().bfs({
+          roots,
+          directed: false,
+          visit: (n) => {
+            n.select();
+          },
+        });
+      },
+      deselectAll: () => {
+        cy.elements().unselect();
+        onSelect(null);
+      },
+    };
+    actionsRef.current = actions;
+
     // Keyboard shortcuts acting on the currently selected node(s). Single keys
     // (no modifiers) are only active while at least one node is selected:
     //   Arrow keys  nudge the selection (hold Shift for a larger step)
@@ -1130,30 +1239,21 @@ export function GraphView({
         return;
       const selected = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
 
+      const selIds = selected.map((n) => n.id());
+
       // Shift+H: focus the view on the selection by hiding every other node,
       // or — with nothing selected — bring every hidden node back.
       if (key === "h" && e.shiftKey) {
         e.preventDefault();
-        if (selected.empty()) {
-          onSetVisibility(
-            graphRef.current.nodes.map((n) => n.id),
-            false,
-          );
-        } else {
-          const selIds = new Set(selected.map((n) => n.id()));
-          onSetVisibility(
-            graphRef.current.nodes.filter((n) => !selIds.has(n.id)).map((n) => n.id),
-            true,
-          );
-        }
+        if (selected.empty()) actions.unhideAll();
+        else actions.hideOthers(selIds);
         return;
       }
       // Shift+D: clear the selection (and the inspector's detail view).
       if (key === "d" && e.shiftKey) {
         if (selected.empty()) return;
         e.preventDefault();
-        cy.elements().unselect();
-        onSelect(null);
+        actions.deselectAll();
         return;
       }
       if (e.shiftKey) return;
@@ -1164,69 +1264,31 @@ export function GraphView({
       if (key === "y") {
         // YAML manifest for the single selected node.
         if (selected.length !== 1) return;
-        const found = graphRef.current.nodes.find((n) => n.id === selected.first().id());
-        if (!found) return;
         e.preventDefault();
-        onShowYaml(found);
+        actions.showYaml(selIds[0]);
       } else if (key === "l") {
-        // Start linking from the single selected node, mirroring the "Add Link"
-        // context-menu action. No effect with multiple nodes selected, or while
-        // a link is already being drawn.
+        // Start linking from the single selected node. No effect with multiple
+        // nodes selected, or while a link is already being drawn.
         if (linkingRef.current || selected.length !== 1) return;
         e.preventDefault();
-        setLinkingSourceId(selected.first().id());
+        actions.startLink(selIds[0]);
       } else if (key === "h") {
-        // Hide the selected node(s); they stay listed in the resource list so
-        // they can be shown again.
         e.preventDefault();
-        onSetVisibility(selected.map((n) => n.id()), true);
+        actions.hide(selIds);
       } else if (key === "j") {
-        // Join: select the nodes along a shortest path (ignoring edge
-        // direction) between each pair of selected nodes, so a connecting path
-        // is formed where one exists. Pairs with no path are left as-is.
         if (selected.length < 2) return;
         e.preventDefault();
-        // Search only the visible, non-group part of the graph.
-        const pathNodes = cy
-          .nodes()
-          .filter((n) => !n.hasClass(GROUP_CLASS) && !n.hasClass("hidden"));
-        const eles = pathNodes.union(pathNodes.edgesWith(pathNodes));
-        const arr = selected.toArray() as NodeSingular[];
-        for (let i = 0; i < arr.length; i++) {
-          for (let j = i + 1; j < arr.length; j++) {
-            const res = eles.aStar({ root: arr[i], goal: arr[j], directed: false });
-            if (res.found) res.path.nodes().select();
-          }
-        }
+        actions.join(selIds);
       } else if (key === "a") {
-        // Select the connected component(s) of the selection: every visible
-        // node reachable from a selected node through any chain of links,
-        // ignoring edge direction.
         e.preventDefault();
-        const reachable = cy
-          .nodes()
-          .filter((n) => !n.hasClass(GROUP_CLASS) && !n.hasClass("hidden"));
-        const eles = reachable.union(reachable.edgesWith(reachable));
-        eles.bfs({
-          roots: selected,
-          directed: false,
-          visit: (n) => {
-            n.select();
-          },
-        });
+        actions.selectConnected(selIds);
       } else if (key === "e") {
-        // Expand the selection by one hop: also select every visible node
-        // directly connected to a currently-selected node. Pressing repeatedly
-        // keeps growing the selection along connections.
         e.preventDefault();
-        selected
-          .neighborhood("node")
-          .filter((n) => !n.hasClass(GROUP_CLASS) && !n.hasClass("hidden"))
-          .select();
+        actions.expand(selIds);
       } else {
         // "c": center the selection in the view.
         e.preventDefault();
-        cy.animate({ center: { eles: selected }, duration: 200 });
+        actions.center(selIds);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -1245,6 +1307,7 @@ export function GraphView({
       container.removeEventListener("contextmenu", handleContextMenu);
       cy.destroy();
       cyRef.current = null;
+      actionsRef.current = null;
     };
     // graph is intentionally read via graphRef (not a dep): only structural
     // changes (structuralKey) rebuild the canvas; data updates are reconciled
@@ -1740,82 +1803,138 @@ export function GraphView({
           </ActionIcon>
         </Tooltip>
       </Group>
-      {menu && (
-        <Menu
-          opened
-          onClose={() => setMenu(null)}
-          position="bottom-start"
-          shadow="md"
-          width={160}
-          withinPortal
-        >
-          <Menu.Target>
-            <div
-              style={{ position: "fixed", left: menu.x, top: menu.y, width: 1, height: 1 }}
-            />
-          </Menu.Target>
-          <Menu.Dropdown>
-            <Menu.Label>
-              <Text size="xs" truncate>
-                {menu.node.kind}/{menu.node.name}
-              </Text>
-            </Menu.Label>
-            <Menu.Item
-              leftSection={<IconCode size={16} stroke={1.5} />}
-              onClick={() => {
-                onShowYaml(menu.node);
-                setMenu(null);
-              }}
+      {menu &&
+        (() => {
+          // Menu actions mirror the keyboard shortcuts. When the right-clicked
+          // node is part of the current selection the actions apply to the
+          // whole selection, otherwise to just this node; multi-node actions
+          // (and their key hints) appear only for a multi-node target.
+          const cy = cyRef.current;
+          const selIds = cy
+            ? cy
+                .nodes(":selected")
+                .filter((n) => !n.hasClass(GROUP_CLASS))
+                .map((n) => n.id())
+            : [];
+          const targetIds =
+            selIds.length > 0 && selIds.includes(menu.node.id) ? selIds : [menu.node.id];
+          const multi = targetIds.length > 1;
+          const act = actionsRef.current;
+          // Runs a shared action and closes the menu.
+          const run = (fn: (a: GraphActions) => void) => () => {
+            if (act) fn(act);
+            setMenu(null);
+          };
+          const hint = (k: string) => (
+            <Text size="xs" c="dimmed">
+              {k}
+            </Text>
+          );
+          const clickedHidden = hiddenIds.has(menu.node.id);
+          return (
+            <Menu
+              opened
+              onClose={() => setMenu(null)}
+              position="bottom-start"
+              shadow="md"
+              width={210}
+              withinPortal
             >
-              YAML
-            </Menu.Item>
-            <Menu.Item
-              leftSection={<IconLink size={16} stroke={1.5} />}
-              rightSection={
-                <Text size="xs" c="dimmed">
-                  L
-                </Text>
-              }
-              onClick={() => {
-                setLinkingSourceId(menu.node.id);
-                setMenu(null);
-              }}
-            >
-              Add Link
-            </Menu.Item>
-            <Menu.Item
-              leftSection={
-                hiddenIds.has(menu.node.id) ? (
-                  <IconEye size={16} stroke={1.5} />
-                ) : (
-                  <IconEyeOff size={16} stroke={1.5} />
-                )
-              }
-              onClick={() => {
-                // Direction of the action follows the clicked node's current
-                // state. When the clicked node is part of a multi-selection,
-                // apply it to every selected node; otherwise just this node.
-                const targetHidden = !hiddenIds.has(menu.node.id);
-                let ids = [menu.node.id];
-                const cy = cyRef.current;
-                if (cy) {
-                  const selIds = cy
-                    .nodes(":selected")
-                    .filter((n) => !n.isParent())
-                    .map((n) => n.id());
-                  if (selIds.length > 0 && selIds.includes(menu.node.id)) {
-                    ids = selIds;
+              <Menu.Target>
+                <div
+                  style={{ position: "fixed", left: menu.x, top: menu.y, width: 1, height: 1 }}
+                />
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Label>
+                  <Text size="xs" truncate>
+                    {multi
+                      ? `${targetIds.length} nodes selected`
+                      : `${menu.node.kind}/${menu.node.name}`}
+                  </Text>
+                </Menu.Label>
+                {!multi && (
+                  <>
+                    <Menu.Item
+                      leftSection={<IconCode size={16} stroke={1.5} />}
+                      rightSection={hint("Y")}
+                      onClick={run(() => onShowYaml(menu.node))}
+                    >
+                      YAML
+                    </Menu.Item>
+                    <Menu.Item
+                      leftSection={<IconLink size={16} stroke={1.5} />}
+                      rightSection={hint("L")}
+                      onClick={run((a) => a.startLink(menu.node.id))}
+                    >
+                      Add Link
+                    </Menu.Item>
+                  </>
+                )}
+                <Menu.Item
+                  leftSection={
+                    clickedHidden ? (
+                      <IconEye size={16} stroke={1.5} />
+                    ) : (
+                      <IconEyeOff size={16} stroke={1.5} />
+                    )
                   }
-                }
-                onSetVisibility(ids, targetHidden);
-                setMenu(null);
-              }}
-            >
-              {hiddenIds.has(menu.node.id) ? "View" : "Hide"}
-            </Menu.Item>
-          </Menu.Dropdown>
-        </Menu>
-      )}
+                  rightSection={clickedHidden ? undefined : hint("H")}
+                  // Direction of the action follows the clicked node's state.
+                  onClick={run(() => onSetVisibility(targetIds, !clickedHidden))}
+                >
+                  {clickedHidden ? "View" : "Hide"}
+                </Menu.Item>
+                <Menu.Item
+                  leftSection={<IconEyeOff size={16} stroke={1.5} />}
+                  rightSection={hint("⇧H")}
+                  onClick={run((a) => a.hideOthers(targetIds))}
+                >
+                  Hide Others
+                </Menu.Item>
+                <Menu.Item
+                  leftSection={<IconFocus2 size={16} stroke={1.5} />}
+                  rightSection={hint("C")}
+                  onClick={run((a) => a.center(targetIds))}
+                >
+                  Center
+                </Menu.Item>
+                <Menu.Item
+                  leftSection={<IconArrowsMaximize size={16} stroke={1.5} />}
+                  rightSection={hint("E")}
+                  onClick={run((a) => a.expand(targetIds))}
+                >
+                  Expand Selection
+                </Menu.Item>
+                <Menu.Item
+                  leftSection={<IconTopologyStar3 size={16} stroke={1.5} />}
+                  rightSection={hint("A")}
+                  onClick={run((a) => a.selectConnected(targetIds))}
+                >
+                  Select Connected
+                </Menu.Item>
+                {multi && (
+                  <>
+                    <Menu.Item
+                      leftSection={<IconRoute size={16} stroke={1.5} />}
+                      rightSection={hint("J")}
+                      onClick={run((a) => a.join(targetIds))}
+                    >
+                      Join Paths
+                    </Menu.Item>
+                    <Menu.Item
+                      leftSection={<IconX size={16} stroke={1.5} />}
+                      rightSection={hint("⇧D")}
+                      onClick={run((a) => a.deselectAll())}
+                    >
+                      Deselect All
+                    </Menu.Item>
+                  </>
+                )}
+              </Menu.Dropdown>
+            </Menu>
+          );
+        })()}
       {edgeMenu && (
         <Menu
           opened
