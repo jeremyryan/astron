@@ -166,6 +166,13 @@ func (c *Client) CreateView(ctx context.Context, v View) (View, error) {
 	return out, nil
 }
 
+// DeleteView deletes a GraphView by namespace and name.
+func (c *Client) DeleteView(ctx context.Context, namespace, name string) error {
+	path := fmt.Sprintf("%s/%s/%s", apiViewsPath,
+		url.PathEscape(namespace), url.PathEscape(name))
+	return c.delete(ctx, path)
+}
+
 // Graph returns the materialized graph for a single projection.
 func (c *Client) Graph(ctx context.Context, namespace, name string) (Graph, error) {
 	var out Graph
@@ -202,6 +209,30 @@ func (c *Client) getJSON(ctx context.Context, path string, v any) error {
 
 	if err := json.Unmarshal(body, v); err != nil {
 		return fmt.Errorf("decoding response from %s: %w", path, err)
+	}
+	return nil
+}
+
+// delete issues a DELETE request, accepting any 2xx status.
+func (c *Client) delete(ctx context.Context, path string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+path, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("requesting %s: %w", path, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("reading response from %s: %w", path, err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("%s: %s", path, apiError(resp.StatusCode, body))
 	}
 	return nil
 }
