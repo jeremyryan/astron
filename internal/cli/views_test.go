@@ -434,3 +434,33 @@ func TestViewsGenerateErrors(t *testing.T) {
 		t.Fatalf("expected apply/output-file conflict error, got %v", err)
 	}
 }
+
+func TestAccessControlViewNameNormalized(t *testing.T) {
+	cat, ok := lookupDefaultView("Access control")
+	if !ok {
+		t.Fatal("Access control view not found")
+	}
+	if got := defaultViewResourceName(projWeb, cat); got != "web-access-control" {
+		t.Errorf("resource name = %q, want web-access-control", got)
+	}
+
+	// The hyphenated and space forms both resolve to the same view.
+	for _, name := range []string{"access-control", "access control", "ACCESS CONTROL", "Access-Control"} {
+		got, ok := lookupDefaultView(name)
+		if !ok || got.displayName != "Access control" {
+			t.Errorf("lookupDefaultView(%q) = %+v, %v; want Access control", name, got, ok)
+		}
+	}
+
+	// Generated manifests use the normalized name.
+	out, err := runCmd(t, "views", "generate", "demo", projWeb, "access-control")
+	if err != nil {
+		t.Fatalf("views generate access-control failed: %v", err)
+	}
+	if !strings.Contains(out, "name: web-access-control") {
+		t.Errorf("manifest name not normalized:\n%s", out)
+	}
+	if strings.Contains(out, "name: web-access control") {
+		t.Errorf("manifest contains invalid resource name:\n%s", out)
+	}
+}
