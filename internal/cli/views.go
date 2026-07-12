@@ -34,7 +34,43 @@ func newViewsCmd(opts *options) *cobra.Command {
 	cmd.AddCommand(newViewsListCmd(opts))
 	cmd.AddCommand(newViewsAddCmd(opts))
 	cmd.AddCommand(newViewsDefaultsCmd(opts))
+	cmd.AddCommand(newViewsRmCmd(opts))
 	return cmd
+}
+
+// newViewsRmCmd builds "views rm <namespace> <name>...".
+func newViewsRmCmd(opts *options) *cobra.Command {
+	return &cobra.Command{
+		Use:     "rm <namespace> <name>...",
+		Aliases: []string{"delete", "remove"},
+		Short:   "Delete one or more GraphViews",
+		Long: "rm deletes the named GraphViews from a namespace.\n\n" +
+			"Use \"views list\" to see the existing GraphViews and their names.",
+		Args: cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runViewsRm(cmd, opts, args[0], args[1:])
+		},
+	}
+}
+
+// runViewsRm deletes each named GraphView, continuing past individual failures
+// and reporting them together.
+func runViewsRm(cmd *cobra.Command, opts *options, namespace string, names []string) error {
+	client, err := newClient(opts)
+	if err != nil {
+		return err
+	}
+
+	var errs []error
+	for _, name := range names {
+		if err := client.DeleteView(cmd.Context(), namespace, name); err != nil {
+			errs = append(errs, fmt.Errorf("deleting view %q: %w", name, err))
+			continue
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(),
+			"graphview.astron.astron.io/%s deleted from namespace %s\n", name, namespace)
+	}
+	return errors.Join(errs...)
 }
 
 // defaultViewInfo is the JSON-friendly shape of a built-in view definition, as

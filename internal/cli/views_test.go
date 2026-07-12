@@ -314,3 +314,59 @@ func TestViewsDefaultsJSON(t *testing.T) {
 		t.Errorf("Compute view should include Deployment: %v", byName["Compute"])
 	}
 }
+
+func TestViewsRm(t *testing.T) {
+	var deleted []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete || !strings.HasPrefix(r.URL.Path, apiViewsPath+"/") {
+			http.NotFound(w, r)
+			return
+		}
+		rest := strings.TrimPrefix(r.URL.Path, apiViewsPath+"/")
+		if rest == "astron/missing" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":"graphviews.astron.astron.io \"missing\" not found"}`))
+			return
+		}
+		deleted = append(deleted, rest)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	// Deleting existing views reports each one and hits the API per name.
+	out, err := runCmd(t, "--server", srv.URL, "views", "rm", "astron", "web-compute", "web-networking")
+	if err != nil {
+		t.Fatalf("views rm failed: %v", err)
+	}
+	for _, want := range []string{
+		"graphview.astron.astron.io/web-compute deleted from namespace astron",
+		"graphview.astron.astron.io/web-networking deleted from namespace astron",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+	if len(deleted) != 2 || deleted[0] != "astron/web-compute" || deleted[1] != "astron/web-networking" {
+		t.Errorf("unexpected DELETE requests: %v", deleted)
+	}
+
+	// A missing view surfaces the API error but does not stop other deletions.
+	deleted = nil
+	out, err = runCmd(t, "--server", srv.URL, "views", "rm", "astron", "missing", "web-compute")
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("expected not-found error, got %v", err)
+	}
+	if !strings.Contains(out, "graphview.astron.astron.io/web-compute deleted") {
+		t.Errorf("expected remaining view to still be deleted:\n%s", out)
+	}
+	if len(deleted) != 1 || deleted[0] != "astron/web-compute" {
+		t.Errorf("unexpected DELETE requests: %v", deleted)
+	}
+}
+
+func TestViewsRmRequiresArgs(t *testing.T) {
+	if _, err := runCmd(t, "views", "rm", "astron"); err == nil {
+		t.Fatal("expected an argument-count error with no view names")
+	}
+}
