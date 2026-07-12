@@ -12,7 +12,9 @@ image:
   # -- Image tag. Defaults to the chart appVersion when empty.
   tag: ""
 
-# -- Image pull secrets for private registries.
+# -- Image pull secrets for private registries. Referenced from the operator
+# pod spec and, by default, also attached to the ServiceAccount created by
+# this chart (see serviceAccount.imagePullSecrets).
 imagePullSecrets: []
 # -- Override the chart name used in resource names.
 nameOverride: ""
@@ -26,6 +28,11 @@ serviceAccount:
   annotations: {}
   # -- ServiceAccount name. Generated from the release when empty.
   name: ""
+  # -- Image pull secrets attached to the ServiceAccount, so pods running as it
+  # can pull from private registries without listing the secrets themselves.
+  # Falls back to the top-level imagePullSecrets when empty.
+  # Example: [{ name: my-registry-secret }]
+  imagePullSecrets: []
 
 rbac:
   # -- Create the ClusterRole/Role and bindings the operator needs.
