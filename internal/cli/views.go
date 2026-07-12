@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"k8s.io/client-go/dynamic"
 )
 
 // newViewsCmd builds the "views" command group.
@@ -35,7 +36,97 @@ func newViewsCmd(opts *options) *cobra.Command {
 	cmd.AddCommand(newViewsAddCmd(opts))
 	cmd.AddCommand(newViewsDefaultsCmd(opts))
 	cmd.AddCommand(newViewsRmCmd(opts))
+	cmd.AddCommand(newViewsGenerateCmd(opts))
 	return cmd
+}
+
+// viewsGenerateOptions holds the flags for "views generate".
+type viewsGenerateOptions struct {
+	*options
+	kube kubeOptions
+
+	// outputFile, when set (and not "-"), writes the manifests to a file instead
+	// of stdout.
+	outputFile string
+	// apply creates/updates the GraphViews in the cluster instead of emitting
+	// their manifests.
+	apply bool
+}
+
+// newViewsGenerateCmd builds "views generate <namespace> <projection> <view>...".
+func newViewsGenerateCmd(opts *options) *cobra.Command {
+	gopts := &viewsGenerateOptions{options: opts}
+
+	cmd := &cobra.Command{
+		Use:   "generate <namespace> <projection> <view>...",
+		Short: "Generate GraphView manifests for a GraphProjection",
+		Long: "generate produces GraphView manifests for one or more of the built-in\n" +
+			"default views, filtering an existing GraphProjection in a namespace.\n\n" +
+			"Each view is one of the default views: " + strings.Join(defaultViewNames(), ", ") + ",\n" +
+			"or 'defaults' for all of them. View names are case-insensitive. Each\n" +
+			"GraphView is named \"<projection>-<view>\" (e.g. web-compute). Run\n" +
+			"\"astron views defaults\" to see what each default view shows.\n\n" +
+			"By default the manifests are written to stdout as a multi-document YAML\n" +
+			"stream. Use --output-file to write them to a file, or --apply to\n" +
+			"create/update the GraphViews in the cluster (via your kubeconfig)\n" +
+			"instead of emitting YAML.",
+		Args: cobra.MinimumNArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runViewsGenerate(cmd, gopts, args[0], args[1], args[2:])
+		},
+	}
+
+	cmd.Flags().StringVarP(&gopts.outputFile, "output-file", "f", "",
+		"Write the generated manifests to this file instead of stdout (\"-\" means stdout)")
+	cmd.Flags().BoolVar(&gopts.apply, "apply", false,
+		"Create/update the GraphViews in the cluster instead of emitting their manifests")
+	cmd.Flags().StringVar(&gopts.kube.kubeconfig, "kubeconfig", "",
+		"Path to the kubeconfig file used with --apply (defaults to KUBECONFIG or ~/.kube/config)")
+	cmd.Flags().StringVar(&gopts.kube.context, "context", "",
+		"Name of the kubeconfig context to use with --apply")
+
+	return cmd
+}
+
+// runViewsGenerate resolves the requested view names and emits (or applies) a
+// GraphView manifest for each one.
+func runViewsGenerate(cmd *cobra.Command, gopts *viewsGenerateOptions, namespace, projection string, viewNames []string) error {
+	if gopts.apply && gopts.outputFile != "" {
+		return fmt.Errorf("--apply cannot be combined with --output-file")
+	}
+
+	views, err := parseViewSelection(strings.Join(viewNames, ","))
+	if err != nil {
+		return err
+	}
+
+	manifests := make([]viewManifest, 0, len(views))
+	for _, v := range views {
+		manifests = append(manifests, buildViewManifest(namespace, projection, v))
+	}
+
+	if gopts.apply {
+		cfg, cfgErr := gopts.kube.restConfig()
+		if cfgErr != nil {
+			return cfgErr
+		}
+		dyn, dynErr := dynamic.NewForConfig(cfg)
+		if dynErr != nil {
+			return fmt.Errorf("creating dynamic client: %w", dynErr)
+		}
+		for _, m := range manifests {
+			if err := applyView(cmd, dyn, m); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	docs := make([]any, 0, len(manifests))
+	for _, m := range manifests {
+		docs = append(docs, m)
+	}
+	return writeDocuments(cmd, gopts.outputFile, docs...)
 }
 
 // newViewsRmCmd builds "views rm <namespace> <name>...".

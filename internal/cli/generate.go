@@ -143,6 +143,51 @@ func newGenerateCmd(opts *options) *cobra.Command {
 		},
 	}
 
+	addGenerateFlags(cmd, gopts)
+	cmd.Flags().StringVarP(&gopts.outputFile, "output-file", "f", "",
+		"Write the generated manifest to this file instead of stdout (\"-\" means stdout)")
+	cmd.Flags().BoolVar(&gopts.apply, "apply", false,
+		"Create/update the GraphProjection in the cluster instead of emitting its manifest")
+
+	return cmd
+}
+
+// newProjectionsAddCmd builds "projections add <namespace>": the same
+// namespace inspection as "generate", but always creating/updating the
+// GraphProjection (and any requested views) in the cluster.
+func newProjectionsAddCmd(opts *options) *cobra.Command {
+	gopts := &generateOptions{options: opts, apply: true}
+
+	cmd := &cobra.Command{
+		Use:     "add <namespace>",
+		Aliases: []string{"create"},
+		Short:   "Create a GraphProjection for a namespace directly in the cluster",
+		Long: "add inspects a namespace in the cluster and creates (or updates) a\n" +
+			"GraphProjection scoped to that namespace, equivalent to\n" +
+			"\"projections generate --apply\".\n\n" +
+			"By default it includes only the standard set of common resource kinds\n" +
+			"(workloads, Services, ConfigMaps/Secrets, PVCs, Ingress, ...) that\n" +
+			"currently have at least one instance in the namespace. Pass\n" +
+			"--all-resources to include every namespaced kind that has instances.\n\n" +
+			"Use --spec-from-configmap to merge shared settings (for example a\n" +
+			"graphRAG configuration) into the projection's spec, and --views to also\n" +
+			"create default GraphViews for it.\n\n" +
+			"It talks directly to the Kubernetes API (via your kubeconfig), not the\n" +
+			"Astron read API, so the --server flag does not apply here.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runGenerate(cmd, gopts, args[0])
+		},
+	}
+
+	addGenerateFlags(cmd, gopts)
+
+	return cmd
+}
+
+// addGenerateFlags registers the flags shared by "projections generate" and
+// "projections add".
+func addGenerateFlags(cmd *cobra.Command, gopts *generateOptions) {
 	cmd.Flags().StringVar(&gopts.kube.kubeconfig, "kubeconfig", "",
 		"Path to the kubeconfig file (defaults to KUBECONFIG or ~/.kube/config)")
 	cmd.Flags().StringVar(&gopts.kube.context, "context", "",
@@ -167,14 +212,8 @@ func newGenerateCmd(opts *options) *cobra.Command {
 		"Resource Kinds to exclude from the projection (e.g. Event,EndpointSlice)")
 	cmd.Flags().BoolVar(&gopts.allResources, "all-resources", false,
 		"Include every namespaced kind that has instances, instead of the standard common set")
-	cmd.Flags().StringVarP(&gopts.outputFile, "output-file", "f", "",
-		"Write the generated manifest to this file instead of stdout (\"-\" means stdout)")
-	cmd.Flags().BoolVar(&gopts.apply, "apply", false,
-		"Create/update the GraphProjection in the cluster instead of emitting its manifest")
 	cmd.Flags().StringVar(&gopts.specConfigMap, "spec-from-configmap", "",
 		"ConfigMap (\"name\" or \"namespace/name\") whose \"spec\" key is a YAML document merged into the generated spec")
-
-	return cmd
 }
 
 func runGenerate(cmd *cobra.Command, gopts *generateOptions, namespace string) error {
