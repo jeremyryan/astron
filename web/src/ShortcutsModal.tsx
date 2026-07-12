@@ -24,6 +24,7 @@ const KEYBOARD_SHORTCUTS: Shortcut[] = [
     action: "Join the selected nodes: select the nodes along the shortest path between each pair",
   },
   { keys: ["A"], action: "Select all nodes connected to the selection, directly or indirectly" },
+  { keys: ["Shift", "D"], action: "Deselect all nodes" },
 ];
 
 const MOUSE_GESTURES: Shortcut[] = [
