@@ -1,0 +1,51 @@
+# syntax=docker/dockerfile:1
+# Builds a lightweight image containing the astron CLI, intended to run as a
+# utility Pod inside a cluster so operators can explore projections from
+# within it, e.g.:
+#
+#   kubectl -n astron run astron-cli --image=<registry>/astron-cli:<tag>
+#   kubectl -n astron exec -it astron-cli -- \
+#     astron --server http://astron-api.astron.svc:8082 projections list
+#
+# The default command sleeps forever so the Pod stays running for `kubectl
+# exec`; pass an explicit command to run the CLI directly instead.
+
+# Build the CLI binary
+FROM golang:1.25-alpine AS builder
+ARG TARGETOS
+ARG TARGETARCH
+# Release metadata surfaced by `astron version`.
+ARG VERSION=dev
+ARG COMMIT=none
+ARG DATE=unknown
+
+WORKDIR /workspace
+# Cache module downloads separately from source changes.
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+# Copy the Go source (relies on .dockerignore to filter). The CLI does not
+# embed the web UI, so no Node build stage is needed.
+COPY . .
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
+    go build \
+      -ldflags "-s -w \
+        -X github.com/project-astron/astron/internal/cli.version=${VERSION} \
+        -X github.com/project-astron/astron/internal/cli.commit=${COMMIT} \
+        -X github.com/project-astron/astron/internal/cli.date=${DATE}" \
+      -o astron ./cmd/cli
+
+# Alpine (rather than distroless) so the Pod has a shell to keep it alive and
+# for interactive `kubectl exec` sessions, while staying only a few MB.
+FROM alpine:3.21
+RUN adduser -D -u 65532 astron
+COPY --from=builder /workspace/astron /usr/local/bin/astron
+USER 65532:65532
+
+# Keep the container alive for `kubectl exec`; override with an explicit
+# command (e.g. ["astron", "projections", "list"]) to run one-shot.
+CMD ["sleep", "infinity"]

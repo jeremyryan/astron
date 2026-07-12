@@ -27,10 +27,25 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// defaultServer is the read API/UI base URL the CLI talks to when --server is
-// not provided. It matches the address the operator's API server binds to and
-// the port-forward documented in the README.
+// defaultServer is the read API/UI base URL the CLI talks to when neither
+// --server nor the ASTRON_SERVER environment variable is set. It matches the
+// address the operator's API server binds to and the port-forward documented
+// in the README.
 const defaultServer = "http://localhost:8082"
+
+// serverEnvVar is the environment variable consulted for the read API base URL
+// when the --server flag is not provided.
+const serverEnvVar = "ASTRON_SERVER"
+
+// defaultServerURL returns the server base URL to use as the --server flag
+// default: the ASTRON_SERVER environment variable when set (and non-empty),
+// otherwise the built-in default. The flag always overrides the environment.
+func defaultServerURL() string {
+	if s := os.Getenv(serverEnvVar); s != "" {
+		return s
+	}
+	return defaultServer
+}
 
 // options holds the global flags shared by all subcommands.
 type options struct {
@@ -67,8 +82,8 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 
-	cmd.PersistentFlags().StringVar(&opts.server, "server", defaultServer,
-		"Base URL of the Astron read API")
+	cmd.PersistentFlags().StringVar(&opts.server, "server", defaultServerURL(),
+		"Base URL of the Astron read API (defaults to $"+serverEnvVar+" when set)")
 	cmd.PersistentFlags().DurationVar(&opts.timeout, "timeout", 30*time.Second,
 		"Timeout for requests to the API")
 	cmd.PersistentFlags().StringVarP(&opts.output, "output", "o", "table",

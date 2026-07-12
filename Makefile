@@ -157,6 +157,17 @@ skaffold-delete: ## Tear down the Skaffold-deployed release.
 docker-build: ## Build docker image with the manager.
 	$(CONTAINER_TOOL) build -t ${IMG} .
 
+# Image URL for the CLI utility image.
+CLI_IMG ?= astron-cli:latest
+
+.PHONY: docker-build-cli
+docker-build-cli: ## Build the lightweight astron CLI image (Dockerfile.cli).
+	$(CONTAINER_TOOL) build -f Dockerfile.cli \
+		--build-arg VERSION=$$(git describe --tags --always --dirty 2>/dev/null || echo dev) \
+		--build-arg COMMIT=$$(git rev-parse --short HEAD 2>/dev/null || echo none) \
+		--build-arg DATE=$$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+		-t ${CLI_IMG} .
+
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
