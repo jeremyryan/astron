@@ -47,6 +47,39 @@ func TestVersionCommand(t *testing.T) {
 	}
 }
 
+func TestDefaultServerURL(t *testing.T) {
+	// Without the env var, the built-in default is used.
+	t.Setenv(serverEnvVar, "")
+	if got := defaultServerURL(); got != defaultServer {
+		t.Errorf("defaultServerURL() = %q, want %q", got, defaultServer)
+	}
+
+	// The env var overrides the built-in default.
+	t.Setenv(serverEnvVar, "http://env-server:9000")
+	if got := defaultServerURL(); got != "http://env-server:9000" {
+		t.Errorf("defaultServerURL() = %q, want env value", got)
+	}
+
+	// The env var becomes the --server flag default.
+	cmd := newRootCmd()
+	if got := cmd.PersistentFlags().Lookup("server").DefValue; got != "http://env-server:9000" {
+		t.Errorf("--server default = %q, want env value", got)
+	}
+}
+
+func TestServerFlagOverridesEnv(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode([]any{})
+	}))
+	defer srv.Close()
+
+	// Point the env var at a dead address; the flag must win.
+	t.Setenv(serverEnvVar, "http://127.0.0.1:1")
+	if _, err := runCmd(t, "--server", srv.URL, "projections", "list"); err != nil {
+		t.Fatalf("expected --server to override %s: %v", serverEnvVar, err)
+	}
+}
+
 func TestInvalidOutputFlag(t *testing.T) {
 	_, err := runCmd(t, "--output", "yaml", "version")
 	if err == nil {
