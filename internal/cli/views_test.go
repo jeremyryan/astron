@@ -20,6 +20,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -368,5 +370,97 @@ func TestViewsRm(t *testing.T) {
 func TestViewsRmRequiresArgs(t *testing.T) {
 	if _, err := runCmd(t, "views", "rm", "astron"); err == nil {
 		t.Fatal("expected an argument-count error with no view names")
+	}
+}
+
+func TestViewsGenerateStdout(t *testing.T) {
+	out, err := runCmd(t, "views", "generate", "astron", projWeb, "compute", "networking")
+	if err != nil {
+		t.Fatalf("views generate failed: %v", err)
+	}
+	if strings.Count(out, "---") != 1 {
+		t.Errorf("expected 1 document separator for 2 views, got:\n%s", out)
+	}
+	for _, want := range []string{
+		"kind: GraphView",
+		"name: web-compute",
+		"name: web-networking",
+		"displayName: Compute",
+		"namespace: astron",
+		"kindMode: show",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestViewsGenerateDefaults(t *testing.T) {
+	out, err := runCmd(t, "views", "generate", "astron", projWeb, "defaults")
+	if err != nil {
+		t.Fatalf("views generate defaults failed: %v", err)
+	}
+	if got := strings.Count(out, "kind: GraphView"); got != len(defaultViewCategories) {
+		t.Errorf("expected %d GraphView documents, got %d:\n%s", len(defaultViewCategories), got, out)
+	}
+}
+
+func TestViewsGenerateToFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "views.yaml")
+	out, err := runCmd(t, "views", "generate", "astron", projWeb, "persistence", "-f", path)
+	if err != nil {
+		t.Fatalf("views generate -f failed: %v", err)
+	}
+	if strings.Contains(out, "kind: GraphView") {
+		t.Errorf("manifest should not be on stdout when -f is given: %q", out)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading output file: %v", err)
+	}
+	if !strings.Contains(string(data), "name: web-persistence") {
+		t.Fatalf("unexpected file contents: %s", data)
+	}
+}
+
+func TestViewsGenerateErrors(t *testing.T) {
+	// Unknown view names are rejected before anything is written.
+	if _, err := runCmd(t, "views", "generate", "astron", projWeb, "bogus"); err == nil {
+		t.Fatal("expected error for unknown view name")
+	}
+	// --apply and --output-file are mutually exclusive.
+	if _, err := runCmd(t, "views", "generate", "astron", projWeb, "compute", "--apply", "-f", "x.yaml"); err == nil ||
+		!strings.Contains(err.Error(), "--apply cannot be combined") {
+		t.Fatalf("expected apply/output-file conflict error, got %v", err)
+	}
+}
+
+func TestAccessControlViewNameNormalized(t *testing.T) {
+	cat, ok := lookupDefaultView("Access control")
+	if !ok {
+		t.Fatal("Access control view not found")
+	}
+	if got := defaultViewResourceName(projWeb, cat); got != "web-access-control" {
+		t.Errorf("resource name = %q, want web-access-control", got)
+	}
+
+	// The hyphenated and space forms both resolve to the same view.
+	for _, name := range []string{"access-control", "access control", "ACCESS CONTROL", "Access-Control"} {
+		got, ok := lookupDefaultView(name)
+		if !ok || got.displayName != "Access control" {
+			t.Errorf("lookupDefaultView(%q) = %+v, %v; want Access control", name, got, ok)
+		}
+	}
+
+	// Generated manifests use the normalized name.
+	out, err := runCmd(t, "views", "generate", "demo", projWeb, "access-control")
+	if err != nil {
+		t.Fatalf("views generate access-control failed: %v", err)
+	}
+	if !strings.Contains(out, "name: web-access-control") {
+		t.Errorf("manifest name not normalized:\n%s", out)
+	}
+	if strings.Contains(out, "name: web-access control") {
+		t.Errorf("manifest contains invalid resource name:\n%s", out)
 	}
 }
