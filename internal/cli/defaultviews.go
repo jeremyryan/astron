@@ -84,11 +84,21 @@ func defaultViewNames() []string {
 	return names
 }
 
-// lookupDefaultView resolves a user-supplied view name (case-insensitively) to
-// its built-in category definition.
+// viewSlug normalizes a view name for lookups and resource names: lowercased,
+// with runs of spaces replaced by a single hyphen (e.g. "Access control" ->
+// "access-control"), so it is usable as a Kubernetes resource-name segment.
+func viewSlug(name string) string {
+	return strings.Join(strings.Fields(strings.ToLower(name)), "-")
+}
+
+// lookupDefaultView resolves a user-supplied view name to its built-in
+// category definition. Matching is case-insensitive and treats spaces and
+// hyphens interchangeably, so "access control" and "access-control" both
+// resolve to the "Access control" view.
 func lookupDefaultView(name string) (defaultViewCategory, bool) {
+	want := viewSlug(strings.ReplaceAll(name, "-", " "))
 	for _, c := range defaultViewCategories {
-		if strings.EqualFold(c.displayName, name) {
+		if viewSlug(c.displayName) == want {
 			return c, true
 		}
 	}
@@ -127,9 +137,10 @@ func visibleKindsFor(view defaultViewCategory) []string {
 }
 
 // defaultViewResourceName derives a GraphView's resource name from the
-// projection and the view (e.g. "web-compute").
+// projection and the view (e.g. "web-compute"). Display names are slugified so
+// multi-word views produce valid resource names (e.g. "web-access-control").
 func defaultViewResourceName(projection string, view defaultViewCategory) string {
-	return fmt.Sprintf("%s-%s", projection, strings.ToLower(view.displayName))
+	return fmt.Sprintf("%s-%s", projection, viewSlug(view.displayName))
 }
 
 // parseViewSelection parses a --views selection into the chosen built-in view

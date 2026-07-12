@@ -525,3 +525,40 @@ func TestParseDuration(t *testing.T) {
 		t.Fatalf("parseDuration(\"\") = %v, %v; want nil, nil", d, err)
 	}
 }
+
+func TestProjectionsAddCommandWiring(t *testing.T) {
+	cmd := newProjectionsAddCmd(&options{})
+
+	// add always applies, so the generate-only output flags must not exist.
+	if cmd.Flags().Lookup("apply") != nil {
+		t.Error("add should not expose an --apply flag")
+	}
+	if cmd.Flags().Lookup("output-file") != nil {
+		t.Error("add should not expose an --output-file flag")
+	}
+
+	// The shared generation flags are available.
+	for _, name := range []string{
+		"kubeconfig", "context", "name", "neo4j-uri", "neo4j-database",
+		"neo4j-secret", "neo4j-secret-namespace", "resync-interval",
+		"with-relationships", "views", "exclude", "all-resources",
+		"spec-from-configmap",
+	} {
+		if cmd.Flags().Lookup(name) == nil {
+			t.Errorf("add is missing shared flag --%s", name)
+		}
+	}
+}
+
+func TestProjectionsAddRegistered(t *testing.T) {
+	root := newRootCmd()
+	cmd, _, err := root.Find([]string{"projections", "add"})
+	if err != nil || cmd.Name() != "add" {
+		t.Fatalf("projections add not registered: %v", err)
+	}
+	// The create alias resolves to the same command.
+	alias, _, err := root.Find([]string{"projections", "create"})
+	if err != nil || alias != cmd {
+		t.Fatalf("projections create alias not resolved: %v", err)
+	}
+}
