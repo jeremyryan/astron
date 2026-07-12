@@ -33,7 +33,60 @@ func newViewsCmd(opts *options) *cobra.Command {
 	}
 	cmd.AddCommand(newViewsListCmd(opts))
 	cmd.AddCommand(newViewsAddCmd(opts))
+	cmd.AddCommand(newViewsDefaultsCmd(opts))
 	return cmd
+}
+
+// defaultViewInfo is the JSON-friendly shape of a built-in view definition, as
+// rendered by "views defaults".
+type defaultViewInfo struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Kinds       []string `json:"kinds"`
+}
+
+// newViewsDefaultsCmd builds "views defaults". It is purely local: the built-in
+// view definitions are compiled into the CLI, so no API or cluster access is
+// needed.
+func newViewsDefaultsCmd(opts *options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "defaults",
+		Short: "List the built-in default views",
+		Long: "defaults shows the pre-defined views built into astron, with the\n" +
+			"resource kinds each one makes visible.\n\n" +
+			"These are the names accepted by \"views add\" and by the --views flag of\n" +
+			"\"projections generate\". The command is local and does not contact the\n" +
+			"API server.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runViewsDefaults(cmd, opts)
+		},
+	}
+}
+
+func runViewsDefaults(cmd *cobra.Command, opts *options) error {
+	infos := make([]defaultViewInfo, 0, len(defaultViewCategories))
+	for _, cat := range defaultViewCategories {
+		infos = append(infos, defaultViewInfo{
+			Name:        cat.displayName,
+			Description: cat.description,
+			// visibleKindsFor mirrors exactly what a created GraphView would show,
+			// including the always-visible kinds.
+			Kinds: visibleKindsFor(cat),
+		})
+	}
+
+	if opts.output == outputJSON {
+		return printJSON(cmd.OutOrStdout(), infos)
+	}
+
+	tw := newTabWriter(cmd.OutOrStdout())
+	_, _ = fmt.Fprintln(tw, "NAME\tDESCRIPTION\tKINDS")
+	for _, info := range infos {
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n",
+			info.Name, info.Description, strings.Join(info.Kinds, ", "))
+	}
+	return tw.Flush()
 }
 
 // newViewsAddCmd builds "views add <namespace> <projection> <view>...".
@@ -46,7 +99,8 @@ func newViewsAddCmd(opts *options) *cobra.Command {
 			"GraphProjection in a namespace.\n\n" +
 			"Each view is one of the default views: " + strings.Join(defaultViewNames(), ", ") + ".\n" +
 			"View names are case-insensitive and one or more may be given. Each created\n" +
-			"GraphView is named \"<projection>-<view>\" (e.g. web-compute).",
+			"GraphView is named \"<projection>-<view>\" (e.g. web-compute).\n\n" +
+			"Run \"astron views defaults\" to see what each default view shows.",
 		Args: cobra.MinimumNArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runViewsAdd(cmd, opts, args[0], args[1], args[2:])

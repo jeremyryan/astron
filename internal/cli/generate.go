@@ -162,7 +162,7 @@ func newGenerateCmd(opts *options) *cobra.Command {
 	cmd.Flags().BoolVar(&gopts.withRelationships, "with-relationships", true,
 		"Include well-known relationship rules (OWNS/SELECTS/MOUNTS) for the discovered kinds")
 	cmd.Flags().StringVar(&gopts.views, "views", "",
-		"Also generate default GraphViews: 'defaults' for all, or a comma-separated list (e.g. compute,persistence)")
+		"Also generate default GraphViews: 'defaults' for all, or a comma-separated list (e.g. compute,persistence); see 'astron views defaults'")
 	cmd.Flags().StringSliceVar(&gopts.exclude, "exclude", nil,
 		"Resource Kinds to exclude from the projection (e.g. Event,EndpointSlice)")
 	cmd.Flags().BoolVar(&gopts.allResources, "all-resources", false,

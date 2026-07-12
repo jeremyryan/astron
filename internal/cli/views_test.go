@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -258,5 +259,58 @@ func TestViewsListJSON(t *testing.T) {
 	}
 	if len(got) != 2 {
 		t.Fatalf("expected 2 astron views, got %d: %+v", len(got), got)
+	}
+}
+
+func TestViewsDefaultsTable(t *testing.T) {
+	out, err := runCmd(t, "views", "defaults")
+	if err != nil {
+		t.Fatalf("views defaults failed: %v", err)
+	}
+	if !strings.Contains(out, "NAME") || !strings.Contains(out, "DESCRIPTION") || !strings.Contains(out, "KINDS") {
+		t.Errorf("missing table header: %q", out)
+	}
+	// Every built-in view is listed.
+	for _, name := range defaultViewNames() {
+		if !strings.Contains(out, name) {
+			t.Errorf("output missing default view %q:\n%s", name, out)
+		}
+	}
+	// The kinds column reflects what a created GraphView would show, including
+	// the always-visible Pod kind in non-compute views.
+	if !strings.Contains(out, "Deployment") || !strings.Contains(out, "PersistentVolumeClaim") {
+		t.Errorf("output missing expected kinds:\n%s", out)
+	}
+}
+
+func TestViewsDefaultsJSON(t *testing.T) {
+	out, err := runCmd(t, "-o", "json", "views", "defaults")
+	if err != nil {
+		t.Fatalf("views defaults -o json failed: %v", err)
+	}
+	var got []struct {
+		Name        string   `json:"name"`
+		Description string   `json:"description"`
+		Kinds       []string `json:"kinds"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, out)
+	}
+	if len(got) != len(defaultViewCategories) {
+		t.Fatalf("expected %d views, got %d: %+v", len(defaultViewCategories), len(got), got)
+	}
+	byName := map[string][]string{}
+	for _, v := range got {
+		if v.Description == "" {
+			t.Errorf("view %q has no description", v.Name)
+		}
+		byName[v.Name] = v.Kinds
+	}
+	// Networking includes the always-visible Pod kind, matching visibleKindsFor.
+	if !slices.Contains(byName["Networking"], podKind) {
+		t.Errorf("Networking view should include Pod: %v", byName["Networking"])
+	}
+	if !slices.Contains(byName["Compute"], "Deployment") {
+		t.Errorf("Compute view should include Deployment: %v", byName["Compute"])
 	}
 }
