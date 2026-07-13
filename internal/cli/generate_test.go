@@ -19,6 +19,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+	k8stesting "k8s.io/client-go/testing"
 
 	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
 )
@@ -122,6 +124,38 @@ func TestSelectNamespacedKinds(t *testing.T) {
 	}
 	if !allKinds["Event"] {
 		t.Errorf("expected Event to be selected with --all-resources: %+v", gotAll)
+	}
+}
+
+// TestSelectNamespacedKindsAllListsForbidden verifies that when every
+// candidate kind fails to list (e.g. a ServiceAccount without read RBAC), the
+// command reports a permissions problem instead of the misleading "no
+// instances found".
+func TestSelectNamespacedKindsAllListsForbidden(t *testing.T) {
+	scheme := runtime.NewScheme()
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, map[schema.GroupVersionResource]string{
+		{Version: "v1", Resource: "pods"}: "PodList",
+	})
+	dyn.PrependReactor("list", "*", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewForbidden(
+			schema.GroupResource{Resource: "pods"}, "", errors.New("no RBAC"))
+	})
+
+	lists := []*metav1.APIResourceList{{
+		GroupVersion: "v1",
+		APIResources: []metav1.APIResource{
+			{Name: "pods", Kind: "Pod", Namespaced: true, Verbs: metav1.Verbs{"list"}},
+		},
+	}}
+
+	_, err := selectNamespacedKinds(context.Background(), lists, dyn, demoNS, nil, true)
+	if err == nil {
+		t.Fatal("expected an error when every kind fails to list")
+	}
+	for _, want := range []string{"authorized", "forbidden"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q should mention %q", err, want)
+		}
 	}
 }
 
