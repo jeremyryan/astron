@@ -519,6 +519,12 @@ func selectNamespacedKinds(ctx context.Context, lists []*metav1.APIResourceList,
 	seen := map[string]bool{}
 	var selectors []astronv1alpha1.ResourceSelector
 
+	// Track per-kind list failures so an all-forbidden run (e.g. a
+	// ServiceAccount without read RBAC) is reported as a permissions problem
+	// rather than a misleading "no instances found".
+	var listFailures int
+	var firstListErr error
+
 	for _, list := range lists {
 		gv, parseErr := schema.ParseGroupVersion(list.GroupVersion)
 		if parseErr != nil {
@@ -543,6 +549,10 @@ func selectNamespacedKinds(ctx context.Context, lists []*metav1.APIResourceList,
 			if listErr != nil {
 				// A type we cannot list (RBAC, conversion errors) is skipped rather
 				// than failing the whole command.
+				listFailures++
+				if firstListErr == nil {
+					firstListErr = fmt.Errorf("listing %s: %w", gvr.String(), listErr)
+				}
 				continue
 			}
 			if !has {
@@ -556,6 +566,13 @@ func selectNamespacedKinds(ctx context.Context, lists []*metav1.APIResourceList,
 				Kind:    res.Kind,
 			})
 		}
+	}
+
+	if len(selectors) == 0 && listFailures > 0 {
+		return nil, fmt.Errorf(
+			"could not list any of the %d candidate resource kinds in namespace %q; "+
+				"check that the current credentials are authorized to list resources (first error: %w)",
+			listFailures, namespace, firstListErr)
 	}
 
 	sortSelectors(selectors)
