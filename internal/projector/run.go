@@ -75,12 +75,22 @@ func (p *Projector) Start(ctx context.Context) error {
 	}
 
 	for _, gvk := range p.gvks {
-		gvr, err := p.gvrFor(gvk)
+		mapping, err := p.mappingFor(gvk)
 		if err != nil {
 			log.Error(err, "skipping kind with no REST mapping", "gvk", gvk.String())
 			continue
 		}
-		inf := p.factory.ForResource(gvr)
+		// A projection scoped to its own namespace uses a namespace-filtered
+		// informer factory, and listing a cluster-scoped resource through a
+		// namespaced path is a 404 that the reflector retries forever. Such
+		// resources are excluded from the graph by inScope anyway, so skip
+		// their informers entirely.
+		if p.ownNamespaceOnly && mapping.Scope.Name() != meta.RESTScopeNameNamespace {
+			log.Info("skipping cluster-scoped kind: projection is scoped to its own namespace",
+				"gvk", gvk.String())
+			continue
+		}
+		inf := p.factory.ForResource(mapping.Resource)
 		if _, err := inf.Informer().AddEventHandler(handler); err != nil {
 			return fmt.Errorf("adding event handler for %s: %w", gvk, err)
 		}
@@ -439,19 +449,13 @@ func (p *Projector) scopedGVKs() []schema.GroupVersionKind {
 	return gvks
 }
 
-// gvrFor maps a GVK to a GVR using the REST mapper.
-func (p *Projector) gvrFor(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {
-	var mapping *meta.RESTMapping
-	var err error
+// mappingFor resolves a GVK to its REST mapping (resource name and scope)
+// using the REST mapper.
+func (p *Projector) mappingFor(gvk schema.GroupVersionKind) (*meta.RESTMapping, error) {
 	if gvk.Version != "" {
-		mapping, err = p.opts.Mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-	} else {
-		mapping, err = p.opts.Mapper.RESTMapping(gvk.GroupKind())
+		return p.opts.Mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	}
-	if err != nil {
-		return schema.GroupVersionResource{}, err
-	}
-	return mapping.Resource, nil
+	return p.opts.Mapper.RESTMapping(gvk.GroupKind())
 }
 
 // defaultResources is the built-in set of resource kinds captured when a
