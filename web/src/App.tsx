@@ -71,12 +71,14 @@ import {
 } from "./icons";
 
 // projectionPath / viewPath build the client-side routes for a projection and
-// for one of its saved views: /<projection> and /<projection>/<view>.
-function projectionPath(name: string): string {
-  return `/${encodeURIComponent(name)}`;
+// for one of its saved views: /<namespace>/<projection> and
+// /<namespace>/<projection>/<view>. The namespace is part of the path because
+// projection names are only unique within a namespace.
+function projectionPath(p: Projection): string {
+  return `/${encodeURIComponent(p.namespace)}/${encodeURIComponent(p.name)}`;
 }
-function viewPath(projectionName: string, viewName: string): string {
-  return `/${encodeURIComponent(projectionName)}/${encodeURIComponent(viewName)}`;
+function viewPath(p: Projection, viewName: string): string {
+  return `${projectionPath(p)}/${encodeURIComponent(viewName)}`;
 }
 
 // ProjectionNavItem renders one projection in the navbar with its saved Views
@@ -85,10 +87,12 @@ function viewPath(projectionName: string, viewName: string): string {
 // current selection comes from the URL (/<projection>[/<view>]).
 function ProjectionNavItem({
   projection,
+  selectedNamespace,
   selectedName,
   activeViewName,
 }: {
   projection: Projection;
+  selectedNamespace?: string;
   selectedName?: string;
   activeViewName?: string;
 }) {
@@ -97,13 +101,16 @@ function ProjectionNavItem({
     queryKey: ["views", projection.namespace, projection.name],
     queryFn: () => listViews(projection.namespace, projection.name),
   });
-  const isSelected = projection.name === selectedName;
+  // Projection names are only unique per namespace, so the namespace takes
+  // part in the comparison too.
+  const isSelected =
+    projection.namespace === selectedNamespace && projection.name === selectedName;
   const items = views ?? [];
   return (
     <Box>
       <NavLink
         active={isSelected && !activeViewName}
-        onClick={() => navigate(projectionPath(projection.name))}
+        onClick={() => navigate(projectionPath(projection))}
         leftSection={<IconHierarchy2 size={16} stroke={1.5} />}
         label={<Text fw={600}>{projection.name}</Text>}
         description={`${projection.namespace} · ${projection.phase ?? "—"} · ${projection.nodeCount}n / ${projection.relationshipCount}e`}
@@ -114,7 +121,7 @@ function ProjectionNavItem({
           key={v.uid ?? `${v.namespace}/${v.name}`}
           pl={28}
           active={isSelected && activeViewName === v.name}
-          onClick={() => navigate(viewPath(projection.name, v.name))}
+          onClick={() => navigate(viewPath(projection, v.name))}
           leftSection={<IconBookmark size={14} stroke={1.5} />}
           label={v.displayName || v.name}
         />
@@ -124,9 +131,11 @@ function ProjectionNavItem({
 }
 
 function ProjectionList({
+  selectedNamespace,
   selectedName,
   activeViewName,
 }: {
+  selectedNamespace?: string;
   selectedName?: string;
   activeViewName?: string;
 }) {
@@ -164,6 +173,7 @@ function ProjectionList({
         <ProjectionNavItem
           key={p.uid}
           projection={p}
+          selectedNamespace={selectedNamespace}
           selectedName={selectedName}
           activeViewName={activeViewName}
         />
@@ -1249,11 +1259,11 @@ function NotFoundPage({ message }: { message?: string }) {
   );
 }
 
-// ProjectionRoute resolves the /:projection[/:view] URL params against the
-// projection and view lists, rendering the graph panel on a match and a 404
-// page when either name is unknown.
+// ProjectionRoute resolves the /:namespace/:projection[/:view] URL params
+// against the projection and view lists, rendering the graph panel on a match
+// and a 404 page when either name is unknown.
 function ProjectionRoute() {
-  const { projection: projectionName, view: viewName } = useParams();
+  const { namespace, projection: projectionName, view: viewName } = useParams();
   const navigate = useNavigate();
   const {
     data: projections,
@@ -1264,7 +1274,9 @@ function ProjectionRoute() {
     queryFn: listProjections,
     refetchInterval: 10_000,
   });
-  const projection = projections?.find((p) => p.name === projectionName);
+  const projection = projections?.find(
+    (p) => p.namespace === namespace && p.name === projectionName,
+  );
   // Resolve the view name once the projection is known. Shares the cache with
   // the navbar's per-projection views query.
   const viewsQuery = useQuery({
@@ -1287,7 +1299,9 @@ function ProjectionRoute() {
       </Text>
     );
   if (!projection)
-    return <NotFoundPage message={`Projection “${projectionName}” was not found.`} />;
+    return (
+      <NotFoundPage message={`Projection “${namespace}/${projectionName}” was not found.`} />
+    );
 
   let activeView: View | null = null;
   if (viewName) {
@@ -1312,7 +1326,7 @@ function ProjectionRoute() {
       projection={projection}
       activeView={activeView}
       onActiveViewChange={(v) =>
-        navigate(v ? viewPath(projection.name, v.name) : projectionPath(projection.name))
+        navigate(v ? viewPath(projection, v.name) : projectionPath(projection))
       }
     />
   );
@@ -1321,7 +1335,7 @@ function ProjectionRoute() {
 // Shell is the persistent chrome (header + projections navbar) wrapped around
 // every route's content.
 function Shell({ children }: { children: ReactNode }) {
-  const { projection: projectionName, view: viewName } = useParams();
+  const { namespace, projection: projectionName, view: viewName } = useParams();
   // Whether the settings modal is open.
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Whether the keyboard-shortcuts help modal is open.
@@ -1332,10 +1346,21 @@ function Shell({ children }: { children: ReactNode }) {
       <AppShell.Header>
         <Group h="100%" px="md" gap="sm" align="center" justify="space-between" wrap="nowrap">
           <Group gap="sm" align="center" wrap="nowrap">
-            <IconTopologyStar3 size={22} stroke={1.5} color="var(--mantine-color-brand-6)" />
-            <Title order={1} size="h4" c="white">
-              Astron
-            </Title>
+            <Link
+              to="/"
+              aria-label="Astron home"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--mantine-spacing-sm)",
+                textDecoration: "none",
+              }}
+            >
+              <IconTopologyStar3 size={22} stroke={1.5} color="var(--mantine-color-brand-6)" />
+              <Title order={1} size="h4" c="white">
+                Astron
+              </Title>
+            </Link>
             <Text size="xs" c="dimmed">
               Kubernetes Cluster Graph
             </Text>
@@ -1386,7 +1411,11 @@ function Shell({ children }: { children: ReactNode }) {
           Projections
         </Text>
         <AppShell.Section grow component={ScrollArea}>
-          <ProjectionList selectedName={projectionName} activeViewName={viewName} />
+          <ProjectionList
+            selectedNamespace={namespace}
+            selectedName={projectionName}
+            activeViewName={viewName}
+          />
         </AppShell.Section>
       </AppShell.Navbar>
 
@@ -1398,9 +1427,10 @@ function Shell({ children }: { children: ReactNode }) {
   );
 }
 
-// App wires the URL to the UI: /<projection> selects a projection by name and
-// /<projection>/<view> additionally applies one of its saved views. Unknown
-// paths (or unknown projection/view names) render a 404 page.
+// App wires the URL to the UI: /<namespace>/<projection> selects a projection
+// (namespace + name, since names are only unique per namespace) and
+// /<namespace>/<projection>/<view> additionally applies one of its saved
+// views. Unknown paths (or unknown projection/view names) render a 404 page.
 export default function App() {
   return (
     <Routes>
@@ -1415,7 +1445,7 @@ export default function App() {
         }
       />
       <Route
-        path="/:projection"
+        path="/:namespace/:projection"
         element={
           <Shell>
             <ProjectionRoute />
@@ -1423,7 +1453,7 @@ export default function App() {
         }
       />
       <Route
-        path="/:projection/:view"
+        path="/:namespace/:projection/:view"
         element={
           <Shell>
             <ProjectionRoute />
