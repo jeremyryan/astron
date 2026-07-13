@@ -318,8 +318,76 @@ export function GraphView({
     return `${groupByNamespace ? "g" : "f"}|${nodeIds}`;
   }, [graph, groupByNamespace]);
 
+  // Snapshot of the previous canvas (node positions and viewport), captured
+  // right before a rebuild. When the node set merely shrinks or grows a little
+  // (e.g. toggling a kind/namespace filter in the sidebar), the rebuilt canvas
+  // restores these positions instead of running a fresh layout, so unaffected
+  // nodes stay exactly where they were.
+  const savedViewRef = useRef<{
+    positions: Map<string, { x: number; y: number }>;
+    zoom: number;
+    pan: { x: number; y: number };
+    grouped: boolean;
+  } | null>(null);
+
   useEffect(() => {
     if (!containerRef.current) return;
+
+    // Decide between restoring the previous positions (preset layout) and a
+    // full fresh layout. Preset applies when the grouping mode is unchanged and
+    // the surviving nodes outnumber the new ones — i.e. this is an incremental
+    // filter change, not a projection switch or grouping toggle.
+    const elements = toElements(graphRef.current, groupByNamespace);
+    const saved = savedViewRef.current;
+    let usePreset = false;
+    if (saved && saved.grouped === groupByNamespace && saved.positions.size > 0) {
+      const nodeDefs = elements.filter(
+        (el) => !el.data.id?.startsWith(GROUP_PREFIX) && el.group !== "edges" && !el.data.source,
+      );
+      const matched = nodeDefs.filter((el) => saved.positions.has(el.data.id ?? ""));
+      usePreset = matched.length > 0 && matched.length >= nodeDefs.length - matched.length;
+      if (usePreset) {
+        // Adjacency over the current graph, for placing new nodes near the
+        // things they connect to.
+        const neighbors = new Map<string, string[]>();
+        for (const e of graphRef.current.edges) {
+          (neighbors.get(e.source) ?? neighbors.set(e.source, []).get(e.source)!).push(e.target);
+          (neighbors.get(e.target) ?? neighbors.set(e.target, []).get(e.target)!).push(e.source);
+        }
+        // Fallback anchor: the centroid of the surviving nodes.
+        let cxSum = 0;
+        let cySum = 0;
+        for (const el of matched) {
+          const p = saved.positions.get(el.data.id!)!;
+          cxSum += p.x;
+          cySum += p.y;
+        }
+        const centroid = { x: cxSum / matched.length, y: cySum / matched.length };
+        const jitter = (r: number) => (Math.random() - 0.5) * 2 * r;
+        for (const el of nodeDefs) {
+          const id = el.data.id!;
+          const p = saved.positions.get(id);
+          if (p) {
+            el.position = { ...p };
+            continue;
+          }
+          // New node: near the average of its already-placed neighbours, or
+          // near the centroid when it has none.
+          const anchors = (neighbors.get(id) ?? [])
+            .map((nid) => saved.positions.get(nid))
+            .filter((q): q is { x: number; y: number } => !!q);
+          if (anchors.length > 0) {
+            el.position = {
+              x: anchors.reduce((s, q) => s + q.x, 0) / anchors.length + jitter(50),
+              y: anchors.reduce((s, q) => s + q.y, 0) / anchors.length + jitter(50),
+            };
+          } else {
+            el.position = { x: centroid.x + jitter(150), y: centroid.y + jitter(150) };
+          }
+        }
+      }
+    }
+
     const cy = cytoscape({
       container: containerRef.current,
       // Cap zoom so fitting a tiny subgraph (or a single node) doesn't zoom in absurdly.
@@ -328,7 +396,7 @@ export function GraphView({
       // unmodified drag). Selecting multiple nodes lets them be moved together.
       boxSelectionEnabled: true,
       selectionType: "single",
-      elements: toElements(graphRef.current, groupByNamespace),
+      elements,
       style: [
         {
           selector: "node",
@@ -541,8 +609,16 @@ export function GraphView({
           style: { opacity: 0.08 },
         },
       ],
-      layout: buildLayout(groupByNamespace, layoutParamsRef.current),
+      layout: usePreset
+        ? ({ name: "preset", fit: false } as cytoscape.LayoutOptions)
+        : buildLayout(groupByNamespace, layoutParamsRef.current),
     });
+    // With restored positions the viewport is restored too, so the graph
+    // doesn't jump or refit.
+    if (usePreset && saved) {
+      cy.zoom(saved.zoom);
+      cy.pan({ ...saved.pan });
+    }
 
     // Tap counting for a node: cytoscape has no native double/triple click, so
     // we count taps on the same node within a short window. 1 = normal select
@@ -1305,6 +1381,21 @@ export function GraphView({
       window.removeEventListener("mouseup", endGroupDrag);
       window.removeEventListener("mouseup", endEdgeRotate);
       container.removeEventListener("contextmenu", handleContextMenu);
+      // Snapshot positions and viewport so the next rebuild (e.g. after a
+      // sidebar filter change) can keep unaffected nodes in place. The grouped
+      // flag comes from this effect's closure: it's the mode this canvas was
+      // built with, not the upcoming one.
+      const positions = new Map<string, { x: number; y: number }>();
+      cy.nodes().forEach((n) => {
+        if (n.hasClass(GROUP_CLASS) || n.id().startsWith("__")) return;
+        positions.set(n.id(), { ...n.position() });
+      });
+      savedViewRef.current = {
+        positions,
+        zoom: cy.zoom(),
+        pan: { ...cy.pan() },
+        grouped: groupByNamespace,
+      };
       cy.destroy();
       cyRef.current = null;
       actionsRef.current = null;
@@ -1461,6 +1552,16 @@ export function GraphView({
       cy.nodes().forEach((n) => {
         if (n.hasClass(GROUP_CLASS)) return;
         n.toggleClass("hidden", hiddenIds.has(n.id()));
+      });
+      // A namespace (or cluster-scoped) group box with every child hidden
+      // would render as an empty container, so hide it too until one of its
+      // children becomes visible again.
+      cy.nodes(`.${GROUP_CLASS}`).forEach((g) => {
+        const anyVisible = g
+          .children()
+          .toArray()
+          .some((c) => !c.hasClass("hidden"));
+        g.toggleClass("hidden", !anyVisible);
       });
     });
   }, [graph, hiddenIds]);
