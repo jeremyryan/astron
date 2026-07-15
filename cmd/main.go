@@ -72,6 +72,8 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var apiAddr string
+	var neo4jFlags graph.Neo4jConfig
+	var neo4jConfigFile string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&apiAddr, "api-bind-address", ":8082",
 		"The address the read API and web UI server binds to. Set to 0 to disable.")
@@ -92,6 +94,19 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	flag.StringVar(&neo4jFlags.URI, "neo4j-uri", "",
+		"Bolt/neo4j URI of the Neo4J database every projection materializes into, "+
+			"e.g. neo4j://neo4j.astron.svc:7687. Overrides "+graph.EnvNeo4jURI+" and the config file.")
+	flag.StringVar(&neo4jFlags.Database, "neo4j-database", "",
+		"Neo4J database name (default \""+graph.DefaultNeo4jDatabase+"\"). Overrides "+
+			graph.EnvNeo4jDatabase+" and the config file.")
+	flag.StringVar(&neo4jFlags.Username, "neo4j-username", "",
+		"Neo4J username. Overrides "+graph.EnvNeo4jUsername+" and the config file.")
+	flag.StringVar(&neo4jFlags.Password, "neo4j-password", "",
+		"Neo4J password. Prefer "+graph.EnvNeo4jPassword+" (e.g. from a Secret) over this flag.")
+	flag.StringVar(&neo4jConfigFile, "neo4j-config-file", "",
+		"Path to a YAML file with uri/database/username/password keys, typically mounted "+
+			"from a ConfigMap. Flags and environment variables override its values.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -99,6 +114,18 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	// Resolve the controller-wide Neo4J connection shared by all projections
+	// (flags override env vars, which override the config file).
+	neo4jCfg, err := graph.LoadNeo4jConfig(neo4jFlags, neo4jConfigFile)
+	if err != nil {
+		setupLog.Error(err, "Failed to load the Neo4J configuration")
+		os.Exit(1)
+	}
+	if neo4jCfg.URI == "" {
+		setupLog.Info("WARNING: no Neo4J URI configured; GraphProjections will fail until " +
+			"--neo4j-uri, " + graph.EnvNeo4jURI + ", or a --neo4j-config-file provides one")
+	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -206,6 +233,7 @@ func main() {
 		Client:     mgr.GetClient(),
 		Scheme:     mgr.GetScheme(),
 		Projectors: projectors,
+		Neo4j:      neo4jCfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "graphprojection")
 		os.Exit(1)

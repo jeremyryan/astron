@@ -14,8 +14,10 @@ serves a web UI to explore that graph.
 ## Components
 
 - **`GraphProjection` CRD** — declares how the cluster graph is projected into
-  Neo4J: the target database, the scope of resources to capture, and the
-  relationship rules.
+  Neo4J: the scope of resources to capture and the relationship rules. The
+  Neo4J connection itself is configured once on the controller (flags,
+  `ASTRON_NEO4J_*` environment variables, or a mounted config file) and shared
+  by all projections.
 - **GraphProjection controller** — reconciles `GraphProjection` resources and
   manages a per-projection *projector*.
 - **Resource graph projector** — dynamic informers that watch the in-scope

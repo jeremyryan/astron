@@ -59,6 +59,28 @@ spec:
             {{- with .Values.controller.extraArgs }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+          # The Neo4J connection is controller-wide and shared by every
+          # GraphProjection: the URI and database come from the chart's
+          # connection values, the credentials from the referenced Secret.
+          env:
+            {{- $uri := include "astron.neo4jUri" . }}
+            {{- if not $uri }}
+            {{- fail "no Neo4J URI is available: set connection.uri, or enable the bundled Neo4J (neo4j.enabled=true)." }}
+            {{- end }}
+            - name: ASTRON_NEO4J_URI
+              value: {{ $uri | quote }}
+            - name: ASTRON_NEO4J_DATABASE
+              value: {{ .Values.connection.database | quote }}
+            - name: ASTRON_NEO4J_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "astron.credentialsSecretName" . }}
+                  key: {{ .Values.connection.usernameKey | quote }}
+            - name: ASTRON_NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "astron.credentialsSecretName" . }}
+                  key: {{ .Values.connection.passwordKey | quote }}
           ports:
             - name: health
               containerPort: {{ .Values.controller.healthProbeBindAddress | trimPrefix ":" | int }}

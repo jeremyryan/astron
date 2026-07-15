@@ -133,8 +133,10 @@ httpRoute:
   # ignored and these rules are rendered verbatim.
   rules: []
 
-# Connection to Neo4J used to materialize the graph. These values feed the
-# credentials Secret and the optional default GraphProjection.
+# Connection to Neo4J used to materialize the graph. The connection is
+# configured once on the controller Pod (as ASTRON_NEO4J_* environment
+# variables on the Deployment, with credentials drawn from the Secret) and is
+# shared by every GraphProjection.
 connection:
   # -- Bolt/neo4j URI of the target database. Leave empty to auto-derive the
   # in-cluster address of the bundled Neo4J when neo4j.enabled is true.
@@ -156,17 +158,19 @@ connection:
   passwordKey: "password"
 
 # ConfigMap holding the default configuration for new GraphProjections. Its
-# `spec` key is a partial GraphProjection spec carrying the Neo4J connection
-# details from `connection` above, for tooling to merge into generated
-# manifests (e.g. `astron projections generate --spec-from-configmap <name>`).
+# `spec` key is a partial GraphProjection spec for tooling to merge into
+# generated manifests (e.g. `astron projections generate
+# --spec-from-configmap <name>`). The Neo4J connection is configured on the
+# controller Pod, not per projection, so this carries only the shared
+# projection settings from extraSpec.
 projectionDefaults:
   # -- Create the projection-defaults ConfigMap.
   enabled: true
   # -- Name of the ConfigMap. Generated from the release when empty
   # ("<fullname>-projection-defaults").
   name: ""
-  # -- Extra partial GraphProjection spec merged into the `spec` key after the
-  # Neo4J connection block (e.g. resyncInterval, graphRAG defaults).
+  # -- Partial GraphProjection spec written to the ConfigMap's `spec` key
+  # (e.g. resyncInterval, graphRAG defaults).
   extraSpec: {}
 
 # Optionally create a default GraphProjection on install.

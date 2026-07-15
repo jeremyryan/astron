@@ -64,10 +64,6 @@ type generateOptions struct {
 	kube kubeOptions
 
 	name              string
-	neo4jURI          string
-	neo4jDatabase     string
-	neo4jSecret       string
-	neo4jSecretNS     string
 	resyncInterval    string
 	withRelationships bool
 	// views selects default GraphViews to generate alongside the projection:
@@ -194,14 +190,6 @@ func addGenerateFlags(cmd *cobra.Command, gopts *generateOptions) {
 		"Name of the kubeconfig context to use")
 	cmd.Flags().StringVar(&gopts.name, "name", "",
 		"Name of the generated GraphProjection (defaults to the namespace)")
-	cmd.Flags().StringVar(&gopts.neo4jURI, "neo4j-uri", "neo4j://astron-neo4j.astron.svc:7687",
-		"Neo4J connection URI to write into the manifest")
-	cmd.Flags().StringVar(&gopts.neo4jDatabase, "neo4j-database", "neo4j",
-		"Neo4J database name")
-	cmd.Flags().StringVar(&gopts.neo4jSecret, "neo4j-secret", "neo4j-credentials",
-		"Name of the Secret holding Neo4J credentials")
-	cmd.Flags().StringVar(&gopts.neo4jSecretNS, "neo4j-secret-namespace", "",
-		"Namespace of the Neo4J credentials Secret (defaults to the projection's namespace)")
 	cmd.Flags().StringVar(&gopts.resyncInterval, "resync-interval", "5m",
 		"Full reconciliation interval to set on the projection")
 	cmd.Flags().BoolVar(&gopts.withRelationships, "with-relationships", true,
@@ -638,14 +626,6 @@ func buildManifest(gopts *generateOptions, namespace string, selectors []astronv
 	}
 
 	spec := astronv1alpha1.GraphProjectionSpec{
-		Neo4j: astronv1alpha1.Neo4jConnection{
-			URI:      gopts.neo4jURI,
-			Database: gopts.neo4jDatabase,
-			AuthSecretRef: astronv1alpha1.SecretReference{
-				Name:      gopts.neo4jSecret,
-				Namespace: gopts.neo4jSecretNS,
-			},
-		},
 		Scope: astronv1alpha1.ProjectionScope{
 			Namespaces: []string{namespace},
 			Resources:  selectors,

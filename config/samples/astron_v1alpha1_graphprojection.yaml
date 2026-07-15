@@ -6,12 +6,9 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: graphprojection-sample
 spec:
-  neo4j:
-    uri: neo4j://neo4j.astron-system.svc:7687
-    database: neo4j
-    authSecretRef:
-      name: neo4j-credentials
-      namespace: astron-system
+  # The Neo4J connection is configured once on the controller (via flags,
+  # environment variables, or a mounted configuration file), not per
+  # projection.
   resyncInterval: 5m
   scope:
     # Set ownNamespaceOnly to capture only resources in this resource's own

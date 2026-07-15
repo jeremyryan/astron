@@ -215,54 +215,6 @@ spec:
                 required:
                 - embedding
                 type: object
-              neo4j:
-                description: |-
-                  neo4j configures the connection to the target Neo4J database that this
-                  projection writes nodes and relationships into.
-                properties:
-                  authSecretRef:
-                    description: |-
-                      authSecretRef references a Secret containing the credentials used to
-                      authenticate to Neo4J. The Secret is expected to contain "username" and
-                      "password" keys unless overridden by usernameKey/passwordKey.
-                    properties:
-                      name:
-                        description: name is the name of the Secret.
-                        minLength: 1
-                        type: string
-                      namespace:
-                        description: |-
-                          namespace is the namespace of the Secret. When omitted, the namespace of
-                          the GraphProjection resource is used.
-                        type: string
-                      passwordKey:
-                        default: password
-                        description: passwordKey is the Secret data key holding the
-                          Neo4J password.
-                        type: string
-                      usernameKey:
-                        default: username
-                        description: usernameKey is the Secret data key holding the
-                          Neo4J username.
-                        type: string
-                    required:
-                    - name
-                    type: object
-                  database:
-                    default: neo4j
-                    description: database is the name of the Neo4J database to write
-                      into.
-                    type: string
-                  uri:
-                    description: |-
-                      uri is the bolt/neo4j connection URI of the target database,
-                      e.g. "neo4j://neo4j.astron-system.svc:7687".
-                    minLength: 1
-                    type: string
-                required:
-                - authSecretRef
-                - uri
-                type: object
               relationships:
                 description: |-
                   relationships enumerates the relationship rules used to derive edges
@@ -481,8 +433,6 @@ spec:
                     - kind
                     x-kubernetes-list-type: map
                 type: object
-            required:
-            - neo4j
             type: object
           status:
             description: status defines the observed state of GraphProjection

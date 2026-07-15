@@ -196,9 +196,6 @@ func TestBuildManifest(t *testing.T) {
 	gopts := &generateOptions{
 		options:           &options{},
 		name:              "",
-		neo4jURI:          "neo4j://example:7687",
-		neo4jDatabase:     "neo4j",
-		neo4jSecret:       "creds",
 		resyncInterval:    "10m",
 		withRelationships: true,
 	}
@@ -365,10 +362,7 @@ func TestApplyProjection(t *testing.T) {
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind)
 
 	gopts := &generateOptions{
-		options:       &options{},
-		neo4jURI:      "neo4j://x:7687",
-		neo4jDatabase: "neo4j",
-		neo4jSecret:   "creds",
+		options: &options{},
 	}
 	m := buildManifest(gopts, demoNS, []astronv1alpha1.ResourceSelector{pod, service})
 
@@ -493,9 +487,6 @@ func TestLoadSpecOverlay(t *testing.T) {
 func TestMergeSpecOverlay(t *testing.T) {
 	gopts := &generateOptions{
 		options:           &options{},
-		neo4jURI:          "neo4j://example:7687",
-		neo4jDatabase:     "neo4j",
-		neo4jSecret:       "creds",
 		resyncInterval:    "10m",
 		withRelationships: true,
 	}
@@ -509,7 +500,7 @@ func TestMergeSpecOverlay(t *testing.T) {
 				"model":    "text-embedding-3-small",
 			},
 		},
-		"neo4j": map[string]any{"database": "override"},
+		"resyncInterval": "2m",
 	}
 	if err := mergeSpecOverlay(&m, overlay); err != nil {
 		t.Fatalf("mergeSpecOverlay: %v", err)
@@ -519,12 +510,9 @@ func TestMergeSpecOverlay(t *testing.T) {
 	if m.Spec.GraphRAG == nil || !m.Spec.GraphRAG.Enabled || m.Spec.GraphRAG.Embedding.Model != "text-embedding-3-small" {
 		t.Errorf("graphRAG overlay not merged: %+v", m.Spec.GraphRAG)
 	}
-	// Nested maps merge: the overridden key wins, siblings survive.
-	if m.Spec.Neo4j.Database != "override" {
-		t.Errorf("expected neo4j.database override, got %q", m.Spec.Neo4j.Database)
-	}
-	if m.Spec.Neo4j.URI != "neo4j://example:7687" {
-		t.Errorf("generated neo4j.uri lost in merge: %q", m.Spec.Neo4j.URI)
+	// Overlay scalars replace generated values.
+	if m.Spec.ResyncInterval == nil || m.Spec.ResyncInterval.Duration.String() != "2m0s" {
+		t.Errorf("expected resyncInterval override, got %v", m.Spec.ResyncInterval)
 	}
 	// Generated fields not present in the overlay are untouched.
 	if len(m.Spec.Scope.Namespaces) != 1 || m.Spec.Scope.Namespaces[0] != demoNS {
@@ -544,7 +532,7 @@ func TestMergeSpecOverlay(t *testing.T) {
 	if err := mergeSpecOverlay(&m, nil); err != nil {
 		t.Fatalf("empty overlay: %v", err)
 	}
-	if m.Spec.Neo4j != before.Neo4j {
+	if m.Spec.ResyncInterval.Duration != before.ResyncInterval.Duration {
 		t.Errorf("empty overlay changed spec")
 	}
 }
@@ -573,8 +561,7 @@ func TestProjectionsAddCommandWiring(t *testing.T) {
 
 	// The shared generation flags are available.
 	for _, name := range []string{
-		"kubeconfig", "context", "name", "neo4j-uri", "neo4j-database",
-		"neo4j-secret", "neo4j-secret-namespace", "resync-interval",
+		"kubeconfig", "context", "name", "resync-interval",
 		"with-relationships", "views", "exclude", "all-resources",
 		"spec-from-configmap",
 	} {

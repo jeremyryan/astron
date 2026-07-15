@@ -1,17 +1,15 @@
 {{- if .Values.projectionDefaults.enabled }}
-{{- $uri := include "astron.neo4jUri" . }}
-{{- if not $uri }}
-{{- fail "projectionDefaults.enabled is true but no Neo4J URI is available: set connection.uri, or enable the bundled Neo4J (neo4j.enabled=true)." }}
-{{- end }}
 # Default configuration for new GraphProjections. The `spec` key holds a
 # partial GraphProjection spec that tooling can merge into generated
 # manifests, e.g.:
 #
 #   astron projections generate --spec-from-configmap {{ include "astron.projectionDefaultsName" . }} ...
 #
-# It carries the connection details for the Neo4J instance this release is
-# configured against, so new projections materialize into the same database
-# without restating credentials.
+# The Neo4J connection is configured once on the controller (see the
+# Deployment's ASTRON_NEO4J_* environment variables), so projections carry no
+# connection details; populate projectionDefaults.extraSpec with any shared
+# settings new projections should start from (e.g. resyncInterval or graphRAG
+# defaults).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -21,15 +19,9 @@ metadata:
     {{- include "astron.labels" . | nindent 4 }}
 data:
   spec: |
-    neo4j:
-      uri: {{ $uri | quote }}
-      database: {{ .Values.connection.database | quote }}
-      authSecretRef:
-        name: {{ include "astron.credentialsSecretName" . }}
-        namespace: {{ .Release.Namespace }}
-        usernameKey: {{ .Values.connection.usernameKey | quote }}
-        passwordKey: {{ .Values.connection.passwordKey | quote }}
     {{- with .Values.projectionDefaults.extraSpec }}
     {{- toYaml . | nindent 4 }}
+    {{- else }}
+    {}
     {{- end }}
 {{- end }}

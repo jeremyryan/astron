@@ -26,15 +26,12 @@ import (
 // GraphProjectionSpec defines the desired state of GraphProjection.
 //
 // A GraphProjection declares how the live state of a Kubernetes cluster is
-// projected into a Neo4J graph database: which Neo4J instance to write to,
-// which portion of the cluster to watch, and which relationships to materialize
-// as edges between resource nodes.
+// projected into a Neo4J graph database: which portion of the cluster to watch
+// and which relationships to materialize as edges between resource nodes. The
+// Neo4J connection itself is configured once on the controller (via flags,
+// environment variables, or a mounted configuration file) and shared by every
+// projection.
 type GraphProjectionSpec struct {
-	// neo4j configures the connection to the target Neo4J database that this
-	// projection writes nodes and relationships into.
-	// +required
-	Neo4j Neo4jConnection `json:"neo4j"`
-
 	// scope selects the portion of the cluster that this projection watches and
 	// captures. When omitted, the projection watches the entire cluster.
 	// +optional
@@ -201,50 +198,6 @@ type VectorIndexConfig struct {
 	// +kubebuilder:validation:Enum=cosine;euclidean
 	// +kubebuilder:default=cosine
 	Similarity string `json:"similarity,omitempty"`
-}
-
-// Neo4jConnection describes how to reach and authenticate against a Neo4J
-// database.
-type Neo4jConnection struct {
-	// uri is the bolt/neo4j connection URI of the target database,
-	// e.g. "neo4j://neo4j.astron-system.svc:7687".
-	// +required
-	// +kubebuilder:validation:MinLength=1
-	URI string `json:"uri"`
-
-	// database is the name of the Neo4J database to write into.
-	// +optional
-	// +kubebuilder:default=neo4j
-	Database string `json:"database,omitempty"`
-
-	// authSecretRef references a Secret containing the credentials used to
-	// authenticate to Neo4J. The Secret is expected to contain "username" and
-	// "password" keys unless overridden by usernameKey/passwordKey.
-	// +required
-	AuthSecretRef SecretReference `json:"authSecretRef"`
-}
-
-// SecretReference references a key-bearing Secret used for Neo4J credentials.
-type SecretReference struct {
-	// name is the name of the Secret.
-	// +required
-	// +kubebuilder:validation:MinLength=1
-	Name string `json:"name"`
-
-	// namespace is the namespace of the Secret. When omitted, the namespace of
-	// the GraphProjection resource is used.
-	// +optional
-	Namespace string `json:"namespace,omitempty"`
-
-	// usernameKey is the Secret data key holding the Neo4J username.
-	// +optional
-	// +kubebuilder:default=username
-	UsernameKey string `json:"usernameKey,omitempty"`
-
-	// passwordKey is the Secret data key holding the Neo4J password.
-	// +optional
-	// +kubebuilder:default=password
-	PasswordKey string `json:"passwordKey,omitempty"`
 }
 
 // ProjectionScope constrains which resources a projection captures.

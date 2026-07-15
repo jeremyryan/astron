@@ -73,6 +73,11 @@ type GraphProjectionReconciler struct {
 	// watchers. It must be set before Reconcile is called; SetupWithManager
 	// installs a default backed by a dynamic client and a Neo4J store.
 	Projectors *projector.Manager
+
+	// Neo4j is the controller-wide connection every projection materializes
+	// into, resolved at startup from flags, environment variables, or a
+	// mounted configuration file (see graph.LoadNeo4jConfig).
+	Neo4j graph.Neo4jConfig
 }
 
 // +kubebuilder:rbac:groups=astron.astron.io,resources=graphprojections,verbs=get;list;watch;create;update;patch;delete
@@ -114,11 +119,14 @@ func (r *GraphProjectionReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, nil
 	}
 
-	// Resolve the Neo4J credentials from the referenced Secret.
-	cfg, err := r.resolveNeo4jConfig(ctx, &projection)
-	if err != nil {
-		log.Error(err, "failed to resolve Neo4J credentials")
-		return r.fail(ctx, &projection, "CredentialsUnavailable", err)
+	// The Neo4J connection is configured once on the controller (flags, env
+	// vars, or a mounted config file) and shared by every projection.
+	cfg := r.Neo4j
+	if cfg.URI == "" {
+		err := fmt.Errorf("the controller has no Neo4J connection configured: set --neo4j-uri, %s, or a --neo4j-config-file",
+			graph.EnvNeo4jURI)
+		log.Error(err, "Neo4J connection not configured")
+		return r.fail(ctx, &projection, "Neo4jNotConfigured", err)
 	}
 
 	// Resolve the optional GraphRAG embedding configuration.
@@ -137,7 +145,7 @@ func (r *GraphProjectionReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	counts, syncErr := p.LastCounts()
 	log.Info("reconciled GraphProjection",
-		"neo4jURI", projection.Spec.Neo4j.URI,
+		"neo4jURI", cfg.URI,
 		"namespaces", projection.Spec.Scope.Namespaces,
 		"relationships", len(projection.Spec.Relationships),
 		"nodes", counts.Nodes,
@@ -206,44 +214,6 @@ func (r *GraphProjectionReconciler) reconcileDelete(ctx context.Context, project
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil
-}
-
-// resolveNeo4jConfig reads the credentials Secret and assembles a Neo4jConfig.
-func (r *GraphProjectionReconciler) resolveNeo4jConfig(ctx context.Context, projection *astronv1alpha1.GraphProjection) (graph.Neo4jConfig, error) {
-	ref := projection.Spec.Neo4j.AuthSecretRef
-	namespace := ref.Namespace
-	if namespace == "" {
-		namespace = projection.Namespace
-	}
-	usernameKey := ref.UsernameKey
-	if usernameKey == "" {
-		usernameKey = "username"
-	}
-	passwordKey := ref.PasswordKey
-	if passwordKey == "" {
-		passwordKey = "password"
-	}
-
-	var secret corev1.Secret
-	if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, &secret); err != nil {
-		return graph.Neo4jConfig{}, fmt.Errorf("reading credentials secret %s/%s: %w", namespace, ref.Name, err)
-	}
-
-	username, ok := secret.Data[usernameKey]
-	if !ok {
-		return graph.Neo4jConfig{}, fmt.Errorf("secret %s/%s missing key %q", namespace, ref.Name, usernameKey)
-	}
-	password, ok := secret.Data[passwordKey]
-	if !ok {
-		return graph.Neo4jConfig{}, fmt.Errorf("secret %s/%s missing key %q", namespace, ref.Name, passwordKey)
-	}
-
-	return graph.Neo4jConfig{
-		URI:      projection.Spec.Neo4j.URI,
-		Username: string(username),
-		Password: string(password),
-		Database: projection.Spec.Neo4j.Database,
-	}, nil
 }
 
 // resolveEmbeddingConfig builds the projector embedding configuration from the
