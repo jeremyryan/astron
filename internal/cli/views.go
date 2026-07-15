@@ -27,6 +27,10 @@ import (
 )
 
 // newViewsCmd builds the "views" command group.
+// kindModeShow is the GraphView filter mode that shows only the listed kinds
+// (allow-list), as opposed to hiding listed kinds.
+const kindModeShow = "show"
+
 func newViewsCmd(opts *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "views",
@@ -107,7 +111,7 @@ func runViewsNew(cmd *cobra.Command, nopts *viewsNewOptions, namespace, projecti
 			Namespace: namespace,
 		},
 		Filters: ViewFilters{
-			KindMode:     "show",
+			KindMode:     kindModeShow,
 			VisibleKinds: kinds,
 		},
 	})
