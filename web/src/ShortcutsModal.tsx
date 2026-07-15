@@ -25,10 +25,15 @@ const KEYBOARD_SHORTCUTS: Shortcut[] = [
   },
   { keys: ["A"], action: "Select all nodes connected to the selection, directly or indirectly" },
   { keys: ["Shift", "D"], action: "Deselect all nodes" },
+  { keys: ["*"], action: "Arrange the selected node's neighbors in a circle around it" },
+  { keys: ["Shift", "+"], action: "Zoom in" },
+  { keys: ["Shift", "−"], action: "Zoom out" },
+  { keys: ["Shift", "0"], action: "Reset the zoom to fit the whole graph" },
 ];
 
 const MOUSE_GESTURES: Shortcut[] = [
   { keys: ["Click"], action: "Select a node or link" },
+  { keys: ["Ctrl/Cmd", "Click"], action: "On a selected node: remove it from the selection" },
   { keys: ["Drag"], action: "Pan the canvas" },
   { keys: ["Scroll"], action: "Zoom in / out" },
   { keys: ["Shift", "Drag"], action: "On the background: draw a selection box" },
