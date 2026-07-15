@@ -291,7 +291,7 @@ func buildViewManifest(namespace, projection string, view defaultViewCategory) v
 			ProjectionRef: astronv1alpha1.ProjectionReference{Name: projection, Namespace: namespace},
 			DisplayName:   view.displayName,
 			Description:   view.description,
-			Filters:       astronv1alpha1.GraphViewFilters{KindMode: "show", VisibleKinds: visibleKindsFor(view)},
+			Filters:       astronv1alpha1.GraphViewFilters{KindMode: kindModeShow, VisibleKinds: visibleKindsFor(view)},
 		},
 	}
 }

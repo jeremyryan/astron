@@ -305,6 +305,7 @@ These settings are persisted in your browser's local storage, so they persist ac
 | Shortcut | Action |
 |----------|--------|
 | `Click` | Select a node |
+| `Ctrl/Cmd + Click` | On a selected node: remove it from the selection |
 | `Drag` | Pan the canvas |
 | `Shift + Drag` (on a node) | Move the node(s), pulling directly-connected nodes along |
 | `Ctrl/Cmd + Drag` (on a selected node, multiple selected) | Rotate the selection around its center point |
@@ -320,6 +321,11 @@ These settings are persisted in your browser's local storage, so they persist ac
 | `J` | Join the selected nodes: also select the nodes along the shortest path between each pair, if one exists |
 | `A` | Select all nodes connected to the selection, directly or indirectly |
 | `Shift + D` | Deselect all nodes |
+| `*` | Arrange the selected node's neighbors in a circle around it |
+| `Shift + +` | Zoom in |
+| `Shift + -` | Zoom out |
+| `Shift + 0` | Reset the zoom to fit the whole graph |
+| `Ctrl/Cmd + Arrow keys` | Pan the view, like dragging the background (hold `Shift` for a larger step) |
 | `Ctrl/Cmd + F` | (Browser search) Find in page |
 
 ---

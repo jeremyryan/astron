@@ -19,6 +19,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -26,6 +27,10 @@ import (
 )
 
 // newViewsCmd builds the "views" command group.
+// kindModeShow is the GraphView filter mode that shows only the listed kinds
+// (allow-list), as opposed to hiding listed kinds.
+const kindModeShow = "show"
+
 func newViewsCmd(opts *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "views",
@@ -37,7 +42,104 @@ func newViewsCmd(opts *options) *cobra.Command {
 	cmd.AddCommand(newViewsDefaultsCmd(opts))
 	cmd.AddCommand(newViewsRmCmd(opts))
 	cmd.AddCommand(newViewsGenerateCmd(opts))
+	cmd.AddCommand(newViewsNewCmd(opts))
 	return cmd
+}
+
+// viewsNewOptions holds the flags for "views new".
+type viewsNewOptions struct {
+	*options
+
+	// displayName is the human-friendly name shown in the UI (defaults to the
+	// view's resource name).
+	displayName string
+	// description is an optional free-form description of the view.
+	description string
+}
+
+// newViewsNewCmd builds "views new <namespace> <projection> <name> <kind>...".
+func newViewsNewCmd(opts *options) *cobra.Command {
+	nopts := &viewsNewOptions{options: opts}
+
+	cmd := &cobra.Command{
+		Use:   "new <namespace> <projection> <name> <kind>...",
+		Short: "Create a custom GraphView showing a chosen set of resource kinds",
+		Long: "new creates a GraphView with the given name for an existing\n" +
+			"GraphProjection, showing only the specified resource kinds.\n\n" +
+			"Kinds are given as one or more arguments and may also be\n" +
+			"comma-separated (e.g. \"Pod,Service\" or \"Pod Service\"). The view uses\n" +
+			"an allow-list (kindMode \"show\"), so only the listed kinds are visible.",
+		Args: cobra.MinimumNArgs(4),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runViewsNew(cmd, nopts, args[0], args[1], args[2], args[3:])
+		},
+	}
+
+	cmd.Flags().StringVar(&nopts.displayName, "display-name", "",
+		"Human-friendly name shown in the UI (defaults to the view name)")
+	cmd.Flags().StringVar(&nopts.description, "description", "",
+		"Free-form description of what the view shows")
+
+	return cmd
+}
+
+// runViewsNew creates a GraphView with the given name that shows exactly the
+// requested resource kinds.
+func runViewsNew(cmd *cobra.Command, nopts *viewsNewOptions, namespace, projection, name string, kindArgs []string) error {
+	kinds := parseKindArgs(kindArgs)
+	if len(kinds) == 0 {
+		return fmt.Errorf("at least one resource kind must be given")
+	}
+
+	displayName := nopts.displayName
+	if displayName == "" {
+		displayName = name
+	}
+
+	client, err := newClient(nopts.options)
+	if err != nil {
+		return err
+	}
+
+	created, err := client.CreateView(cmd.Context(), View{
+		Namespace:   namespace,
+		Name:        name,
+		DisplayName: displayName,
+		Description: nopts.description,
+		ProjectionRef: ViewProjectionRef{
+			Name:      projection,
+			Namespace: namespace,
+		},
+		Filters: ViewFilters{
+			KindMode:     kindModeShow,
+			VisibleKinds: kinds,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("creating view %q: %w", name, err)
+	}
+	_, err = fmt.Fprintf(cmd.OutOrStdout(),
+		"graphview.astron.astron.io/%s created in namespace %s\n", created.Name, created.Namespace)
+	return err
+}
+
+// parseKindArgs flattens kind arguments (each possibly comma-separated) into a
+// de-duplicated, sorted list of resource kinds.
+func parseKindArgs(args []string) []string {
+	seen := map[string]bool{}
+	var kinds []string
+	for _, arg := range args {
+		for part := range strings.SplitSeq(arg, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" || seen[part] {
+				continue
+			}
+			seen[part] = true
+			kinds = append(kinds, part)
+		}
+	}
+	sort.Strings(kinds)
+	return kinds
 }
 
 // viewsGenerateOptions holds the flags for "views generate".
