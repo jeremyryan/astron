@@ -31,6 +31,8 @@ import (
 const (
 	projWeb = "web"
 	podKind = "Pod"
+	// testNS is the namespace used for views fixtures across these tests.
+	testNS = "astron"
 )
 
 // viewsServer returns a test server serving a fixed set of GraphViews from
@@ -39,12 +41,12 @@ const (
 func viewsServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	all := []View{
-		{Namespace: "astron", Name: "web-only", DisplayName: "Web only",
-			ProjectionRef: ViewProjectionRef{Name: "default", Namespace: "astron"}},
-		{Namespace: "astron", Name: "secrets-hidden",
+		{Namespace: testNS, Name: "web-only", DisplayName: "Web only",
+			ProjectionRef: ViewProjectionRef{Name: "default", Namespace: testNS}},
+		{Namespace: testNS, Name: "secrets-hidden",
 			ProjectionRef: ViewProjectionRef{Name: "other"}}, // ref ns defaults to view ns (astron)
 		{Namespace: "team-a", Name: "team-view",
-			ProjectionRef: ViewProjectionRef{Name: "default", Namespace: "astron"}},
+			ProjectionRef: ViewProjectionRef{Name: "default", Namespace: testNS}},
 	}
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != apiViewsPath {
@@ -106,10 +108,10 @@ func TestViewsListProjectionFilter(t *testing.T) {
 	srv := viewsServer(t)
 	defer srv.Close()
 
-	// Views associated with projection "default" in namespace "astron": both the
+	// Views associated with projection "default" in namespace testNS: both the
 	// astron "web-only" view and the team-a view (which references astron/default).
 	out, err := runCmd(t, "--server", srv.URL, "views", "list",
-		"--namespace", "astron", "--projection", "default")
+		"--namespace", testNS, "--projection", "default")
 	if err != nil {
 		t.Fatalf("views list --projection failed: %v", err)
 	}
@@ -136,15 +138,15 @@ func TestBuildDefaultViewVisibleKinds(t *testing.T) {
 	if !ok {
 		t.Fatal("expected 'compute' to resolve to a default view")
 	}
-	v := buildDefaultView("astron", projWeb, compute)
+	v := buildDefaultView(testNS, projWeb, compute)
 	if v.Name != "web-compute" || v.DisplayName != "Compute" {
 		t.Fatalf("unexpected view identity: %+v", v)
 	}
-	if v.ProjectionRef.Name != projWeb || v.ProjectionRef.Namespace != "astron" {
+	if v.ProjectionRef.Name != projWeb || v.ProjectionRef.Namespace != testNS {
 		t.Fatalf("unexpected projectionRef: %+v", v.ProjectionRef)
 	}
 	// Compute is an allow-list view showing only its own kinds (+ Pod).
-	if v.Filters.KindMode != "show" {
+	if v.Filters.KindMode != kindModeShow {
 		t.Errorf("default views should use allow-list mode, got %q", v.Filters.KindMode)
 	}
 	if len(v.Filters.HiddenKinds) != 0 {
@@ -196,7 +198,7 @@ func TestViewsAddCreatesViews(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	out, err := runCmd(t, "--server", srv.URL, "views", "add", "astron", projWeb, "Compute", "networking")
+	out, err := runCmd(t, "--server", srv.URL, "views", "add", testNS, projWeb, "Compute", "networking")
 	if err != nil {
 		t.Fatalf("views add failed: %v", err)
 	}
@@ -208,7 +210,7 @@ func TestViewsAddCreatesViews(t *testing.T) {
 		t.Errorf("unexpected confirmation output:\n%s", out)
 	}
 	for _, v := range created {
-		if v.ProjectionRef.Name != projWeb || v.ProjectionRef.Namespace != "astron" {
+		if v.ProjectionRef.Name != projWeb || v.ProjectionRef.Namespace != testNS {
 			t.Errorf("unexpected projectionRef on created view: %+v", v.ProjectionRef)
 		}
 	}
@@ -225,7 +227,7 @@ func TestViewsAddDeduplicates(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := runCmd(t, "--server", srv.URL, "views", "add", "astron", projWeb, "compute", "Compute"); err != nil {
+	if _, err := runCmd(t, "--server", srv.URL, "views", "add", testNS, projWeb, "compute", "Compute"); err != nil {
 		t.Fatalf("views add failed: %v", err)
 	}
 	if count != 1 {
@@ -241,7 +243,7 @@ func TestViewsAddUnknownView(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := runCmd(t, "--server", srv.URL, "views", "add", "astron", projWeb, "Bogus")
+	_, err := runCmd(t, "--server", srv.URL, "views", "add", testNS, projWeb, "Bogus")
 	if err == nil || !strings.Contains(err.Error(), "unknown view") {
 		t.Fatalf("expected unknown-view error, got %v", err)
 	}
@@ -251,7 +253,7 @@ func TestViewsListJSON(t *testing.T) {
 	srv := viewsServer(t)
 	defer srv.Close()
 
-	out, err := runCmd(t, "--server", srv.URL, "-o", "json", "views", "list", "--namespace", "astron")
+	out, err := runCmd(t, "--server", srv.URL, "-o", "json", "views", "list", "--namespace", testNS)
 	if err != nil {
 		t.Fatalf("views list -o json failed: %v", err)
 	}
@@ -337,7 +339,7 @@ func TestViewsRm(t *testing.T) {
 	defer srv.Close()
 
 	// Deleting existing views reports each one and hits the API per name.
-	out, err := runCmd(t, "--server", srv.URL, "views", "rm", "astron", "web-compute", "web-networking")
+	out, err := runCmd(t, "--server", srv.URL, "views", "rm", testNS, "web-compute", "web-networking")
 	if err != nil {
 		t.Fatalf("views rm failed: %v", err)
 	}
@@ -355,7 +357,7 @@ func TestViewsRm(t *testing.T) {
 
 	// A missing view surfaces the API error but does not stop other deletions.
 	deleted = nil
-	out, err = runCmd(t, "--server", srv.URL, "views", "rm", "astron", "missing", "web-compute")
+	out, err = runCmd(t, "--server", srv.URL, "views", "rm", testNS, "missing", "web-compute")
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("expected not-found error, got %v", err)
 	}
@@ -368,13 +370,13 @@ func TestViewsRm(t *testing.T) {
 }
 
 func TestViewsRmRequiresArgs(t *testing.T) {
-	if _, err := runCmd(t, "views", "rm", "astron"); err == nil {
+	if _, err := runCmd(t, "views", "rm", testNS); err == nil {
 		t.Fatal("expected an argument-count error with no view names")
 	}
 }
 
 func TestViewsGenerateStdout(t *testing.T) {
-	out, err := runCmd(t, "views", "generate", "astron", projWeb, "compute", "networking")
+	out, err := runCmd(t, "views", "generate", testNS, projWeb, "compute", "networking")
 	if err != nil {
 		t.Fatalf("views generate failed: %v", err)
 	}
@@ -396,7 +398,7 @@ func TestViewsGenerateStdout(t *testing.T) {
 }
 
 func TestViewsGenerateDefaults(t *testing.T) {
-	out, err := runCmd(t, "views", "generate", "astron", projWeb, "defaults")
+	out, err := runCmd(t, "views", "generate", testNS, projWeb, "defaults")
 	if err != nil {
 		t.Fatalf("views generate defaults failed: %v", err)
 	}
@@ -407,7 +409,7 @@ func TestViewsGenerateDefaults(t *testing.T) {
 
 func TestViewsGenerateToFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "views.yaml")
-	out, err := runCmd(t, "views", "generate", "astron", projWeb, "persistence", "-f", path)
+	out, err := runCmd(t, "views", "generate", testNS, projWeb, "persistence", "-f", path)
 	if err != nil {
 		t.Fatalf("views generate -f failed: %v", err)
 	}
@@ -425,11 +427,11 @@ func TestViewsGenerateToFile(t *testing.T) {
 
 func TestViewsGenerateErrors(t *testing.T) {
 	// Unknown view names are rejected before anything is written.
-	if _, err := runCmd(t, "views", "generate", "astron", projWeb, "bogus"); err == nil {
+	if _, err := runCmd(t, "views", "generate", testNS, projWeb, "bogus"); err == nil {
 		t.Fatal("expected error for unknown view name")
 	}
 	// --apply and --output-file are mutually exclusive.
-	if _, err := runCmd(t, "views", "generate", "astron", projWeb, "compute", "--apply", "-f", "x.yaml"); err == nil ||
+	if _, err := runCmd(t, "views", "generate", testNS, projWeb, "compute", "--apply", "-f", "x.yaml"); err == nil ||
 		!strings.Contains(err.Error(), "--apply cannot be combined") {
 		t.Fatalf("expected apply/output-file conflict error, got %v", err)
 	}
@@ -462,5 +464,83 @@ func TestAccessControlViewNameNormalized(t *testing.T) {
 	}
 	if strings.Contains(out, "name: web-access control") {
 		t.Errorf("manifest contains invalid resource name:\n%s", out)
+	}
+}
+
+func TestViewsNew(t *testing.T) {
+	var created []View
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != apiViewsPath {
+			http.NotFound(w, r)
+			return
+		}
+		var in View
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		created = append(created, in)
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(in)
+	}))
+	defer srv.Close()
+
+	out, err := runCmd(t, "--server", srv.URL, "views", "new", testNS, projWeb, "my-view",
+		"Pod,Service", "Deployment", "Pod", // mixed comma/space form with a duplicate
+		"--display-name", "My view", "--description", "Pods and friends")
+	if err != nil {
+		t.Fatalf("views new failed: %v", err)
+	}
+	if !strings.Contains(out, "graphview.astron.astron.io/my-view created in namespace astron") {
+		t.Errorf("unexpected confirmation output:\n%s", out)
+	}
+	if len(created) != 1 {
+		t.Fatalf("expected 1 view created, got %d", len(created))
+	}
+	v := created[0]
+	if v.Namespace != testNS || v.Name != "my-view" {
+		t.Errorf("unexpected view identity: %s/%s", v.Namespace, v.Name)
+	}
+	if v.DisplayName != "My view" || v.Description != "Pods and friends" {
+		t.Errorf("unexpected metadata: %q %q", v.DisplayName, v.Description)
+	}
+	if v.ProjectionRef.Name != projWeb || v.ProjectionRef.Namespace != testNS {
+		t.Errorf("unexpected projectionRef: %+v", v.ProjectionRef)
+	}
+	if v.Filters.KindMode != kindModeShow {
+		t.Errorf("expected allow-list mode, got %q", v.Filters.KindMode)
+	}
+	want := []string{"Deployment", "Pod", "Service"}
+	if !slices.Equal(v.Filters.VisibleKinds, want) {
+		t.Errorf("visibleKinds = %v, want %v", v.Filters.VisibleKinds, want)
+	}
+}
+
+func TestViewsNewDefaultsDisplayName(t *testing.T) {
+	var created View
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&created)
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(created)
+	}))
+	defer srv.Close()
+
+	if _, err := runCmd(t, "--server", srv.URL, "views", "new", testNS, projWeb, "my-view", podKind); err != nil {
+		t.Fatalf("views new failed: %v", err)
+	}
+	if created.DisplayName != "my-view" {
+		t.Errorf("displayName should default to the view name, got %q", created.DisplayName)
+	}
+}
+
+func TestViewsNewRequiresKinds(t *testing.T) {
+	// Too few args is a usage error.
+	if _, err := runCmd(t, "views", "new", testNS, projWeb, "my-view"); err == nil {
+		t.Fatal("expected an argument-count error with no kinds")
+	}
+	// Kind args that reduce to nothing fail before contacting the server.
+	if _, err := runCmd(t, "views", "new", testNS, projWeb, "my-view", ",,"); err == nil ||
+		!strings.Contains(err.Error(), "at least one resource kind") {
+		t.Fatalf("expected empty-kinds error, got %v", err)
 	}
 }
