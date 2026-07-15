@@ -226,6 +226,7 @@ interface GraphActions {
   join(ids: string[]): void;
   selectConnected(ids: string[]): void;
   deselectAll(): void;
+  arrangeNeighbors(id: string): void;
 }
 
 // Context menu anchored at a viewport position for a right-clicked node.
@@ -637,6 +638,26 @@ export function GraphView({
       if (target.hasClass(GROUP_CLASS)) return;
       setMenu(null);
       setEdgeMenu(null);
+
+      // Ctrl/Cmd+click on an already-selected node removes just that node
+      // from the selection, leaving the rest selected.
+      const oe = evt.originalEvent as MouseEvent | undefined;
+      if ((oe?.ctrlKey || oe?.metaKey) && target.selected()) {
+        const keepIds = cy
+          .nodes(":selected")
+          .filter((n) => !n.hasClass(GROUP_CLASS) && n.id() !== target.id())
+          .map((n) => n.id());
+        // Defer past cytoscape's own tap-selection so it doesn't clobber the
+        // reduced selection we're about to apply.
+        setTimeout(() => {
+          cy.batch(() => {
+            cy.elements().unselect();
+            keepIds.forEach((i) => cy.getElementById(i).select());
+          });
+        }, 0);
+        resetTapCount();
+        return;
+      }
 
       const id = target.id();
       if (id !== tapNodeId) {
@@ -1245,6 +1266,40 @@ export function GraphView({
         cy.elements().unselect();
         onSelect(null);
       },
+      // Arrange the node's directly-connected (visible) neighbours in a circle
+      // around it, evenly spaced and keeping their current angular order.
+      arrangeNeighbors: (id) => {
+        const center = cy.getElementById(id);
+        if (center.empty()) return;
+        const arr = center
+          .neighborhood("node")
+          .filter((n) => !n.hasClass(GROUP_CLASS) && !n.hasClass("hidden"))
+          .toArray() as NodeSingular[];
+        if (arr.length === 0) return;
+        const cp = center.position();
+        // Radius: the neighbours' average distance, floored so adjacent nodes
+        // on the circle stay ~60 units apart (and never hug the center).
+        const avg =
+          arr.reduce(
+            (s, n) => s + Math.hypot(n.position().x - cp.x, n.position().y - cp.y),
+            0,
+          ) / arr.length;
+        const radius = Math.max(avg, (60 * arr.length) / (2 * Math.PI), 60);
+        const sorted = [...arr].sort(
+          (a, b) =>
+            Math.atan2(a.position().y - cp.y, a.position().x - cp.x) -
+            Math.atan2(b.position().y - cp.y, b.position().x - cp.x),
+        );
+        const start = Math.atan2(
+          sorted[0].position().y - cp.y,
+          sorted[0].position().x - cp.x,
+        );
+        const step = (2 * Math.PI) / sorted.length;
+        sorted.forEach((n, i) => {
+          const a = start + i * step;
+          n.position({ x: cp.x + radius * Math.cos(a), y: cp.y + radius * Math.sin(a) });
+        });
+      },
     };
     actionsRef.current = actions;
 
@@ -1263,6 +1318,12 @@ export function GraphView({
     //   Shift+H     hides every node except the selection; with nothing
     //               selected, unhides all nodes
     //   Shift+D     deselects all nodes
+    //   Shift+Plus / Shift+Minus / Shift+0
+    //               zoom in / zoom out / reset zoom (no selection needed)
+    //   *           arranges the selected node's neighbours in a circle
+    //               around it (single node)
+    //   Ctrl+Arrows pan the viewport, like dragging the background (hold
+    //               Shift for a larger step; no selection needed)
     const ARROW_DELTAS: Record<string, [number, number]> = {
       ArrowUp: [0, -1],
       ArrowDown: [0, 1],
@@ -1281,9 +1342,20 @@ export function GraphView({
         return;
       }
 
+      // Ctrl/Cmd + arrow keys pan the viewport, moving the graph in the arrow's
+      // direction just as a click-drag on the background would. Needs no
+      // selection.
+      const delta = ARROW_DELTAS[e.key];
+      if (delta && (e.ctrlKey || e.metaKey) && !e.altKey) {
+        e.preventDefault();
+        const step = e.shiftKey ? 180 : 60;
+        const [dx, dy] = delta;
+        cy.panBy({ x: dx * step, y: dy * step });
+        return;
+      }
+
       // Arrow keys move the selected node(s) in model space. Plain arrows only
       // (modifiers are reserved for other shortcuts / browser behavior).
-      const delta = ARROW_DELTAS[e.key];
       if (delta && !(e.ctrlKey || e.metaKey || e.altKey)) {
         const selected = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
         if (selected.empty()) return;
@@ -1294,6 +1366,44 @@ export function GraphView({
           const p = n.position();
           n.position({ x: p.x + dx * step, y: p.y + dy * step });
         });
+        return;
+      }
+
+      // Shift+Plus / Shift+Minus zoom the view in / out around its center, and
+      // Shift+0 resets the zoom to fit the whole graph. Matched on physical
+      // keys (e.code) so they work regardless of what character Shift produces
+      // on the active layout. These need no selection.
+      if (e.shiftKey && !(e.ctrlKey || e.metaKey || e.altKey)) {
+        const zoomAround = (factor: number) => {
+          const center = { x: cy.width() / 2, y: cy.height() / 2 };
+          cy.zoom({ level: cy.zoom() * factor, renderedPosition: center });
+        };
+        if (e.code === "Equal" || e.code === "NumpadAdd") {
+          e.preventDefault();
+          zoomAround(1.2);
+          return;
+        }
+        if (e.code === "Minus" || e.code === "NumpadSubtract") {
+          e.preventDefault();
+          zoomAround(1 / 1.2);
+          return;
+        }
+        if (e.code === "Digit0" || e.code === "Numpad0") {
+          e.preventDefault();
+          fittedSubgraphRef.current = false;
+          cy.animate({ fit: { eles: cy.elements(), padding: 30 }, duration: 250 });
+          return;
+        }
+      }
+
+      // "*": arrange the single selected node's neighbours in a circle around
+      // it. Matched on the produced character since * is a shifted key on most
+      // layouts.
+      if (e.key === "*" && !(e.ctrlKey || e.metaKey || e.altKey)) {
+        const selected = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
+        if (selected.length !== 1) return;
+        e.preventDefault();
+        actions.arrangeNeighbors(selected.first().id());
         return;
       }
 
@@ -1969,6 +2079,13 @@ export function GraphView({
                       onClick={run((a) => a.startLink(menu.node.id))}
                     >
                       Add Link
+                    </Menu.Item>
+                    <Menu.Item
+                      leftSection={<IconCircleDashed size={16} stroke={1.5} />}
+                      rightSection={hint("*")}
+                      onClick={run((a) => a.arrangeNeighbors(menu.node.id))}
+                    >
+                      Arrange Neighbors
                     </Menu.Item>
                   </>
                 )}

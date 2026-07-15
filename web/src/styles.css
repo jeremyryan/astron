@@ -375,3 +375,32 @@ body {
 .center {
   margin: auto;
 }
+
+/* Syntax colors for the YAML manifest modal (highlight.js token classes,
+   scoped to the modal's code block). Keys read cool blue, strings warm green,
+   with numbers/booleans in the theme accents. */
+.yaml-highlight .hljs-attr {
+  color: #6ec0e8;
+}
+.yaml-highlight .hljs-string {
+  color: #b5cea8;
+}
+.yaml-highlight .hljs-number {
+  color: #f0a020;
+}
+.yaml-highlight .hljs-literal,
+.yaml-highlight .hljs-keyword {
+  color: var(--accent-warm);
+}
+.yaml-highlight .hljs-comment {
+  color: var(--muted);
+  font-style: italic;
+}
+.yaml-highlight .hljs-type,
+.yaml-highlight .hljs-meta {
+  color: #c586c0;
+}
+.yaml-highlight .hljs-bullet,
+.yaml-highlight .hljs-punctuation {
+  color: var(--muted);
+}

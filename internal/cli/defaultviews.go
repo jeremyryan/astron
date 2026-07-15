@@ -190,7 +190,7 @@ func buildDefaultView(namespace, projection string, view defaultViewCategory) Vi
 			Namespace: namespace,
 		},
 		Filters: ViewFilters{
-			KindMode:     "show",
+			KindMode:     kindModeShow,
 			VisibleKinds: visibleKindsFor(view),
 		},
 	}
