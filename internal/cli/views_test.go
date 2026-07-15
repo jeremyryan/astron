@@ -464,3 +464,81 @@ func TestAccessControlViewNameNormalized(t *testing.T) {
 		t.Errorf("manifest contains invalid resource name:\n%s", out)
 	}
 }
+
+func TestViewsNew(t *testing.T) {
+	var created []View
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != apiViewsPath {
+			http.NotFound(w, r)
+			return
+		}
+		var in View
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		created = append(created, in)
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(in)
+	}))
+	defer srv.Close()
+
+	out, err := runCmd(t, "--server", srv.URL, "views", "new", "astron", projWeb, "my-view",
+		"Pod,Service", "Deployment", "Pod", // mixed comma/space form with a duplicate
+		"--display-name", "My view", "--description", "Pods and friends")
+	if err != nil {
+		t.Fatalf("views new failed: %v", err)
+	}
+	if !strings.Contains(out, "graphview.astron.astron.io/my-view created in namespace astron") {
+		t.Errorf("unexpected confirmation output:\n%s", out)
+	}
+	if len(created) != 1 {
+		t.Fatalf("expected 1 view created, got %d", len(created))
+	}
+	v := created[0]
+	if v.Namespace != "astron" || v.Name != "my-view" {
+		t.Errorf("unexpected view identity: %s/%s", v.Namespace, v.Name)
+	}
+	if v.DisplayName != "My view" || v.Description != "Pods and friends" {
+		t.Errorf("unexpected metadata: %q %q", v.DisplayName, v.Description)
+	}
+	if v.ProjectionRef.Name != projWeb || v.ProjectionRef.Namespace != "astron" {
+		t.Errorf("unexpected projectionRef: %+v", v.ProjectionRef)
+	}
+	if v.Filters.KindMode != "show" {
+		t.Errorf("expected allow-list mode, got %q", v.Filters.KindMode)
+	}
+	want := []string{"Deployment", "Pod", "Service"}
+	if !slices.Equal(v.Filters.VisibleKinds, want) {
+		t.Errorf("visibleKinds = %v, want %v", v.Filters.VisibleKinds, want)
+	}
+}
+
+func TestViewsNewDefaultsDisplayName(t *testing.T) {
+	var created View
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&created)
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(created)
+	}))
+	defer srv.Close()
+
+	if _, err := runCmd(t, "--server", srv.URL, "views", "new", "astron", projWeb, "my-view", podKind); err != nil {
+		t.Fatalf("views new failed: %v", err)
+	}
+	if created.DisplayName != "my-view" {
+		t.Errorf("displayName should default to the view name, got %q", created.DisplayName)
+	}
+}
+
+func TestViewsNewRequiresKinds(t *testing.T) {
+	// Too few args is a usage error.
+	if _, err := runCmd(t, "views", "new", "astron", projWeb, "my-view"); err == nil {
+		t.Fatal("expected an argument-count error with no kinds")
+	}
+	// Kind args that reduce to nothing fail before contacting the server.
+	if _, err := runCmd(t, "views", "new", "astron", projWeb, "my-view", ",,"); err == nil ||
+		!strings.Contains(err.Error(), "at least one resource kind") {
+		t.Fatalf("expected empty-kinds error, got %v", err)
+	}
+}
