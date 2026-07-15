@@ -1322,6 +1322,8 @@ export function GraphView({
     //               zoom in / zoom out / reset zoom (no selection needed)
     //   *           arranges the selected node's neighbours in a circle
     //               around it (single node)
+    //   Ctrl+Arrows pan the viewport, like dragging the background (hold
+    //               Shift for a larger step; no selection needed)
     const ARROW_DELTAS: Record<string, [number, number]> = {
       ArrowUp: [0, -1],
       ArrowDown: [0, 1],
@@ -1340,9 +1342,20 @@ export function GraphView({
         return;
       }
 
+      // Ctrl/Cmd + arrow keys pan the viewport, moving the graph in the arrow's
+      // direction just as a click-drag on the background would. Needs no
+      // selection.
+      const delta = ARROW_DELTAS[e.key];
+      if (delta && (e.ctrlKey || e.metaKey) && !e.altKey) {
+        e.preventDefault();
+        const step = e.shiftKey ? 180 : 60;
+        const [dx, dy] = delta;
+        cy.panBy({ x: dx * step, y: dy * step });
+        return;
+      }
+
       // Arrow keys move the selected node(s) in model space. Plain arrows only
       // (modifiers are reserved for other shortcuts / browser behavior).
-      const delta = ARROW_DELTAS[e.key];
       if (delta && !(e.ctrlKey || e.metaKey || e.altKey)) {
         const selected = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
         if (selected.empty()) return;

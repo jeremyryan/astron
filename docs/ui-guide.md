@@ -325,6 +325,7 @@ These settings are persisted in your browser's local storage, so they persist ac
 | `Shift + +` | Zoom in |
 | `Shift + -` | Zoom out |
 | `Shift + 0` | Reset the zoom to fit the whole graph |
+| `Ctrl/Cmd + Arrow keys` | Pan the view, like dragging the background (hold `Shift` for a larger step) |
 | `Ctrl/Cmd + F` | (Browser search) Find in page |
 
 ---

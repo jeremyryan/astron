@@ -29,6 +29,10 @@ const KEYBOARD_SHORTCUTS: Shortcut[] = [
   { keys: ["Shift", "+"], action: "Zoom in" },
   { keys: ["Shift", "−"], action: "Zoom out" },
   { keys: ["Shift", "0"], action: "Reset the zoom to fit the whole graph" },
+  {
+    keys: ["Ctrl/Cmd", "↑", "↓", "←", "→"],
+    action: "Pan the view, like dragging the background; hold Shift for a larger step",
+  },
 ];
 
 const MOUSE_GESTURES: Shortcut[] = [
