@@ -1,7 +1,14 @@
+import { useMemo } from "react";
 import { ActionIcon, Box, Code, CopyButton, Group, Loader, Modal, Text, Tooltip } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
+import hljs from "highlight.js/lib/core";
+import yaml from "highlight.js/lib/languages/yaml";
 import { getResourceYaml, type GraphNode } from "./api";
 import { IconCheck, IconCopy, IconFileCode } from "./icons";
+
+// Register only the YAML grammar (highlight.js core is otherwise empty), so
+// the bundle doesn't pull in every language.
+hljs.registerLanguage("yaml", yaml);
 
 // YamlModal displays the live YAML manifest for the given node. It is open while
 // `node` is non-null and fetches the manifest lazily on open.
@@ -11,6 +18,17 @@ export function YamlModal({ node, onClose }: { node: GraphNode | null; onClose: 
     queryFn: () => getResourceYaml(node!),
     enabled: !!node,
   });
+
+  // Tokenized manifest markup; the token colors live in styles.css under
+  // .yaml-highlight. Falls back to plain text if highlighting throws.
+  const highlighted = useMemo(() => {
+    if (!data) return null;
+    try {
+      return hljs.highlight(data, { language: "yaml" }).value;
+    } catch {
+      return null;
+    }
+  }, [data]);
 
   const title = node ? (
     <Group gap={8} wrap="nowrap">
@@ -58,12 +76,14 @@ export function YamlModal({ node, onClose }: { node: GraphNode | null; onClose: 
           </CopyButton>
           <Code
             block
+            className="yaml-highlight"
             // Keep the manifest's own scrolling self-contained so a long line
             // never widens the dialog and pushes the close button out of view.
             style={{ maxWidth: "100%", maxHeight: "70vh", overflow: "auto", fontSize: 12 }}
-          >
-            {data}
-          </Code>
+            {...(highlighted !== null
+              ? { dangerouslySetInnerHTML: { __html: highlighted } }
+              : { children: data })}
+          />
         </Box>
       )}
     </Modal>
