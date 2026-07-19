@@ -44,6 +44,7 @@ func newViewsCmd(opts *options) *cobra.Command {
 	cmd.AddCommand(newViewsGenerateCmd(opts))
 	cmd.AddCommand(newViewsNewCmd(opts))
 	cmd.AddCommand(newViewsUpdateCmd(opts))
+	cmd.AddCommand(newViewsDescribeCmd(opts))
 	return cmd
 }
 
