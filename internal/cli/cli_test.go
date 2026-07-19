@@ -323,3 +323,60 @@ func TestQuoteEscaping(t *testing.T) {
 		t.Errorf("mermaidLabel = %s", got)
 	}
 }
+
+func TestStatusCommand(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/healthz":
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		case "/api/projections":
+			_ = json.NewEncoder(w).Encode([]Projection{
+				{Namespace: "a", Name: "p1", Phase: "Ready", NodeCount: 10, RelationshipCount: 20},
+				{Namespace: "b", Name: "p2", Phase: "Error", NodeCount: 5, RelationshipCount: 1},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	out, err := runCmd(t, "--server", srv.URL, "status")
+	if err != nil {
+		t.Fatalf("status failed: %v", err)
+	}
+	for _, want := range []string{"healthy:     true", "projections: 2 (1 ready)", "15 nodes, 21 edges"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("status output missing %q:\n%s", want, out)
+		}
+	}
+
+	// JSON output carries the aggregates.
+	out, err = runCmd(t, "--server", srv.URL, "-o", "json", "status")
+	if err != nil {
+		t.Fatalf("status -o json failed: %v", err)
+	}
+	var got statusResult
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if !got.Healthy || got.Projections != 2 || got.Ready != 1 || got.TotalNodes != 15 || got.TotalEdges != 21 {
+		t.Errorf("unexpected status result: %+v", got)
+	}
+}
+
+func TestStatusCommandUnhealthy(t *testing.T) {
+	// A reachable server with a failing health endpoint exits non-zero.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	if _, err := runCmd(t, "--server", srv.URL, "status"); err == nil ||
+		!strings.Contains(err.Error(), "not healthy") {
+		t.Fatalf("expected unhealthy error, got %v", err)
+	}
+
+	// An unreachable server also errors.
+	if _, err := runCmd(t, "--server", "http://127.0.0.1:1", "status"); err == nil {
+		t.Fatal("expected connection error")
+	}
+}

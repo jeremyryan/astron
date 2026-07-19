@@ -187,6 +187,21 @@ func newClient(opts *options) (*Client, error) {
 	return &Client{baseURL: base, http: &http.Client{Timeout: timeout}}, nil
 }
 
+// Health checks the read API's health endpoint, returning an error when the
+// server is unreachable or reports a non-ok status.
+func (c *Client) Health(ctx context.Context) error {
+	var out struct {
+		Status string `json:"status"`
+	}
+	if err := c.getJSON(ctx, "/api/healthz", &out); err != nil {
+		return err
+	}
+	if out.Status != "ok" {
+		return fmt.Errorf("unexpected health status %q", out.Status)
+	}
+	return nil
+}
+
 // ListProjections returns all GraphProjections known to the operator.
 func (c *Client) ListProjections(ctx context.Context) ([]Projection, error) {
 	var out []Projection

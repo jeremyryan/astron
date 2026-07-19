@@ -97,6 +97,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newAskCmd(opts))
 	cmd.AddCommand(newQueryCmd(opts))
 	cmd.AddCommand(newResourceCmd(opts))
+	cmd.AddCommand(newStatusCmd(opts))
 	cmd.AddCommand(newMCPServerCmd(opts))
 
 	return cmd
