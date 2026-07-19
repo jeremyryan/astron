@@ -243,6 +243,33 @@ func (c *Client) CreateView(ctx context.Context, v View) (View, error) {
 	return out, nil
 }
 
+// GetView fetches a single GraphView by namespace and name. Since the read API
+// has no single-view endpoint, it lists views and selects the match.
+func (c *Client) GetView(ctx context.Context, namespace, name string) (View, error) {
+	views, err := c.ListViews(ctx, "", "")
+	if err != nil {
+		return View{}, err
+	}
+	for _, v := range views {
+		if v.Namespace == namespace && v.Name == name {
+			return v, nil
+		}
+	}
+	return View{}, fmt.Errorf("GraphView %s/%s not found", namespace, name)
+}
+
+// UpdateView replaces the spec of an existing GraphView and returns the
+// server's representation of the updated object.
+func (c *Client) UpdateView(ctx context.Context, v View) (View, error) {
+	path := fmt.Sprintf("%s/%s/%s", apiViewsPath,
+		url.PathEscape(v.Namespace), url.PathEscape(v.Name))
+	var out View
+	if err := c.sendJSON(ctx, http.MethodPut, path, v, &out); err != nil {
+		return View{}, err
+	}
+	return out, nil
+}
+
 // DeleteView deletes a GraphView by namespace and name.
 func (c *Client) DeleteView(ctx context.Context, namespace, name string) error {
 	path := fmt.Sprintf("%s/%s/%s", apiViewsPath,
@@ -385,11 +412,17 @@ func (c *Client) delete(ctx context.Context, path string) error {
 // postJSON issues a POST request with a JSON body and decodes a JSON response
 // body into v. It accepts any 2xx status.
 func (c *Client) postJSON(ctx context.Context, path string, body, v any) error {
+	return c.sendJSON(ctx, http.MethodPost, path, body, v)
+}
+
+// sendJSON issues a request with a JSON body and decodes a JSON response body
+// into v. It accepts any 2xx status.
+func (c *Client) sendJSON(ctx context.Context, method, path string, body, v any) error {
 	data, err := json.Marshal(body)
 	if err != nil {
 		return fmt.Errorf("encoding request for %s: %w", path, err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
