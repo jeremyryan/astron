@@ -453,3 +453,13 @@ func TestGraphFocusErrors(t *testing.T) {
 		t.Fatalf("expected invalid-focus error, got %v", err)
 	}
 }
+
+func TestDocsCommand(t *testing.T) {
+	out, err := runCmd(t, "--server", "http://example.com:8082/", "docs")
+	if err != nil {
+		t.Fatalf("docs failed: %v", err)
+	}
+	if strings.TrimSpace(out) != "http://example.com:8082/api/docs" {
+		t.Errorf("unexpected docs URL: %q", out)
+	}
+}

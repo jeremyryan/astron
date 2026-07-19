@@ -76,7 +76,8 @@ func newSearchCmd(opts *options) *cobra.Command {
 			"Use --show-cards to also print the natural-language card of each\n" +
 			"result, and -o json to print the full retrieval context (seeds, cards\n" +
 			"and the connecting subgraph).",
-		Args: cobra.MinimumNArgs(3),
+		Args:              cobra.MinimumNArgs(3),
+		ValidArgsFunction: completeProjectionArgs(opts),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSearch(cmd, ropts, args[0], args[1], strings.Join(args[2:], " "))
 		},
@@ -155,7 +156,8 @@ func newAskCmd(opts *options) *cobra.Command {
 			"Use --show-context to also print the resources the answer was grounded\n" +
 			"in, and -o json to print the full response including the retrieval\n" +
 			"context.",
-		Args: cobra.MinimumNArgs(3),
+		Args:              cobra.MinimumNArgs(3),
+		ValidArgsFunction: completeProjectionArgs(opts),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runAsk(cmd, ropts, args[0], args[1], strings.Join(args[2:], " "))
 		},
@@ -226,7 +228,8 @@ func newQueryCmd(opts *options) *cobra.Command {
 			"arguments, which are joined with spaces.\n\n" +
 			"Use --show-cypher to also print the generated query, and -o json to\n" +
 			"print the full result.",
-		Args: cobra.MinimumNArgs(3),
+		Args:              cobra.MinimumNArgs(3),
+		ValidArgsFunction: completeProjectionArgs(opts),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runQuery(cmd, ropts, args[0], args[1], strings.Join(args[2:], " "))
 		},

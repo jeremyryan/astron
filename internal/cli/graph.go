@@ -76,7 +76,8 @@ func newGraphCmd(opts *options) *cobra.Command {
 			"Use --focus Kind/name (with optional --depth) to show only the\n" +
 			"neighborhood of a single resource instead of the whole graph, and\n" +
 			"--kind/--namespace to filter the displayed nodes.",
-		Args: cobra.ExactArgs(2),
+		Args:              cobra.ExactArgs(2),
+		ValidArgsFunction: completeProjectionArgs(opts),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			format, err := gopts.resolveFormat()
 			if err != nil {

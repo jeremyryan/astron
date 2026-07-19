@@ -72,7 +72,8 @@ func newViewsUpdateCmd(opts *options) *cobra.Command {
 			"and for a deny-list view the hidden-kinds list is edited. Both flags\n" +
 			"accept comma-separated lists and may be repeated.\n\n" +
 			"--display-name and --description replace the view's metadata when set.",
-		Args: cobra.ExactArgs(2),
+		Args:              cobra.ExactArgs(2),
+		ValidArgsFunction: completeViewArgs(opts),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runViewsUpdate(cmd, uopts, args[0], args[1])
 		},
@@ -370,7 +371,8 @@ func newViewsRmCmd(opts *options) *cobra.Command {
 		Short:   "Delete one or more GraphViews",
 		Long: "rm deletes the named GraphViews from a namespace.\n\n" +
 			"Use \"views list\" to see the existing GraphViews and their names.",
-		Args: cobra.MinimumNArgs(2),
+		Args:              cobra.MinimumNArgs(2),
+		ValidArgsFunction: completeViewArgs(opts),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runViewsRm(cmd, opts, args[0], args[1:])
 		},

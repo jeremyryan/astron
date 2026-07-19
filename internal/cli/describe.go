@@ -49,7 +49,8 @@ func newProjectionsDescribeCmd(opts *options) *cobra.Command {
 			"Use -o json to print the full object.\n\n" +
 			"It talks directly to the Kubernetes API (via your kubeconfig), not the\n" +
 			"Astron read API, so the --server flag does not apply here.",
-		Args: cobra.ExactArgs(2),
+		Args:              cobra.ExactArgs(2),
+		ValidArgsFunction: completeProjectionArgs(opts),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := dopts.kube.restConfig()
 			if err != nil {
@@ -196,7 +197,8 @@ func newViewsDescribeCmd(opts *options) *cobra.Command {
 		Long: "describe prints a detailed summary of a GraphView: the projection it\n" +
 			"filters, its display metadata, and its kind, namespace and label\n" +
 			"filters.\n\nUse -o json to print the full object.",
-		Args: cobra.ExactArgs(2),
+		Args:              cobra.ExactArgs(2),
+		ValidArgsFunction: completeViewArgs(opts),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := newClient(opts)
 			if err != nil {

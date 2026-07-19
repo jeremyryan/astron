@@ -83,6 +83,12 @@ type generateOptions struct {
 	// generated GraphProjection spec.
 	specConfigMap string
 
+	// labelSelector restricts the projection to resources matching this label
+	// selector (e.g. "app=web,tier in (frontend,backend)").
+	labelSelector string
+	// includeCRDs captures CustomResourceDefinitions as graph nodes.
+	includeCRDs bool
+
 	// outputFile, when set (and not "-"), writes the manifest to a file instead
 	// of stdout.
 	outputFile string
@@ -214,6 +220,10 @@ func addGenerateFlags(cmd *cobra.Command, gopts *generateOptions) {
 		"Include every namespaced kind that has instances, instead of the standard common set")
 	cmd.Flags().StringVar(&gopts.specConfigMap, "spec-from-configmap", "",
 		"ConfigMap (\"name\" or \"namespace/name\") whose \"spec\" key is a YAML document merged into the generated spec")
+	cmd.Flags().StringVarP(&gopts.labelSelector, "label-selector", "l", "",
+		"Restrict the projection to resources matching this label selector (e.g. app=web)")
+	cmd.Flags().BoolVar(&gopts.includeCRDs, "include-crds", false,
+		"Also capture CustomResourceDefinitions as graph nodes")
 }
 
 func runGenerate(cmd *cobra.Command, gopts *generateOptions, namespace string) error {
@@ -222,6 +232,9 @@ func runGenerate(cmd *cobra.Command, gopts *generateOptions, namespace string) e
 	}
 	views, err := parseViewSelection(gopts.views)
 	if err != nil {
+		return err
+	}
+	if _, err := parseLabelSelector(gopts.labelSelector); err != nil {
 		return err
 	}
 
@@ -660,12 +673,32 @@ func buildManifest(gopts *generateOptions, namespace string, selectors []astronv
 		spec.Relationships = buildRelationships(selectors)
 	}
 
+	if sel, err := parseLabelSelector(gopts.labelSelector); err == nil && sel != nil {
+		spec.Scope.LabelSelector = sel
+	}
+	if gopts.includeCRDs {
+		spec.Scope.CRDs = &astronv1alpha1.CRDSelection{Include: true}
+	}
+
 	return projectionManifest{
 		APIVersion: astronv1alpha1.GroupVersion.String(),
 		Kind:       kindGraphProjection,
 		Metadata:   manifestMeta{Name: name, Namespace: namespace},
 		Spec:       spec,
 	}
+}
+
+// parseLabelSelector parses a label-selector flag into a LabelSelector,
+// returning nil for an empty value.
+func parseLabelSelector(s string) (*metav1.LabelSelector, error) {
+	if s == "" {
+		return nil, nil
+	}
+	sel, err := metav1.ParseToLabelSelector(s)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --label-selector %q: %w", s, err)
+	}
+	return sel, nil
 }
 
 // parseDuration parses a duration flag into a metav1.Duration pointer, returning
