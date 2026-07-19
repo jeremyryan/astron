@@ -75,6 +75,11 @@ var _ = Describe("GraphProjection Controller", func() {
 				Client:     k8sClient,
 				Scheme:     k8sClient.Scheme(),
 				Projectors: manager,
+				Neo4j: graph.Neo4jConfig{
+					URI:      "neo4j://neo4j.astron-system.svc:7687",
+					Username: "neo4j",
+					Password: "s3cret",
+				},
 			}
 		}
 
@@ -102,14 +107,6 @@ var _ = Describe("GraphProjection Controller", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
 						Namespace: namespace,
-					},
-					Spec: astronv1alpha1.GraphProjectionSpec{
-						Neo4j: astronv1alpha1.Neo4jConnection{
-							URI: "neo4j://neo4j.astron-system.svc:7687",
-							AuthSecretRef: astronv1alpha1.SecretReference{
-								Name: secretName,
-							},
-						},
 					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())

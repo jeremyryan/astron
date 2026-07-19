@@ -114,11 +114,8 @@ metadata:
   name: default
   namespace: astron
 spec:
-  neo4j:
-    uri: neo4j://astron-neo4j.astron.svc:7687
-    authSecretRef:
-      name: neo4j-credentials
-  # ... scope, relationships ...
+  # ... scope, relationships ... (the Neo4J connection is configured on the
+  # controller Pod, not per projection)
   graphRAG:
     enabled: true
     embedding:

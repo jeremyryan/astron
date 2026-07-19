@@ -64,10 +64,6 @@ type generateOptions struct {
 	kube kubeOptions
 
 	name              string
-	neo4jURI          string
-	neo4jDatabase     string
-	neo4jSecret       string
-	neo4jSecretNS     string
 	resyncInterval    string
 	withRelationships bool
 	// views selects default GraphViews to generate alongside the projection:
@@ -82,6 +78,12 @@ type generateOptions struct {
 	// "namespace/name") whose "spec" key holds a YAML document merged into the
 	// generated GraphProjection spec.
 	specConfigMap string
+
+	// labelSelector restricts the projection to resources matching this label
+	// selector (e.g. "app=web,tier in (frontend,backend)").
+	labelSelector string
+	// includeCRDs captures CustomResourceDefinitions as graph nodes.
+	includeCRDs bool
 
 	// outputFile, when set (and not "-"), writes the manifest to a file instead
 	// of stdout.
@@ -194,14 +196,6 @@ func addGenerateFlags(cmd *cobra.Command, gopts *generateOptions) {
 		"Name of the kubeconfig context to use")
 	cmd.Flags().StringVar(&gopts.name, "name", "",
 		"Name of the generated GraphProjection (defaults to the namespace)")
-	cmd.Flags().StringVar(&gopts.neo4jURI, "neo4j-uri", "neo4j://astron-neo4j.astron.svc:7687",
-		"Neo4J connection URI to write into the manifest")
-	cmd.Flags().StringVar(&gopts.neo4jDatabase, "neo4j-database", "neo4j",
-		"Neo4J database name")
-	cmd.Flags().StringVar(&gopts.neo4jSecret, "neo4j-secret", "neo4j-credentials",
-		"Name of the Secret holding Neo4J credentials")
-	cmd.Flags().StringVar(&gopts.neo4jSecretNS, "neo4j-secret-namespace", "",
-		"Namespace of the Neo4J credentials Secret (defaults to the projection's namespace)")
 	cmd.Flags().StringVar(&gopts.resyncInterval, "resync-interval", "5m",
 		"Full reconciliation interval to set on the projection")
 	cmd.Flags().BoolVar(&gopts.withRelationships, "with-relationships", true,
@@ -214,6 +208,10 @@ func addGenerateFlags(cmd *cobra.Command, gopts *generateOptions) {
 		"Include every namespaced kind that has instances, instead of the standard common set")
 	cmd.Flags().StringVar(&gopts.specConfigMap, "spec-from-configmap", "",
 		"ConfigMap (\"name\" or \"namespace/name\") whose \"spec\" key is a YAML document merged into the generated spec")
+	cmd.Flags().StringVarP(&gopts.labelSelector, "label-selector", "l", "",
+		"Restrict the projection to resources matching this label selector (e.g. app=web)")
+	cmd.Flags().BoolVar(&gopts.includeCRDs, "include-crds", false,
+		"Also capture CustomResourceDefinitions as graph nodes")
 }
 
 func runGenerate(cmd *cobra.Command, gopts *generateOptions, namespace string) error {
@@ -222,6 +220,9 @@ func runGenerate(cmd *cobra.Command, gopts *generateOptions, namespace string) e
 	}
 	views, err := parseViewSelection(gopts.views)
 	if err != nil {
+		return err
+	}
+	if _, err := parseLabelSelector(gopts.labelSelector); err != nil {
 		return err
 	}
 
@@ -638,14 +639,6 @@ func buildManifest(gopts *generateOptions, namespace string, selectors []astronv
 	}
 
 	spec := astronv1alpha1.GraphProjectionSpec{
-		Neo4j: astronv1alpha1.Neo4jConnection{
-			URI:      gopts.neo4jURI,
-			Database: gopts.neo4jDatabase,
-			AuthSecretRef: astronv1alpha1.SecretReference{
-				Name:      gopts.neo4jSecret,
-				Namespace: gopts.neo4jSecretNS,
-			},
-		},
 		Scope: astronv1alpha1.ProjectionScope{
 			Namespaces: []string{namespace},
 			Resources:  selectors,
@@ -660,12 +653,32 @@ func buildManifest(gopts *generateOptions, namespace string, selectors []astronv
 		spec.Relationships = buildRelationships(selectors)
 	}
 
+	if sel, err := parseLabelSelector(gopts.labelSelector); err == nil && sel != nil {
+		spec.Scope.LabelSelector = sel
+	}
+	if gopts.includeCRDs {
+		spec.Scope.CRDs = &astronv1alpha1.CRDSelection{Include: true}
+	}
+
 	return projectionManifest{
 		APIVersion: astronv1alpha1.GroupVersion.String(),
 		Kind:       kindGraphProjection,
 		Metadata:   manifestMeta{Name: name, Namespace: namespace},
 		Spec:       spec,
 	}
+}
+
+// parseLabelSelector parses a label-selector flag into a LabelSelector,
+// returning nil for an empty value.
+func parseLabelSelector(s string) (*metav1.LabelSelector, error) {
+	if s == "" {
+		return nil, nil
+	}
+	sel, err := metav1.ParseToLabelSelector(s)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --label-selector %q: %w", s, err)
+	}
+	return sel, nil
 }
 
 // parseDuration parses a duration flag into a metav1.Duration pointer, returning

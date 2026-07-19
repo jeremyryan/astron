@@ -103,6 +103,96 @@ type Graph struct {
 	Edges []Edge `json:"edges"`
 }
 
+// Seed mirrors the read API's retrieval seed (see internal/api seedDTO).
+type Seed struct {
+	ID    string  `json:"id"`
+	Kind  string  `json:"kind"`
+	Name  string  `json:"name"`
+	Score float64 `json:"score"`
+}
+
+// Card mirrors the read API's retrieval card (see internal/api cardDTO).
+type Card struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Namespace string `json:"namespace,omitempty"`
+	Name      string `json:"name"`
+	Text      string `json:"text"`
+}
+
+// Retrieval mirrors the read API's assembled GraphRAG context
+// (see internal/api retrievalDTO).
+type Retrieval struct {
+	Query    string `json:"query"`
+	Seeds    []Seed `json:"seeds"`
+	Cards    []Card `json:"cards"`
+	Subgraph Graph  `json:"subgraph"`
+}
+
+// Answer mirrors the read API's RAG answer (see internal/api answerDTO).
+type Answer struct {
+	Question  string    `json:"question"`
+	Answer    string    `json:"answer"`
+	Retrieval Retrieval `json:"retrieval"`
+}
+
+// QueryResult mirrors the read API's text-to-Cypher result
+// (see internal/projector QueryResult).
+type QueryResult struct {
+	Question string           `json:"question"`
+	Cypher   string           `json:"cypher"`
+	Rows     []map[string]any `json:"rows"`
+}
+
+// SearchRequest is the body of a rag/search request
+// (see internal/api ragSearchRequest).
+type SearchRequest struct {
+	Query      string   `json:"query"`
+	TopK       int      `json:"topK,omitempty"`
+	Hops       *int     `json:"hops,omitempty"`
+	EdgeTypes  []string `json:"edgeTypes,omitempty"`
+	Kinds      []string `json:"kinds,omitempty"`
+	Namespaces []string `json:"namespaces,omitempty"`
+}
+
+// NeighborhoodRequest is the body of a rag/neighborhood request
+// (see internal/api ragNeighborhoodRequest).
+type NeighborhoodRequest struct {
+	APIVersion string   `json:"apiVersion,omitempty"`
+	Kind       string   `json:"kind"`
+	Namespace  string   `json:"namespace,omitempty"`
+	Name       string   `json:"name"`
+	Hops       *int     `json:"hops,omitempty"`
+	EdgeTypes  []string `json:"edgeTypes,omitempty"`
+}
+
+// QuestionRequest is the body of a rag/query or rag/answer request
+// (see internal/api ragQuestionRequest).
+type QuestionRequest struct {
+	Question  string   `json:"question"`
+	TopK      int      `json:"topK,omitempty"`
+	Hops      *int     `json:"hops,omitempty"`
+	EdgeTypes []string `json:"edgeTypes,omitempty"`
+	Model     string   `json:"model,omitempty"`
+}
+
+// LinkRequest is the body of a link create/update request
+// (see internal/api linkRequest).
+type LinkRequest struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	Type string `json:"type,omitempty"`
+	Note string `json:"note,omitempty"`
+}
+
+// Link is the server's representation of a user-created link.
+type Link struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	Type string `json:"type"`
+	Note string `json:"note,omitempty"`
+}
+
 // Client is a thin HTTP client for the Astron read API.
 type Client struct {
 	baseURL string
@@ -125,10 +215,28 @@ func newClient(opts *options) (*Client, error) {
 	return &Client{baseURL: base, http: &http.Client{Timeout: timeout}}, nil
 }
 
+// Health checks the read API's health endpoint, returning an error when the
+// server is unreachable or reports a non-ok status.
+func (c *Client) Health(ctx context.Context) error {
+	var out struct {
+		Status string `json:"status"`
+	}
+	if err := c.getJSON(ctx, "/api/healthz", &out); err != nil {
+		return err
+	}
+	if out.Status != "ok" {
+		return fmt.Errorf("unexpected health status %q", out.Status)
+	}
+	return nil
+}
+
+// apiProjectionsPath is the read API endpoint listing GraphProjections.
+const apiProjectionsPath = "/api/projections"
+
 // ListProjections returns all GraphProjections known to the operator.
 func (c *Client) ListProjections(ctx context.Context) ([]Projection, error) {
 	var out []Projection
-	if err := c.getJSON(ctx, "/api/projections", &out); err != nil {
+	if err := c.getJSON(ctx, apiProjectionsPath, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -166,11 +274,118 @@ func (c *Client) CreateView(ctx context.Context, v View) (View, error) {
 	return out, nil
 }
 
+// GetView fetches a single GraphView by namespace and name. Since the read API
+// has no single-view endpoint, it lists views and selects the match.
+func (c *Client) GetView(ctx context.Context, namespace, name string) (View, error) {
+	views, err := c.ListViews(ctx, "", "")
+	if err != nil {
+		return View{}, err
+	}
+	for _, v := range views {
+		if v.Namespace == namespace && v.Name == name {
+			return v, nil
+		}
+	}
+	return View{}, fmt.Errorf("GraphView %s/%s not found", namespace, name)
+}
+
+// UpdateView replaces the spec of an existing GraphView and returns the
+// server's representation of the updated object.
+func (c *Client) UpdateView(ctx context.Context, v View) (View, error) {
+	path := fmt.Sprintf("%s/%s/%s", apiViewsPath,
+		url.PathEscape(v.Namespace), url.PathEscape(v.Name))
+	var out View
+	if err := c.sendJSON(ctx, http.MethodPut, path, v, &out); err != nil {
+		return View{}, err
+	}
+	return out, nil
+}
+
 // DeleteView deletes a GraphView by namespace and name.
 func (c *Client) DeleteView(ctx context.Context, namespace, name string) error {
 	path := fmt.Sprintf("%s/%s/%s", apiViewsPath,
 		url.PathEscape(namespace), url.PathEscape(name))
 	return c.delete(ctx, path)
+}
+
+// linksPath builds the path of a projection's links endpoint.
+func linksPath(namespace, name string) string {
+	return fmt.Sprintf("/api/projections/%s/%s/links",
+		url.PathEscape(namespace), url.PathEscape(name))
+}
+
+// AddLink creates a user-defined link between two graph nodes.
+func (c *Client) AddLink(ctx context.Context, namespace, name string, req LinkRequest) (Link, error) {
+	var out Link
+	if err := c.postJSON(ctx, linksPath(namespace, name), req, &out); err != nil {
+		return Link{}, err
+	}
+	return out, nil
+}
+
+// UpdateLink updates the note on a user-created link.
+func (c *Client) UpdateLink(ctx context.Context, namespace, name string, req LinkRequest) (Link, error) {
+	var out Link
+	if err := c.sendJSON(ctx, http.MethodPatch, linksPath(namespace, name), req, &out); err != nil {
+		return Link{}, err
+	}
+	return out, nil
+}
+
+// DeleteLink deletes a user-created link between two graph nodes. relType may
+// be empty for the server default (CUSTOM).
+func (c *Client) DeleteLink(ctx context.Context, namespace, name, from, to, relType string) error {
+	q := url.Values{}
+	q.Set("from", from)
+	q.Set("to", to)
+	if relType != "" {
+		q.Set("type", relType)
+	}
+	return c.delete(ctx, linksPath(namespace, name)+"?"+q.Encode())
+}
+
+// ragPath builds the path of a projection's rag/<verb> endpoint.
+func ragPath(namespace, name, verb string) string {
+	return fmt.Sprintf("/api/projections/%s/%s/rag/%s",
+		url.PathEscape(namespace), url.PathEscape(name), verb)
+}
+
+// Search runs hybrid (vector + graph) retrieval against a projection.
+func (c *Client) Search(ctx context.Context, namespace, name string, req SearchRequest) (Retrieval, error) {
+	var out Retrieval
+	if err := c.postJSON(ctx, ragPath(namespace, name, "search"), req, &out); err != nil {
+		return Retrieval{}, err
+	}
+	return out, nil
+}
+
+// Neighborhood returns the subgraph within a number of hops of a named
+// resource. It requires no embeddings, so it works on any running projection.
+func (c *Client) Neighborhood(ctx context.Context, namespace, name string, req NeighborhoodRequest) (Retrieval, error) {
+	var out Retrieval
+	if err := c.postJSON(ctx, ragPath(namespace, name, "neighborhood"), req, &out); err != nil {
+		return Retrieval{}, err
+	}
+	return out, nil
+}
+
+// Answer runs retrieval-augmented question answering against a projection.
+func (c *Client) Answer(ctx context.Context, namespace, name string, req QuestionRequest) (Answer, error) {
+	var out Answer
+	if err := c.postJSON(ctx, ragPath(namespace, name, "answer"), req, &out); err != nil {
+		return Answer{}, err
+	}
+	return out, nil
+}
+
+// Query answers a question via a generated, read-only Cypher query
+// (text-to-Cypher).
+func (c *Client) Query(ctx context.Context, namespace, name string, req QuestionRequest) (QueryResult, error) {
+	var out QueryResult
+	if err := c.postJSON(ctx, ragPath(namespace, name, "query"), req, &out); err != nil {
+		return QueryResult{}, err
+	}
+	return out, nil
 }
 
 // Graph returns the materialized graph for a single projection.
@@ -182,6 +397,40 @@ func (c *Client) Graph(ctx context.Context, namespace, name string) (Graph, erro
 		return Graph{}, err
 	}
 	return out, nil
+}
+
+// ResourceYAML fetches the live manifest of a single resource as YAML.
+// namespace may be empty for cluster-scoped resources.
+func (c *Client) ResourceYAML(ctx context.Context, apiVersion, kind, namespace, name string) ([]byte, error) {
+	q := url.Values{}
+	q.Set("apiVersion", apiVersion)
+	q.Set("kind", kind)
+	q.Set("name", name)
+	if namespace != "" {
+		q.Set("namespace", namespace)
+	}
+	path := "/api/resource?" + q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/yaml")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("requesting %s: %w", path, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response from %s: %w", path, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("/api/resource: %s", apiError(resp.StatusCode, body))
+	}
+	return body, nil
 }
 
 // getJSON issues a GET request and decodes a JSON response body into v.
@@ -240,11 +489,17 @@ func (c *Client) delete(ctx context.Context, path string) error {
 // postJSON issues a POST request with a JSON body and decodes a JSON response
 // body into v. It accepts any 2xx status.
 func (c *Client) postJSON(ctx context.Context, path string, body, v any) error {
+	return c.sendJSON(ctx, http.MethodPost, path, body, v)
+}
+
+// sendJSON issues a request with a JSON body and decodes a JSON response body
+// into v. It accepts any 2xx status.
+func (c *Client) sendJSON(ctx context.Context, method, path string, body, v any) error {
 	data, err := json.Marshal(body)
 	if err != nil {
 		return fmt.Errorf("encoding request for %s: %w", path, err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bytes.NewReader(data))
 	if err != nil {
 		return err
 	}

@@ -18,10 +18,18 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
+)
+
+// Graph-specific output formats accepted by --format, in addition to the
+// global table/json formats.
+const (
+	formatDOT     = "dot"
+	formatMermaid = "mermaid"
 )
 
 // graphOptions holds the flags specific to the graph command.
@@ -30,13 +38,22 @@ type graphOptions struct {
 	// kind, when set, restricts displayed nodes (and the edges touching them)
 	// to the given resource Kind, e.g. "Pod".
 	kind string
+	// namespace, when set, restricts displayed nodes to the given namespace.
+	namespace string
+	// focus, when set to "Kind/name", restricts the graph to the neighborhood
+	// of that resource, fetched via the projection's neighborhood endpoint.
+	focus string
+	// depth is how many hops the neighborhood extends around the focus node;
+	// negative means the server default. Only meaningful with --focus.
+	depth int
 	// edgesOnly / nodesOnly restrict the table output to a single section.
 	edgesOnly bool
 	nodesOnly bool
 	// format selects how the graph is rendered: "table" (the default) prints
 	// human-readable node and edge tables; "json" prints a single JSON document
-	// containing all nodes and edges. When empty it falls back to the global
-	// --output flag.
+	// containing all nodes and edges; "dot" prints a Graphviz digraph; and
+	// "mermaid" prints a Mermaid flowchart. When empty it falls back to the
+	// global --output flag.
 	format string
 }
 
@@ -52,8 +69,15 @@ func newGraphCmd(opts *options) *cobra.Command {
 			"(see \"astron projections list\").\n\n" +
 			"Use --format table (the default) to print human-readable node and edge\n" +
 			"tables, or --format json to print a single JSON document containing all\n" +
-			"nodes and edges.",
-		Args: cobra.ExactArgs(2),
+			"nodes and edges.\n\n" +
+			"For rendering, --format dot emits a Graphviz digraph (pipe it into\n" +
+			"\"dot -Tsvg\") and --format mermaid emits a Mermaid flowchart suitable\n" +
+			"for embedding in Markdown.\n\n" +
+			"Use --focus Kind/name (with optional --depth) to show only the\n" +
+			"neighborhood of a single resource instead of the whole graph, and\n" +
+			"--kind/--namespace to filter the displayed nodes.",
+		Args:              cobra.ExactArgs(2),
+		ValidArgsFunction: completeProjectionArgs(opts),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			format, err := gopts.resolveFormat()
 			if err != nil {
@@ -66,16 +90,22 @@ func newGraphCmd(opts *options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			g, err := client.Graph(cmd.Context(), args[0], args[1])
+			g, err := fetchGraph(cmd, client, gopts, args[0], args[1])
 			if err != nil {
 				return err
 			}
-			g = filterGraph(g, gopts.kind)
+			g = filterGraph(g, gopts.kind, gopts.namespace)
 
-			if format == outputJSON {
+			switch format {
+			case outputJSON:
 				return printJSON(cmd.OutOrStdout(), g)
+			case formatDOT:
+				return renderDOT(cmd.OutOrStdout(), g)
+			case formatMermaid:
+				return renderMermaid(cmd.OutOrStdout(), g)
+			default:
+				return printGraphTable(cmd, g, gopts)
 			}
-			return printGraphTable(cmd, g, gopts)
 		},
 	}
 
@@ -83,10 +113,43 @@ func newGraphCmd(opts *options) *cobra.Command {
 		"Only show nodes of this Kind (and edges touching them), e.g. Pod")
 	cmd.Flags().BoolVar(&gopts.edgesOnly, "edges-only", false, "Only print the edges section")
 	cmd.Flags().BoolVar(&gopts.nodesOnly, "nodes-only", false, "Only print the nodes section")
+	cmd.Flags().StringVarP(&gopts.namespace, "namespace", "n", "",
+		"Only show nodes in this namespace (and edges connecting them)")
+	cmd.Flags().StringVar(&gopts.focus, "focus", "",
+		"Only show the neighborhood of this resource, given as Kind/name (e.g. Pod/web-abc)")
+	cmd.Flags().IntVar(&gopts.depth, "depth", -1,
+		"How many hops the --focus neighborhood extends (negative means the server default)")
 	cmd.Flags().StringVar(&gopts.format, "format", "",
-		"Output format for the graph: table or json (defaults to the global --output)")
+		"Output format for the graph: table, json, dot or mermaid (defaults to the global --output)")
 
 	return cmd
+}
+
+// fetchGraph fetches either the projection's full graph or, when --focus is
+// set, the neighborhood subgraph around the focused resource.
+func fetchGraph(cmd *cobra.Command, client *Client, gopts *graphOptions, namespace, name string) (Graph, error) {
+	if gopts.focus == "" {
+		if gopts.depth >= 0 {
+			return Graph{}, fmt.Errorf("--depth requires --focus")
+		}
+		return client.Graph(cmd.Context(), namespace, name)
+	}
+
+	kind, focusName, ok := strings.Cut(gopts.focus, "/")
+	if !ok || kind == "" || focusName == "" {
+		return Graph{}, fmt.Errorf("invalid --focus %q: expected Kind/name (e.g. Pod/web-abc)", gopts.focus)
+	}
+
+	req := NeighborhoodRequest{Kind: kind, Name: focusName, Namespace: gopts.namespace}
+	if gopts.depth >= 0 {
+		d := gopts.depth
+		req.Hops = &d
+	}
+	retrieval, err := client.Neighborhood(cmd.Context(), namespace, name, req)
+	if err != nil {
+		return Graph{}, err
+	}
+	return retrieval.Subgraph, nil
 }
 
 // resolveFormat determines the effective output format for the graph command.
@@ -98,28 +161,105 @@ func (o *graphOptions) resolveFormat() (string, error) {
 		format = o.output
 	}
 	switch format {
-	case outputTable, outputJSON:
+	case outputTable, outputJSON, formatDOT, formatMermaid:
 		return format, nil
 	default:
-		return "", fmt.Errorf("invalid --format %q: must be %q or %q",
-			o.format, outputTable, outputJSON)
+		return "", fmt.Errorf("invalid --format %q: must be %q, %q, %q or %q",
+			o.format, outputTable, outputJSON, formatDOT, formatMermaid)
 	}
 }
 
-// filterGraph restricts the graph to nodes of the given kind (case-insensitive)
-// and the edges that connect two retained nodes. An empty kind returns the
-// graph unchanged.
-func filterGraph(g Graph, kind string) Graph {
-	if kind == "" {
+// renderDOT writes the graph as a Graphviz digraph. Node identifiers are the
+// graph node ids (quoted and escaped); labels are "Kind ns/name". Output is
+// sorted for determinism.
+func renderDOT(w io.Writer, g Graph) error {
+	byID := make(map[string]Node, len(g.Nodes))
+	for _, n := range g.Nodes {
+		byID[n.ID] = n
+	}
+	sortNodes(g.Nodes)
+	sortEdges(g.Edges, byID)
+
+	var b strings.Builder
+	b.WriteString("digraph {\n")
+	b.WriteString("  rankdir=LR;\n")
+	b.WriteString("  node [shape=box];\n")
+	for _, n := range g.Nodes {
+		fmt.Fprintf(&b, "  %s [label=%s];\n", dotQuote(n.ID), dotQuote(nodeLabel(byID, n.ID)))
+	}
+	for _, e := range g.Edges {
+		fmt.Fprintf(&b, "  %s -> %s [label=%s];\n", dotQuote(e.Source), dotQuote(e.Target), dotQuote(e.Type))
+	}
+	b.WriteString("}\n")
+	_, err := io.WriteString(w, b.String())
+	return err
+}
+
+// dotQuote renders a DOT double-quoted string, escaping backslashes and
+// quotes.
+func dotQuote(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return `"` + s + `"`
+}
+
+// renderMermaid writes the graph as a Mermaid flowchart. Nodes get synthetic
+// identifiers (n0, n1, ...) since Mermaid ids cannot contain arbitrary
+// characters; labels are "Kind ns/name". Output is sorted for determinism.
+func renderMermaid(w io.Writer, g Graph) error {
+	byID := make(map[string]Node, len(g.Nodes))
+	for _, n := range g.Nodes {
+		byID[n.ID] = n
+	}
+	sortNodes(g.Nodes)
+	sortEdges(g.Edges, byID)
+
+	ids := make(map[string]string, len(g.Nodes))
+	var b strings.Builder
+	b.WriteString("graph LR\n")
+	for i, n := range g.Nodes {
+		id := fmt.Sprintf("n%d", i)
+		ids[n.ID] = id
+		fmt.Fprintf(&b, "  %s[%q]\n", id, mermaidLabel(nodeLabel(byID, n.ID)))
+	}
+	for _, e := range g.Edges {
+		src, sok := ids[e.Source]
+		dst, dok := ids[e.Target]
+		if !sok || !dok {
+			// Skip edges pointing at nodes outside the (possibly filtered) graph.
+			continue
+		}
+		fmt.Fprintf(&b, "  %s -->|%s| %s\n", src, mermaidLabel(e.Type), dst)
+	}
+	_, err := io.WriteString(w, b.String())
+	return err
+}
+
+// mermaidLabel sanitizes a label for Mermaid output, where double quotes and
+// pipes are structural characters.
+func mermaidLabel(s string) string {
+	s = strings.ReplaceAll(s, `"`, "'")
+	return strings.ReplaceAll(s, "|", "/")
+}
+
+// filterGraph restricts the graph to nodes matching the given kind and
+// namespace (case-insensitive, empty matches all) and the edges that connect
+// two retained nodes.
+func filterGraph(g Graph, kind, namespace string) Graph {
+	if kind == "" && namespace == "" {
 		return g
 	}
 	keep := map[string]bool{}
 	nodes := make([]Node, 0, len(g.Nodes))
 	for _, n := range g.Nodes {
-		if strings.EqualFold(n.Kind, kind) {
-			nodes = append(nodes, n)
-			keep[n.ID] = true
+		if kind != "" && !strings.EqualFold(n.Kind, kind) {
+			continue
 		}
+		if namespace != "" && !strings.EqualFold(n.Namespace, namespace) {
+			continue
+		}
+		nodes = append(nodes, n)
+		keep[n.ID] = true
 	}
 	edges := make([]Edge, 0, len(g.Edges))
 	for _, e := range g.Edges {

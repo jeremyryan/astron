@@ -4,8 +4,8 @@ description: |
   Astron - a Kubernetes operator that projects cluster resources and
   their relationships into a Neo4J graph, with a web UI to explore them.
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.2.0
+appVersion: "v0.2.0"
 keywords:
   - kubernetes
   - operator

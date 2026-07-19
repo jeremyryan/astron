@@ -43,7 +43,139 @@ func newViewsCmd(opts *options) *cobra.Command {
 	cmd.AddCommand(newViewsRmCmd(opts))
 	cmd.AddCommand(newViewsGenerateCmd(opts))
 	cmd.AddCommand(newViewsNewCmd(opts))
+	cmd.AddCommand(newViewsUpdateCmd(opts))
+	cmd.AddCommand(newViewsDescribeCmd(opts))
 	return cmd
+}
+
+// viewsUpdateOptions holds the flags for "views update".
+type viewsUpdateOptions struct {
+	*options
+
+	addKinds    []string
+	removeKinds []string
+	displayName string
+	description string
+}
+
+// newViewsUpdateCmd builds "views update <namespace> <name>".
+func newViewsUpdateCmd(opts *options) *cobra.Command {
+	uopts := &viewsUpdateOptions{options: opts}
+
+	cmd := &cobra.Command{
+		Use:   "update <namespace> <name>",
+		Short: "Modify an existing GraphView",
+		Long: "update modifies an existing GraphView in place.\n\n" +
+			"--add-kinds makes the given resource kinds visible in the view and\n" +
+			"--remove-kinds hides them, honoring the view's kind mode: for an\n" +
+			"allow-list view (kindMode \"show\") the visible-kinds list is edited,\n" +
+			"and for a deny-list view the hidden-kinds list is edited. Both flags\n" +
+			"accept comma-separated lists and may be repeated.\n\n" +
+			"--display-name and --description replace the view's metadata when set.",
+		Args:              cobra.ExactArgs(2),
+		ValidArgsFunction: completeViewArgs(opts),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runViewsUpdate(cmd, uopts, args[0], args[1])
+		},
+	}
+
+	cmd.Flags().StringSliceVar(&uopts.addKinds, "add-kinds", nil,
+		"Resource Kinds to make visible in the view (e.g. Pod,Service)")
+	cmd.Flags().StringSliceVar(&uopts.removeKinds, "remove-kinds", nil,
+		"Resource Kinds to hide from the view (e.g. Secret)")
+	cmd.Flags().StringVar(&uopts.displayName, "display-name", "",
+		"New human-friendly name for the view")
+	cmd.Flags().StringVar(&uopts.description, "description", "",
+		"New description for the view")
+
+	return cmd
+}
+
+func runViewsUpdate(cmd *cobra.Command, uopts *viewsUpdateOptions, namespace, name string) error {
+	add := parseKindArgs(uopts.addKinds)
+	remove := parseKindArgs(uopts.removeKinds)
+	if len(add) == 0 && len(remove) == 0 && uopts.displayName == "" && uopts.description == "" {
+		return fmt.Errorf("nothing to update: pass --add-kinds, --remove-kinds, --display-name and/or --description")
+	}
+	if overlap := intersect(add, remove); len(overlap) > 0 {
+		return fmt.Errorf("kinds cannot be both added and removed: %s", strings.Join(overlap, ", "))
+	}
+
+	client, err := newClient(uopts.options)
+	if err != nil {
+		return err
+	}
+
+	view, err := client.GetView(cmd.Context(), namespace, name)
+	if err != nil {
+		return err
+	}
+
+	updateViewKinds(&view, add, remove)
+	if uopts.displayName != "" {
+		view.DisplayName = uopts.displayName
+	}
+	if uopts.description != "" {
+		view.Description = uopts.description
+	}
+
+	updated, err := client.UpdateView(cmd.Context(), view)
+	if err != nil {
+		return fmt.Errorf("updating view %q: %w", name, err)
+	}
+	_, err = fmt.Fprintf(cmd.OutOrStdout(),
+		"graphview.astron.astron.io/%s configured in namespace %s\n", updated.Name, updated.Namespace)
+	return err
+}
+
+// updateViewKinds applies kind additions/removals to a view's filters,
+// honoring its kind mode: allow-list views (kindMode "show") edit
+// visibleKinds, deny-list views edit hiddenKinds.
+func updateViewKinds(v *View, add, remove []string) {
+	if strings.EqualFold(v.Filters.KindMode, "show") {
+		// Allow-list: adding shows a kind, removing hides it.
+		v.Filters.VisibleKinds = addKinds(removeKinds(v.Filters.VisibleKinds, remove), add)
+		return
+	}
+	// Deny-list: adding un-hides a kind, removing hides it.
+	v.Filters.HiddenKinds = addKinds(removeKinds(v.Filters.HiddenKinds, add), remove)
+}
+
+// addKinds returns kinds with the additions merged in, de-duplicated and
+// sorted.
+func addKinds(kinds, add []string) []string {
+	return parseKindArgs(append(append([]string(nil), kinds...), add...))
+}
+
+// removeKinds returns kinds without the removed entries (case-insensitive).
+func removeKinds(kinds, remove []string) []string {
+	drop := map[string]bool{}
+	for _, k := range remove {
+		drop[strings.ToLower(k)] = true
+	}
+	out := make([]string, 0, len(kinds))
+	for _, k := range kinds {
+		if !drop[strings.ToLower(k)] {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// intersect returns the entries present in both lists (case-insensitive),
+// using the spelling from a.
+func intersect(a, b []string) []string {
+	inB := map[string]bool{}
+	for _, k := range b {
+		inB[strings.ToLower(k)] = true
+	}
+	var out []string
+	for _, k := range a {
+		if inB[strings.ToLower(k)] {
+			out = append(out, k)
+		}
+	}
+	return out
 }
 
 // viewsNewOptions holds the flags for "views new".
@@ -239,7 +371,8 @@ func newViewsRmCmd(opts *options) *cobra.Command {
 		Short:   "Delete one or more GraphViews",
 		Long: "rm deletes the named GraphViews from a namespace.\n\n" +
 			"Use \"views list\" to see the existing GraphViews and their names.",
-		Args: cobra.MinimumNArgs(2),
+		Args:              cobra.MinimumNArgs(2),
+		ValidArgsFunction: completeViewArgs(opts),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runViewsRm(cmd, opts, args[0], args[1:])
 		},

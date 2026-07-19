@@ -59,7 +59,7 @@ func TestSelectNamespacedKinds(t *testing.T) {
 		{Group: "apps", Version: "v1", Resource: "deployments"}: "DeploymentList",
 	}
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind,
-		obj("v1", "Pod", ns, "p1"),
+		obj("v1", podKind, ns, "p1"),
 		obj("v1", "ConfigMap", ns, "c1"),
 		// A Secret exists, but in a different namespace, so it must be excluded.
 		obj("v1", "Secret", "other", "s1"),
@@ -72,11 +72,11 @@ func TestSelectNamespacedKinds(t *testing.T) {
 		{
 			GroupVersion: "v1",
 			APIResources: []metav1.APIResource{
-				{Name: "pods", Kind: "Pod", Namespaced: true, Verbs: metav1.Verbs{"list"}},
+				{Name: "pods", Kind: podKind, Namespaced: true, Verbs: metav1.Verbs{"list"}},
 				{Name: "configmaps", Kind: "ConfigMap", Namespaced: true, Verbs: metav1.Verbs{"list"}},
 				{Name: "secrets", Kind: "Secret", Namespaced: true, Verbs: metav1.Verbs{"list"}},
 				{Name: "events", Kind: "Event", Namespaced: true, Verbs: metav1.Verbs{"list"}},
-				{Name: "pods/log", Kind: "Pod", Namespaced: true, Verbs: metav1.Verbs{"get"}}, // subresource
+				{Name: "pods/log", Kind: podKind, Namespaced: true, Verbs: metav1.Verbs{"get"}}, // subresource
 			},
 		},
 		{
@@ -97,7 +97,7 @@ func TestSelectNamespacedKinds(t *testing.T) {
 	for _, s := range got {
 		kinds[s.Kind] = true
 	}
-	if !kinds["Pod"] {
+	if !kinds[podKind] {
 		t.Errorf("expected Pod to be selected: %+v", got)
 	}
 	if !kinds["Deployment"] {
@@ -144,7 +144,7 @@ func TestSelectNamespacedKindsAllListsForbidden(t *testing.T) {
 	lists := []*metav1.APIResourceList{{
 		GroupVersion: "v1",
 		APIResources: []metav1.APIResource{
-			{Name: "pods", Kind: "Pod", Namespaced: true, Verbs: metav1.Verbs{"list"}},
+			{Name: "pods", Kind: podKind, Namespaced: true, Verbs: metav1.Verbs{"list"}},
 		},
 	}}
 
@@ -187,7 +187,7 @@ func TestBuildRelationshipsGatedOnKinds(t *testing.T) {
 	if pvcRule.Type != "MOUNTS" || pvcRule.Strategy != astronv1alpha1.VolumeMountStrategy {
 		t.Errorf("unexpected pvc-mounts-pod rule: %+v", *pvcRule)
 	}
-	if pvcRule.From.Kind != "PersistentVolumeClaim" || pvcRule.To.Kind != "Pod" {
+	if pvcRule.From.Kind != "PersistentVolumeClaim" || pvcRule.To.Kind != podKind {
 		t.Errorf("unexpected pvc-mounts-pod endpoints: %+v", *pvcRule)
 	}
 }
@@ -196,9 +196,6 @@ func TestBuildManifest(t *testing.T) {
 	gopts := &generateOptions{
 		options:           &options{},
 		name:              "",
-		neo4jURI:          "neo4j://example:7687",
-		neo4jDatabase:     "neo4j",
-		neo4jSecret:       "creds",
 		resyncInterval:    "10m",
 		withRelationships: true,
 	}
@@ -348,7 +345,7 @@ func TestApplyView(t *testing.T) {
 	visible, _, _ := unstructured.NestedStringSlice(got.Object, "spec", "filters", "visibleKinds")
 	found := false
 	for _, k := range visible {
-		if k == "Pod" {
+		if k == podKind {
 			found = true
 		}
 	}
@@ -365,10 +362,7 @@ func TestApplyProjection(t *testing.T) {
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind)
 
 	gopts := &generateOptions{
-		options:       &options{},
-		neo4jURI:      "neo4j://x:7687",
-		neo4jDatabase: "neo4j",
-		neo4jSecret:   "creds",
+		options: &options{},
 	}
 	m := buildManifest(gopts, demoNS, []astronv1alpha1.ResourceSelector{pod, service})
 
@@ -493,9 +487,6 @@ func TestLoadSpecOverlay(t *testing.T) {
 func TestMergeSpecOverlay(t *testing.T) {
 	gopts := &generateOptions{
 		options:           &options{},
-		neo4jURI:          "neo4j://example:7687",
-		neo4jDatabase:     "neo4j",
-		neo4jSecret:       "creds",
 		resyncInterval:    "10m",
 		withRelationships: true,
 	}
@@ -509,7 +500,7 @@ func TestMergeSpecOverlay(t *testing.T) {
 				"model":    "text-embedding-3-small",
 			},
 		},
-		"neo4j": map[string]any{"database": "override"},
+		"resyncInterval": "2m",
 	}
 	if err := mergeSpecOverlay(&m, overlay); err != nil {
 		t.Fatalf("mergeSpecOverlay: %v", err)
@@ -519,12 +510,9 @@ func TestMergeSpecOverlay(t *testing.T) {
 	if m.Spec.GraphRAG == nil || !m.Spec.GraphRAG.Enabled || m.Spec.GraphRAG.Embedding.Model != "text-embedding-3-small" {
 		t.Errorf("graphRAG overlay not merged: %+v", m.Spec.GraphRAG)
 	}
-	// Nested maps merge: the overridden key wins, siblings survive.
-	if m.Spec.Neo4j.Database != "override" {
-		t.Errorf("expected neo4j.database override, got %q", m.Spec.Neo4j.Database)
-	}
-	if m.Spec.Neo4j.URI != "neo4j://example:7687" {
-		t.Errorf("generated neo4j.uri lost in merge: %q", m.Spec.Neo4j.URI)
+	// Overlay scalars replace generated values.
+	if m.Spec.ResyncInterval == nil || m.Spec.ResyncInterval.Duration.String() != "2m0s" {
+		t.Errorf("expected resyncInterval override, got %v", m.Spec.ResyncInterval)
 	}
 	// Generated fields not present in the overlay are untouched.
 	if len(m.Spec.Scope.Namespaces) != 1 || m.Spec.Scope.Namespaces[0] != demoNS {
@@ -544,7 +532,7 @@ func TestMergeSpecOverlay(t *testing.T) {
 	if err := mergeSpecOverlay(&m, nil); err != nil {
 		t.Fatalf("empty overlay: %v", err)
 	}
-	if m.Spec.Neo4j != before.Neo4j {
+	if m.Spec.ResyncInterval.Duration != before.ResyncInterval.Duration {
 		t.Errorf("empty overlay changed spec")
 	}
 }
@@ -573,8 +561,7 @@ func TestProjectionsAddCommandWiring(t *testing.T) {
 
 	// The shared generation flags are available.
 	for _, name := range []string{
-		"kubeconfig", "context", "name", "neo4j-uri", "neo4j-database",
-		"neo4j-secret", "neo4j-secret-namespace", "resync-interval",
+		"kubeconfig", "context", "name", "resync-interval",
 		"with-relationships", "views", "exclude", "all-resources",
 		"spec-from-configmap",
 	} {
@@ -594,5 +581,37 @@ func TestProjectionsAddRegistered(t *testing.T) {
 	alias, _, err := root.Find([]string{"projections", "create"})
 	if err != nil || alias != cmd {
 		t.Fatalf("projections create alias not resolved: %v", err)
+	}
+}
+
+func TestBuildManifestLabelSelectorAndCRDs(t *testing.T) {
+	gopts := &generateOptions{
+		options:       &options{},
+		labelSelector: "app=web,env in (prod,staging)",
+		includeCRDs:   true,
+	}
+	m := buildManifest(gopts, demoNS, []astronv1alpha1.ResourceSelector{pod})
+
+	sel := m.Spec.Scope.LabelSelector
+	if sel == nil || sel.MatchLabels["app"] != "web" || len(sel.MatchExpressions) != 1 {
+		t.Fatalf("unexpected label selector: %+v", sel)
+	}
+	if m.Spec.Scope.CRDs == nil || !m.Spec.Scope.CRDs.Include {
+		t.Errorf("expected scope.crds.include=true, got %+v", m.Spec.Scope.CRDs)
+	}
+
+	// Both features default to off.
+	m = buildManifest(&generateOptions{options: &options{}}, demoNS, []astronv1alpha1.ResourceSelector{pod})
+	if m.Spec.Scope.LabelSelector != nil || m.Spec.Scope.CRDs != nil {
+		t.Errorf("selector/CRDs should be unset by default: %+v", m.Spec.Scope)
+	}
+}
+
+func TestParseLabelSelector(t *testing.T) {
+	if sel, err := parseLabelSelector(""); err != nil || sel != nil {
+		t.Fatalf("empty selector = %v, %v; want nil, nil", sel, err)
+	}
+	if _, err := parseLabelSelector("=bad="); err == nil {
+		t.Fatal("expected error for invalid selector")
 	}
 }
