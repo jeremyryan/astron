@@ -59,6 +59,9 @@ func linksServer(t *testing.T, lastBody *map[string]any, lastQuery *url.Values, 
 	}))
 }
 
+// dependsOn is the custom relationship type used across the links tests.
+const dependsOn = "DEPENDS_ON"
+
 func TestLinksAdd(t *testing.T) {
 	var body map[string]any
 	var query url.Values
@@ -82,11 +85,11 @@ func TestLinksAdd(t *testing.T) {
 	}
 
 	// An explicit type is forwarded.
-	out, err = runCmd(t, "--server", srv.URL, "links", "add", "demo", "web", "n1", "n2", "--type", "DEPENDS_ON")
+	out, err = runCmd(t, "--server", srv.URL, "links", "add", "demo", "web", "n1", "n2", "--type", dependsOn)
 	if err != nil {
 		t.Fatalf("links add --type failed: %v", err)
 	}
-	if body["type"] != "DEPENDS_ON" || !strings.Contains(out, "-[DEPENDS_ON]->") {
+	if body["type"] != dependsOn || !strings.Contains(out, "-["+dependsOn+"]->") {
 		t.Errorf("type not forwarded: %v / %q", body, out)
 	}
 }
@@ -99,11 +102,11 @@ func TestLinksUpdate(t *testing.T) {
 	defer srv.Close()
 
 	out, err := runCmd(t, "--server", srv.URL, "links", "update", "demo", "web", "n1", "n2",
-		"--note", "manual dependency", "--type", "DEPENDS_ON")
+		"--note", "manual dependency", "--type", dependsOn)
 	if err != nil {
 		t.Fatalf("links update failed: %v", err)
 	}
-	if method != http.MethodPatch || body["note"] != "manual dependency" || body["type"] != "DEPENDS_ON" {
+	if method != http.MethodPatch || body["note"] != "manual dependency" || body["type"] != dependsOn {
 		t.Errorf("unexpected request: %s %v", method, body)
 	}
 	if !strings.Contains(out, "updated") {
@@ -118,11 +121,11 @@ func TestLinksRm(t *testing.T) {
 	srv := linksServer(t, &body, &query, &method)
 	defer srv.Close()
 
-	out, err := runCmd(t, "--server", srv.URL, "links", "rm", "demo", "web", "n1", "n2", "--type", "DEPENDS_ON")
+	out, err := runCmd(t, "--server", srv.URL, "links", "rm", "demo", "web", "n1", "n2", "--type", dependsOn)
 	if err != nil {
 		t.Fatalf("links rm failed: %v", err)
 	}
-	if method != http.MethodDelete || query.Get("from") != "n1" || query.Get("to") != "n2" || query.Get("type") != "DEPENDS_ON" {
+	if method != http.MethodDelete || query.Get("from") != "n1" || query.Get("to") != "n2" || query.Get("type") != dependsOn {
 		t.Errorf("unexpected request: %s %v", method, query)
 	}
 	if !strings.Contains(out, "link n1 -> n2 deleted") {

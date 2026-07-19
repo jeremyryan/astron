@@ -31,7 +31,7 @@ func completionServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/projections":
+		case apiProjectionsPath:
 			_ = json.NewEncoder(w).Encode([]Projection{
 				{Namespace: "demo", Name: "web"},
 				{Namespace: "demo", Name: "batch"},

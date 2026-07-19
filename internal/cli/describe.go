@@ -104,11 +104,6 @@ func printProjectionDescription(w io.Writer, p *astronv1alpha1.GraphProjection) 
 	pr("Name:         %s", p.Name)
 	pr("Namespace:    %s", p.Namespace)
 
-	pr("Neo4j:")
-	pr("  URI:        %s", p.Spec.Neo4j.URI)
-	pr("  Database:   %s", dash(p.Spec.Neo4j.Database))
-	pr("  Secret:     %s", qualifiedName(p.Spec.Neo4j.AuthSecretRef.Namespace, p.Spec.Neo4j.AuthSecretRef.Name))
-
 	pr("Scope:")
 	switch {
 	case p.Spec.Scope.OwnNamespaceOnly:

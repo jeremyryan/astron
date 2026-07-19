@@ -59,7 +59,7 @@ func TestSelectNamespacedKinds(t *testing.T) {
 		{Group: "apps", Version: "v1", Resource: "deployments"}: "DeploymentList",
 	}
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind,
-		obj("v1", "Pod", ns, "p1"),
+		obj("v1", podKind, ns, "p1"),
 		obj("v1", "ConfigMap", ns, "c1"),
 		// A Secret exists, but in a different namespace, so it must be excluded.
 		obj("v1", "Secret", "other", "s1"),
@@ -72,11 +72,11 @@ func TestSelectNamespacedKinds(t *testing.T) {
 		{
 			GroupVersion: "v1",
 			APIResources: []metav1.APIResource{
-				{Name: "pods", Kind: "Pod", Namespaced: true, Verbs: metav1.Verbs{"list"}},
+				{Name: "pods", Kind: podKind, Namespaced: true, Verbs: metav1.Verbs{"list"}},
 				{Name: "configmaps", Kind: "ConfigMap", Namespaced: true, Verbs: metav1.Verbs{"list"}},
 				{Name: "secrets", Kind: "Secret", Namespaced: true, Verbs: metav1.Verbs{"list"}},
 				{Name: "events", Kind: "Event", Namespaced: true, Verbs: metav1.Verbs{"list"}},
-				{Name: "pods/log", Kind: "Pod", Namespaced: true, Verbs: metav1.Verbs{"get"}}, // subresource
+				{Name: "pods/log", Kind: podKind, Namespaced: true, Verbs: metav1.Verbs{"get"}}, // subresource
 			},
 		},
 		{
@@ -97,7 +97,7 @@ func TestSelectNamespacedKinds(t *testing.T) {
 	for _, s := range got {
 		kinds[s.Kind] = true
 	}
-	if !kinds["Pod"] {
+	if !kinds[podKind] {
 		t.Errorf("expected Pod to be selected: %+v", got)
 	}
 	if !kinds["Deployment"] {
@@ -144,7 +144,7 @@ func TestSelectNamespacedKindsAllListsForbidden(t *testing.T) {
 	lists := []*metav1.APIResourceList{{
 		GroupVersion: "v1",
 		APIResources: []metav1.APIResource{
-			{Name: "pods", Kind: "Pod", Namespaced: true, Verbs: metav1.Verbs{"list"}},
+			{Name: "pods", Kind: podKind, Namespaced: true, Verbs: metav1.Verbs{"list"}},
 		},
 	}}
 
@@ -187,7 +187,7 @@ func TestBuildRelationshipsGatedOnKinds(t *testing.T) {
 	if pvcRule.Type != "MOUNTS" || pvcRule.Strategy != astronv1alpha1.VolumeMountStrategy {
 		t.Errorf("unexpected pvc-mounts-pod rule: %+v", *pvcRule)
 	}
-	if pvcRule.From.Kind != "PersistentVolumeClaim" || pvcRule.To.Kind != "Pod" {
+	if pvcRule.From.Kind != "PersistentVolumeClaim" || pvcRule.To.Kind != podKind {
 		t.Errorf("unexpected pvc-mounts-pod endpoints: %+v", *pvcRule)
 	}
 }
@@ -345,7 +345,7 @@ func TestApplyView(t *testing.T) {
 	visible, _, _ := unstructured.NestedStringSlice(got.Object, "spec", "filters", "visibleKinds")
 	found := false
 	for _, k := range visible {
-		if k == "Pod" {
+		if k == podKind {
 			found = true
 		}
 	}

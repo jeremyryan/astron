@@ -89,7 +89,7 @@ func TestInvalidOutputFlag(t *testing.T) {
 
 func TestProjectionsListTable(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/projections" {
+		if r.URL.Path != apiProjectionsPath {
 			http.NotFound(w, r)
 			return
 		}
@@ -117,7 +117,7 @@ func graphServer(t *testing.T) *httptest.Server {
 	g := Graph{
 		Nodes: []Node{
 			{ID: "dep-1", APIVersion: "apps/v1", Kind: "Deployment", Namespace: "astron", Name: "web"},
-			{ID: "pod-1", APIVersion: "v1", Kind: "Pod", Namespace: "astron", Name: "web-abc"},
+			{ID: "pod-1", APIVersion: "v1", Kind: podKind, Namespace: "astron", Name: "web-abc"},
 		},
 		Edges: []Edge{
 			{ID: "e1", Source: "dep-1", Target: "pod-1", Type: "OWNS"},
@@ -140,7 +140,7 @@ func TestGraphTable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("graph failed: %v", err)
 	}
-	for _, want := range []string{"KIND", "Deployment", "Pod", "TYPE", "OWNS", "Deployment astron/web", "Pod astron/web-abc"} {
+	for _, want := range []string{"KIND", "Deployment", podKind, "TYPE", "OWNS", "Deployment astron/web", "Pod astron/web-abc"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("graph output missing %q:\n%s", want, out)
 		}
@@ -151,7 +151,7 @@ func TestGraphKindFilter(t *testing.T) {
 	srv := graphServer(t)
 	defer srv.Close()
 
-	out, err := runCmd(t, "--server", srv.URL, "graph", "astron", "default", "--kind", "Pod")
+	out, err := runCmd(t, "--server", srv.URL, "graph", "astron", "default", "--kind", podKind)
 	if err != nil {
 		t.Fatalf("graph --kind failed: %v", err)
 	}
@@ -303,7 +303,7 @@ func TestGraphFormatDOTWithKindFilter(t *testing.T) {
 	defer srv.Close()
 
 	// Filtering to Pod drops the Deployment node and the OWNS edge.
-	out, err := runCmd(t, "--server", srv.URL, "graph", "astron", "default", "--format", "dot", "--kind", "Pod")
+	out, err := runCmd(t, "--server", srv.URL, "graph", "astron", "default", "--format", "dot", "--kind", podKind)
 	if err != nil {
 		t.Fatalf("graph --format dot --kind failed: %v", err)
 	}
@@ -329,7 +329,7 @@ func TestStatusCommand(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/healthz":
 			_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-		case "/api/projections":
+		case apiProjectionsPath:
 			_ = json.NewEncoder(w).Encode([]Projection{
 				{Namespace: "a", Name: "p1", Phase: "Ready", NodeCount: 10, RelationshipCount: 20},
 				{Namespace: "b", Name: "p2", Phase: "Error", NodeCount: 5, RelationshipCount: 1},
@@ -385,8 +385,8 @@ func TestGraphNamespaceFilter(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(Graph{
 			Nodes: []Node{
-				{ID: "a", Kind: "Pod", Namespace: "demo", Name: "p1"},
-				{ID: "b", Kind: "Pod", Namespace: "other", Name: "p2"},
+				{ID: "a", Kind: podKind, Namespace: "demo", Name: "p1"},
+				{ID: "b", Kind: podKind, Namespace: "other", Name: "p2"},
 			},
 			Edges: []Edge{{ID: "e", Source: "a", Target: "b", Type: "LINKS"}},
 		})
@@ -416,7 +416,7 @@ func TestGraphFocus(t *testing.T) {
 		_ = json.NewDecoder(r.Body).Decode(&gotBody)
 		_ = json.NewEncoder(w).Encode(Retrieval{Subgraph: Graph{
 			Nodes: []Node{
-				{ID: "pod-1", Kind: "Pod", Namespace: "demo", Name: "web-abc"},
+				{ID: "pod-1", Kind: podKind, Namespace: "demo", Name: "web-abc"},
 				{ID: "svc-1", Kind: "Service", Namespace: "demo", Name: "web"},
 			},
 			Edges: []Edge{{ID: "e", Source: "svc-1", Target: "pod-1", Type: "SELECTS"}},
@@ -429,7 +429,7 @@ func TestGraphFocus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("graph --focus failed: %v", err)
 	}
-	if gotBody["kind"] != "Pod" || gotBody["name"] != "web-abc" ||
+	if gotBody["kind"] != podKind || gotBody["name"] != "web-abc" ||
 		gotBody["namespace"] != "demo" || gotBody["hops"] != float64(2) {
 		t.Errorf("unexpected neighborhood request: %v", gotBody)
 	}

@@ -230,10 +230,13 @@ func (c *Client) Health(ctx context.Context) error {
 	return nil
 }
 
+// apiProjectionsPath is the read API endpoint listing GraphProjections.
+const apiProjectionsPath = "/api/projections"
+
 // ListProjections returns all GraphProjections known to the operator.
 func (c *Client) ListProjections(ctx context.Context) ([]Projection, error) {
 	var out []Projection
-	if err := c.getJSON(ctx, "/api/projections", &out); err != nil {
+	if err := c.getJSON(ctx, apiProjectionsPath, &out); err != nil {
 		return nil, err
 	}
 	return out, nil

@@ -37,14 +37,9 @@ import (
 
 func TestDescribeProjection(t *testing.T) {
 	p := astronv1alpha1.GraphProjection{
-		TypeMeta:   metav1.TypeMeta{APIVersion: astronv1alpha1.GroupVersion.String(), Kind: "GraphProjection"},
+		TypeMeta:   metav1.TypeMeta{APIVersion: astronv1alpha1.GroupVersion.String(), Kind: kindGraphProjection},
 		ObjectMeta: metav1.ObjectMeta{Namespace: demoNS, Name: "web"},
 		Spec: astronv1alpha1.GraphProjectionSpec{
-			Neo4j: astronv1alpha1.Neo4jConnection{
-				URI:           "neo4j://x:7687",
-				Database:      "neo4j",
-				AuthSecretRef: astronv1alpha1.SecretReference{Name: "creds"},
-			},
 			Scope: astronv1alpha1.ProjectionScope{
 				Namespaces: []string{demoNS},
 				Resources: []astronv1alpha1.ResourceSelector{
@@ -98,7 +93,6 @@ func TestDescribeProjection(t *testing.T) {
 
 	for _, want := range []string{
 		"Name:         web",
-		"URI:        neo4j://x:7687",
 		"Namespaces: demo",
 		"Resources:  apps/Deployment, Pod",
 		"deployment-owns-pod: OWNS Deployment -> Pod (OwnerReference)",
@@ -123,7 +117,7 @@ func TestDescribeProjection(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &obj); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if obj["kind"] != "GraphProjection" {
+	if obj["kind"] != kindGraphProjection {
 		t.Errorf("unexpected JSON kind: %v", obj["kind"])
 	}
 
