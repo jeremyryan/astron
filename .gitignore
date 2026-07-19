@@ -37,3 +37,8 @@ charts/*/charts/
 playwright-test.png
 README.html
 .playwright-mcp/
+
+# Packaged charts and exported image archives (release artifacts)
+/astron-*.tgz
+/astron_*.tar.gz
+/astron_*.tgz
