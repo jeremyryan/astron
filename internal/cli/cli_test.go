@@ -255,3 +255,71 @@ func TestProjectionsListJSON(t *testing.T) {
 		t.Fatalf("unexpected JSON payload: %+v", got)
 	}
 }
+
+func TestGraphFormatDOT(t *testing.T) {
+	srv := graphServer(t)
+	defer srv.Close()
+
+	out, err := runCmd(t, "--server", srv.URL, "graph", "astron", "default", "--format", "dot")
+	if err != nil {
+		t.Fatalf("graph --format dot failed: %v", err)
+	}
+	for _, want := range []string{
+		"digraph {",
+		"rankdir=LR;",
+		`"dep-1" [label="Deployment astron/web"];`,
+		`"pod-1" [label="Pod astron/web-abc"];`,
+		`"dep-1" -> "pod-1" [label="OWNS"];`,
+		"}",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("dot output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestGraphFormatMermaid(t *testing.T) {
+	srv := graphServer(t)
+	defer srv.Close()
+
+	out, err := runCmd(t, "--server", srv.URL, "graph", "astron", "default", "--format", "mermaid")
+	if err != nil {
+		t.Fatalf("graph --format mermaid failed: %v", err)
+	}
+	for _, want := range []string{
+		"graph LR",
+		`n0["Deployment astron/web"]`,
+		`n1["Pod astron/web-abc"]`,
+		"n0 -->|OWNS| n1",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("mermaid output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestGraphFormatDOTWithKindFilter(t *testing.T) {
+	srv := graphServer(t)
+	defer srv.Close()
+
+	// Filtering to Pod drops the Deployment node and the OWNS edge.
+	out, err := runCmd(t, "--server", srv.URL, "graph", "astron", "default", "--format", "dot", "--kind", "Pod")
+	if err != nil {
+		t.Fatalf("graph --format dot --kind failed: %v", err)
+	}
+	if strings.Contains(out, "Deployment") || strings.Contains(out, "OWNS") {
+		t.Errorf("filtered dot output should not contain Deployment or OWNS:\n%s", out)
+	}
+	if !strings.Contains(out, `"pod-1"`) {
+		t.Errorf("filtered dot output missing Pod node:\n%s", out)
+	}
+}
+
+func TestQuoteEscaping(t *testing.T) {
+	if got := dotQuote(`a"b\c`); got != `"a\"b\\c"` {
+		t.Errorf("dotQuote = %s", got)
+	}
+	if got := mermaidLabel(`a"b|c`); got != "a'b/c" {
+		t.Errorf("mermaidLabel = %s", got)
+	}
+}

@@ -18,10 +18,18 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
+)
+
+// Graph-specific output formats accepted by --format, in addition to the
+// global table/json formats.
+const (
+	formatDOT     = "dot"
+	formatMermaid = "mermaid"
 )
 
 // graphOptions holds the flags specific to the graph command.
@@ -35,8 +43,9 @@ type graphOptions struct {
 	nodesOnly bool
 	// format selects how the graph is rendered: "table" (the default) prints
 	// human-readable node and edge tables; "json" prints a single JSON document
-	// containing all nodes and edges. When empty it falls back to the global
-	// --output flag.
+	// containing all nodes and edges; "dot" prints a Graphviz digraph; and
+	// "mermaid" prints a Mermaid flowchart. When empty it falls back to the
+	// global --output flag.
 	format string
 }
 
@@ -52,7 +61,10 @@ func newGraphCmd(opts *options) *cobra.Command {
 			"(see \"astron projections list\").\n\n" +
 			"Use --format table (the default) to print human-readable node and edge\n" +
 			"tables, or --format json to print a single JSON document containing all\n" +
-			"nodes and edges.",
+			"nodes and edges.\n\n" +
+			"For rendering, --format dot emits a Graphviz digraph (pipe it into\n" +
+			"\"dot -Tsvg\") and --format mermaid emits a Mermaid flowchart suitable\n" +
+			"for embedding in Markdown.",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			format, err := gopts.resolveFormat()
@@ -72,10 +84,16 @@ func newGraphCmd(opts *options) *cobra.Command {
 			}
 			g = filterGraph(g, gopts.kind)
 
-			if format == outputJSON {
+			switch format {
+			case outputJSON:
 				return printJSON(cmd.OutOrStdout(), g)
+			case formatDOT:
+				return renderDOT(cmd.OutOrStdout(), g)
+			case formatMermaid:
+				return renderMermaid(cmd.OutOrStdout(), g)
+			default:
+				return printGraphTable(cmd, g, gopts)
 			}
-			return printGraphTable(cmd, g, gopts)
 		},
 	}
 
@@ -84,7 +102,7 @@ func newGraphCmd(opts *options) *cobra.Command {
 	cmd.Flags().BoolVar(&gopts.edgesOnly, "edges-only", false, "Only print the edges section")
 	cmd.Flags().BoolVar(&gopts.nodesOnly, "nodes-only", false, "Only print the nodes section")
 	cmd.Flags().StringVar(&gopts.format, "format", "",
-		"Output format for the graph: table or json (defaults to the global --output)")
+		"Output format for the graph: table, json, dot or mermaid (defaults to the global --output)")
 
 	return cmd
 }
@@ -98,12 +116,85 @@ func (o *graphOptions) resolveFormat() (string, error) {
 		format = o.output
 	}
 	switch format {
-	case outputTable, outputJSON:
+	case outputTable, outputJSON, formatDOT, formatMermaid:
 		return format, nil
 	default:
-		return "", fmt.Errorf("invalid --format %q: must be %q or %q",
-			o.format, outputTable, outputJSON)
+		return "", fmt.Errorf("invalid --format %q: must be %q, %q, %q or %q",
+			o.format, outputTable, outputJSON, formatDOT, formatMermaid)
 	}
+}
+
+// renderDOT writes the graph as a Graphviz digraph. Node identifiers are the
+// graph node ids (quoted and escaped); labels are "Kind ns/name". Output is
+// sorted for determinism.
+func renderDOT(w io.Writer, g Graph) error {
+	byID := make(map[string]Node, len(g.Nodes))
+	for _, n := range g.Nodes {
+		byID[n.ID] = n
+	}
+	sortNodes(g.Nodes)
+	sortEdges(g.Edges, byID)
+
+	var b strings.Builder
+	b.WriteString("digraph {\n")
+	b.WriteString("  rankdir=LR;\n")
+	b.WriteString("  node [shape=box];\n")
+	for _, n := range g.Nodes {
+		fmt.Fprintf(&b, "  %s [label=%s];\n", dotQuote(n.ID), dotQuote(nodeLabel(byID, n.ID)))
+	}
+	for _, e := range g.Edges {
+		fmt.Fprintf(&b, "  %s -> %s [label=%s];\n", dotQuote(e.Source), dotQuote(e.Target), dotQuote(e.Type))
+	}
+	b.WriteString("}\n")
+	_, err := io.WriteString(w, b.String())
+	return err
+}
+
+// dotQuote renders a DOT double-quoted string, escaping backslashes and
+// quotes.
+func dotQuote(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return `"` + s + `"`
+}
+
+// renderMermaid writes the graph as a Mermaid flowchart. Nodes get synthetic
+// identifiers (n0, n1, ...) since Mermaid ids cannot contain arbitrary
+// characters; labels are "Kind ns/name". Output is sorted for determinism.
+func renderMermaid(w io.Writer, g Graph) error {
+	byID := make(map[string]Node, len(g.Nodes))
+	for _, n := range g.Nodes {
+		byID[n.ID] = n
+	}
+	sortNodes(g.Nodes)
+	sortEdges(g.Edges, byID)
+
+	ids := make(map[string]string, len(g.Nodes))
+	var b strings.Builder
+	b.WriteString("graph LR\n")
+	for i, n := range g.Nodes {
+		id := fmt.Sprintf("n%d", i)
+		ids[n.ID] = id
+		fmt.Fprintf(&b, "  %s[%q]\n", id, mermaidLabel(nodeLabel(byID, n.ID)))
+	}
+	for _, e := range g.Edges {
+		src, sok := ids[e.Source]
+		dst, dok := ids[e.Target]
+		if !sok || !dok {
+			// Skip edges pointing at nodes outside the (possibly filtered) graph.
+			continue
+		}
+		fmt.Fprintf(&b, "  %s -->|%s| %s\n", src, mermaidLabel(e.Type), dst)
+	}
+	_, err := io.WriteString(w, b.String())
+	return err
+}
+
+// mermaidLabel sanitizes a label for Mermaid output, where double quotes and
+// pipes are structural characters.
+func mermaidLabel(s string) string {
+	s = strings.ReplaceAll(s, `"`, "'")
+	return strings.ReplaceAll(s, "|", "/")
 }
 
 // filterGraph restricts the graph to nodes of the given kind (case-insensitive)
