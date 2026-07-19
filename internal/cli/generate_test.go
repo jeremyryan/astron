@@ -583,3 +583,35 @@ func TestProjectionsAddRegistered(t *testing.T) {
 		t.Fatalf("projections create alias not resolved: %v", err)
 	}
 }
+
+func TestBuildManifestLabelSelectorAndCRDs(t *testing.T) {
+	gopts := &generateOptions{
+		options:       &options{},
+		labelSelector: "app=web,env in (prod,staging)",
+		includeCRDs:   true,
+	}
+	m := buildManifest(gopts, demoNS, []astronv1alpha1.ResourceSelector{pod})
+
+	sel := m.Spec.Scope.LabelSelector
+	if sel == nil || sel.MatchLabels["app"] != "web" || len(sel.MatchExpressions) != 1 {
+		t.Fatalf("unexpected label selector: %+v", sel)
+	}
+	if m.Spec.Scope.CRDs == nil || !m.Spec.Scope.CRDs.Include {
+		t.Errorf("expected scope.crds.include=true, got %+v", m.Spec.Scope.CRDs)
+	}
+
+	// Both features default to off.
+	m = buildManifest(&generateOptions{options: &options{}}, demoNS, []astronv1alpha1.ResourceSelector{pod})
+	if m.Spec.Scope.LabelSelector != nil || m.Spec.Scope.CRDs != nil {
+		t.Errorf("selector/CRDs should be unset by default: %+v", m.Spec.Scope)
+	}
+}
+
+func TestParseLabelSelector(t *testing.T) {
+	if sel, err := parseLabelSelector(""); err != nil || sel != nil {
+		t.Fatalf("empty selector = %v, %v; want nil, nil", sel, err)
+	}
+	if _, err := parseLabelSelector("=bad="); err == nil {
+		t.Fatal("expected error for invalid selector")
+	}
+}

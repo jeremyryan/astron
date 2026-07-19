@@ -33,6 +33,7 @@ func newProjectionsCmd(opts *options) *cobra.Command {
 		Short:   "Work with GraphProjections",
 	}
 	cmd.AddCommand(newProjectionsListCmd(opts))
+	cmd.AddCommand(newProjectionsDescribeCmd(opts))
 	cmd.AddCommand(newGenerateCmd(opts))
 	cmd.AddCommand(newProjectionsAddCmd(opts))
 	cmd.AddCommand(newProjectionsRemoveCmd(opts))

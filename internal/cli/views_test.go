@@ -544,3 +544,99 @@ func TestViewsNewRequiresKinds(t *testing.T) {
 		t.Fatalf("expected empty-kinds error, got %v", err)
 	}
 }
+
+// viewsUpdateServer serves a single existing view from /api/views and records
+// the PUT body, echoing it back.
+func viewsUpdateServer(t *testing.T, existing View, updated *View) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == apiViewsPath:
+			_ = json.NewEncoder(w).Encode([]View{existing})
+		case r.Method == http.MethodPut && r.URL.Path == apiViewsPath+"/"+existing.Namespace+"/"+existing.Name:
+			if err := json.NewDecoder(r.Body).Decode(updated); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(*updated)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+}
+
+func TestViewsUpdateAllowList(t *testing.T) {
+	existing := View{
+		Namespace: "astron", Name: "web-compute", DisplayName: "Compute",
+		ProjectionRef: ViewProjectionRef{Name: projWeb, Namespace: "astron"},
+		Filters:       ViewFilters{KindMode: "show", VisibleKinds: []string{"Deployment", "Pod"}},
+	}
+	var updated View
+	srv := viewsUpdateServer(t, existing, &updated)
+	defer srv.Close()
+
+	out, err := runCmd(t, "--server", srv.URL, "views", "update", "astron", "web-compute",
+		"--add-kinds", "Job,CronJob", "--remove-kinds", "Deployment", "--display-name", "Compute v2")
+	if err != nil {
+		t.Fatalf("views update failed: %v", err)
+	}
+	if !strings.Contains(out, "graphview.astron.astron.io/web-compute configured in namespace astron") {
+		t.Errorf("unexpected confirmation: %q", out)
+	}
+	want := []string{"CronJob", "Job", "Pod"}
+	if !slices.Equal(updated.Filters.VisibleKinds, want) {
+		t.Errorf("visibleKinds = %v, want %v", updated.Filters.VisibleKinds, want)
+	}
+	if updated.DisplayName != "Compute v2" {
+		t.Errorf("displayName = %q", updated.DisplayName)
+	}
+	// Untouched fields survive the round-trip.
+	if updated.ProjectionRef.Name != projWeb || updated.Filters.KindMode != "show" {
+		t.Errorf("existing fields lost: %+v", updated)
+	}
+}
+
+func TestViewsUpdateDenyList(t *testing.T) {
+	existing := View{
+		Namespace: "astron", Name: "no-secrets",
+		ProjectionRef: ViewProjectionRef{Name: projWeb},
+		Filters:       ViewFilters{HiddenKinds: []string{"Secret", "ConfigMap"}},
+	}
+	var updated View
+	srv := viewsUpdateServer(t, existing, &updated)
+	defer srv.Close()
+
+	// For a deny-list view, --add-kinds un-hides and --remove-kinds hides.
+	if _, err := runCmd(t, "--server", srv.URL, "views", "update", "astron", "no-secrets",
+		"--add-kinds", "ConfigMap", "--remove-kinds", "Event"); err != nil {
+		t.Fatalf("views update failed: %v", err)
+	}
+	want := []string{"Event", "Secret"}
+	if !slices.Equal(updated.Filters.HiddenKinds, want) {
+		t.Errorf("hiddenKinds = %v, want %v", updated.Filters.HiddenKinds, want)
+	}
+}
+
+func TestViewsUpdateErrors(t *testing.T) {
+	existing := View{Namespace: "astron", Name: "v", ProjectionRef: ViewProjectionRef{Name: projWeb}}
+	var updated View
+	srv := viewsUpdateServer(t, existing, &updated)
+	defer srv.Close()
+
+	// No flags at all is an error.
+	if _, err := runCmd(t, "--server", srv.URL, "views", "update", "astron", "v"); err == nil ||
+		!strings.Contains(err.Error(), "nothing to update") {
+		t.Fatalf("expected nothing-to-update error, got %v", err)
+	}
+	// Overlapping add/remove kinds are rejected.
+	if _, err := runCmd(t, "--server", srv.URL, "views", "update", "astron", "v",
+		"--add-kinds", "Pod", "--remove-kinds", "pod"); err == nil ||
+		!strings.Contains(err.Error(), "both added and removed") {
+		t.Fatalf("expected overlap error, got %v", err)
+	}
+	// A missing view yields a clear not-found error.
+	if _, err := runCmd(t, "--server", srv.URL, "views", "update", "astron", "absent",
+		"--add-kinds", "Pod"); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("expected not-found error, got %v", err)
+	}
+}
