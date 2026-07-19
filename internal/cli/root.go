@@ -98,6 +98,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newQueryCmd(opts))
 	cmd.AddCommand(newResourceCmd(opts))
 	cmd.AddCommand(newStatusCmd(opts))
+	cmd.AddCommand(newLinksCmd(opts))
 	cmd.AddCommand(newMCPServerCmd(opts))
 
 	return cmd

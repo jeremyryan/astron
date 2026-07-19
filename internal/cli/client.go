@@ -176,6 +176,23 @@ type QuestionRequest struct {
 	Model     string   `json:"model,omitempty"`
 }
 
+// LinkRequest is the body of a link create/update request
+// (see internal/api linkRequest).
+type LinkRequest struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	Type string `json:"type,omitempty"`
+	Note string `json:"note,omitempty"`
+}
+
+// Link is the server's representation of a user-created link.
+type Link struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	Type string `json:"type"`
+	Note string `json:"note,omitempty"`
+}
+
 // Client is a thin HTTP client for the Astron read API.
 type Client struct {
 	baseURL string
@@ -286,6 +303,42 @@ func (c *Client) DeleteView(ctx context.Context, namespace, name string) error {
 	path := fmt.Sprintf("%s/%s/%s", apiViewsPath,
 		url.PathEscape(namespace), url.PathEscape(name))
 	return c.delete(ctx, path)
+}
+
+// linksPath builds the path of a projection's links endpoint.
+func linksPath(namespace, name string) string {
+	return fmt.Sprintf("/api/projections/%s/%s/links",
+		url.PathEscape(namespace), url.PathEscape(name))
+}
+
+// AddLink creates a user-defined link between two graph nodes.
+func (c *Client) AddLink(ctx context.Context, namespace, name string, req LinkRequest) (Link, error) {
+	var out Link
+	if err := c.postJSON(ctx, linksPath(namespace, name), req, &out); err != nil {
+		return Link{}, err
+	}
+	return out, nil
+}
+
+// UpdateLink updates the note on a user-created link.
+func (c *Client) UpdateLink(ctx context.Context, namespace, name string, req LinkRequest) (Link, error) {
+	var out Link
+	if err := c.sendJSON(ctx, http.MethodPatch, linksPath(namespace, name), req, &out); err != nil {
+		return Link{}, err
+	}
+	return out, nil
+}
+
+// DeleteLink deletes a user-created link between two graph nodes. relType may
+// be empty for the server default (CUSTOM).
+func (c *Client) DeleteLink(ctx context.Context, namespace, name, from, to, relType string) error {
+	q := url.Values{}
+	q.Set("from", from)
+	q.Set("to", to)
+	if relType != "" {
+		q.Set("type", relType)
+	}
+	return c.delete(ctx, linksPath(namespace, name)+"?"+q.Encode())
 }
 
 // ragPath builds the path of a projection's rag/<verb> endpoint.
