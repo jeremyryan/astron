@@ -280,6 +280,40 @@ func (c *Client) Graph(ctx context.Context, namespace, name string) (Graph, erro
 	return out, nil
 }
 
+// ResourceYAML fetches the live manifest of a single resource as YAML.
+// namespace may be empty for cluster-scoped resources.
+func (c *Client) ResourceYAML(ctx context.Context, apiVersion, kind, namespace, name string) ([]byte, error) {
+	q := url.Values{}
+	q.Set("apiVersion", apiVersion)
+	q.Set("kind", kind)
+	q.Set("name", name)
+	if namespace != "" {
+		q.Set("namespace", namespace)
+	}
+	path := "/api/resource?" + q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/yaml")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("requesting %s: %w", path, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response from %s: %w", path, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("/api/resource: %s", apiError(resp.StatusCode, body))
+	}
+	return body, nil
+}
+
 // getJSON issues a GET request and decodes a JSON response body into v.
 func (c *Client) getJSON(ctx context.Context, path string, v any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
