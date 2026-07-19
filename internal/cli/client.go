@@ -155,6 +155,17 @@ type SearchRequest struct {
 	Namespaces []string `json:"namespaces,omitempty"`
 }
 
+// NeighborhoodRequest is the body of a rag/neighborhood request
+// (see internal/api ragNeighborhoodRequest).
+type NeighborhoodRequest struct {
+	APIVersion string   `json:"apiVersion,omitempty"`
+	Kind       string   `json:"kind"`
+	Namespace  string   `json:"namespace,omitempty"`
+	Name       string   `json:"name"`
+	Hops       *int     `json:"hops,omitempty"`
+	EdgeTypes  []string `json:"edgeTypes,omitempty"`
+}
+
 // QuestionRequest is the body of a rag/query or rag/answer request
 // (see internal/api ragQuestionRequest).
 type QuestionRequest struct {
@@ -287,6 +298,16 @@ func ragPath(namespace, name, verb string) string {
 func (c *Client) Search(ctx context.Context, namespace, name string, req SearchRequest) (Retrieval, error) {
 	var out Retrieval
 	if err := c.postJSON(ctx, ragPath(namespace, name, "search"), req, &out); err != nil {
+		return Retrieval{}, err
+	}
+	return out, nil
+}
+
+// Neighborhood returns the subgraph within a number of hops of a named
+// resource. It requires no embeddings, so it works on any running projection.
+func (c *Client) Neighborhood(ctx context.Context, namespace, name string, req NeighborhoodRequest) (Retrieval, error) {
+	var out Retrieval
+	if err := c.postJSON(ctx, ragPath(namespace, name, "neighborhood"), req, &out); err != nil {
 		return Retrieval{}, err
 	}
 	return out, nil

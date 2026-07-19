@@ -380,3 +380,76 @@ func TestStatusCommandUnhealthy(t *testing.T) {
 		t.Fatal("expected connection error")
 	}
 }
+
+func TestGraphNamespaceFilter(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(Graph{
+			Nodes: []Node{
+				{ID: "a", Kind: "Pod", Namespace: "demo", Name: "p1"},
+				{ID: "b", Kind: "Pod", Namespace: "other", Name: "p2"},
+			},
+			Edges: []Edge{{ID: "e", Source: "a", Target: "b", Type: "LINKS"}},
+		})
+	}))
+	defer srv.Close()
+
+	out, err := runCmd(t, "--server", srv.URL, "graph", "astron", "default", "-n", "demo")
+	if err != nil {
+		t.Fatalf("graph -n failed: %v", err)
+	}
+	if !strings.Contains(out, "p1") || strings.Contains(out, "p2") {
+		t.Errorf("namespace filter not applied:\n%s", out)
+	}
+	// The cross-namespace edge is dropped with its endpoint.
+	if strings.Contains(out, "LINKS") {
+		t.Errorf("edge to filtered node should be dropped:\n%s", out)
+	}
+}
+
+func TestGraphFocus(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/rag/neighborhood") {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		_ = json.NewEncoder(w).Encode(Retrieval{Subgraph: Graph{
+			Nodes: []Node{
+				{ID: "pod-1", Kind: "Pod", Namespace: "demo", Name: "web-abc"},
+				{ID: "svc-1", Kind: "Service", Namespace: "demo", Name: "web"},
+			},
+			Edges: []Edge{{ID: "e", Source: "svc-1", Target: "pod-1", Type: "SELECTS"}},
+		}})
+	}))
+	defer srv.Close()
+
+	out, err := runCmd(t, "--server", srv.URL, "graph", "astron", "default",
+		"--focus", "Pod/web-abc", "-n", "demo", "--depth", "2")
+	if err != nil {
+		t.Fatalf("graph --focus failed: %v", err)
+	}
+	if gotBody["kind"] != "Pod" || gotBody["name"] != "web-abc" ||
+		gotBody["namespace"] != "demo" || gotBody["hops"] != float64(2) {
+		t.Errorf("unexpected neighborhood request: %v", gotBody)
+	}
+	if !strings.Contains(out, "SELECTS") || !strings.Contains(out, "web-abc") {
+		t.Errorf("neighborhood output missing content:\n%s", out)
+	}
+}
+
+func TestGraphFocusErrors(t *testing.T) {
+	srv := graphServer(t)
+	defer srv.Close()
+
+	// --depth without --focus is rejected.
+	if _, err := runCmd(t, "--server", srv.URL, "graph", "astron", "default", "--depth", "2"); err == nil ||
+		!strings.Contains(err.Error(), "--depth requires --focus") {
+		t.Fatalf("expected depth-requires-focus error, got %v", err)
+	}
+	// A focus without a Kind/name shape is rejected.
+	if _, err := runCmd(t, "--server", srv.URL, "graph", "astron", "default", "--focus", "web-abc"); err == nil ||
+		!strings.Contains(err.Error(), "invalid --focus") {
+		t.Fatalf("expected invalid-focus error, got %v", err)
+	}
+}

@@ -38,6 +38,14 @@ type graphOptions struct {
 	// kind, when set, restricts displayed nodes (and the edges touching them)
 	// to the given resource Kind, e.g. "Pod".
 	kind string
+	// namespace, when set, restricts displayed nodes to the given namespace.
+	namespace string
+	// focus, when set to "Kind/name", restricts the graph to the neighborhood
+	// of that resource, fetched via the projection's neighborhood endpoint.
+	focus string
+	// depth is how many hops the neighborhood extends around the focus node;
+	// negative means the server default. Only meaningful with --focus.
+	depth int
 	// edgesOnly / nodesOnly restrict the table output to a single section.
 	edgesOnly bool
 	nodesOnly bool
@@ -64,7 +72,10 @@ func newGraphCmd(opts *options) *cobra.Command {
 			"nodes and edges.\n\n" +
 			"For rendering, --format dot emits a Graphviz digraph (pipe it into\n" +
 			"\"dot -Tsvg\") and --format mermaid emits a Mermaid flowchart suitable\n" +
-			"for embedding in Markdown.",
+			"for embedding in Markdown.\n\n" +
+			"Use --focus Kind/name (with optional --depth) to show only the\n" +
+			"neighborhood of a single resource instead of the whole graph, and\n" +
+			"--kind/--namespace to filter the displayed nodes.",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			format, err := gopts.resolveFormat()
@@ -78,11 +89,11 @@ func newGraphCmd(opts *options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			g, err := client.Graph(cmd.Context(), args[0], args[1])
+			g, err := fetchGraph(cmd, client, gopts, args[0], args[1])
 			if err != nil {
 				return err
 			}
-			g = filterGraph(g, gopts.kind)
+			g = filterGraph(g, gopts.kind, gopts.namespace)
 
 			switch format {
 			case outputJSON:
@@ -101,10 +112,43 @@ func newGraphCmd(opts *options) *cobra.Command {
 		"Only show nodes of this Kind (and edges touching them), e.g. Pod")
 	cmd.Flags().BoolVar(&gopts.edgesOnly, "edges-only", false, "Only print the edges section")
 	cmd.Flags().BoolVar(&gopts.nodesOnly, "nodes-only", false, "Only print the nodes section")
+	cmd.Flags().StringVarP(&gopts.namespace, "namespace", "n", "",
+		"Only show nodes in this namespace (and edges connecting them)")
+	cmd.Flags().StringVar(&gopts.focus, "focus", "",
+		"Only show the neighborhood of this resource, given as Kind/name (e.g. Pod/web-abc)")
+	cmd.Flags().IntVar(&gopts.depth, "depth", -1,
+		"How many hops the --focus neighborhood extends (negative means the server default)")
 	cmd.Flags().StringVar(&gopts.format, "format", "",
 		"Output format for the graph: table, json, dot or mermaid (defaults to the global --output)")
 
 	return cmd
+}
+
+// fetchGraph fetches either the projection's full graph or, when --focus is
+// set, the neighborhood subgraph around the focused resource.
+func fetchGraph(cmd *cobra.Command, client *Client, gopts *graphOptions, namespace, name string) (Graph, error) {
+	if gopts.focus == "" {
+		if gopts.depth >= 0 {
+			return Graph{}, fmt.Errorf("--depth requires --focus")
+		}
+		return client.Graph(cmd.Context(), namespace, name)
+	}
+
+	kind, focusName, ok := strings.Cut(gopts.focus, "/")
+	if !ok || kind == "" || focusName == "" {
+		return Graph{}, fmt.Errorf("invalid --focus %q: expected Kind/name (e.g. Pod/web-abc)", gopts.focus)
+	}
+
+	req := NeighborhoodRequest{Kind: kind, Name: focusName, Namespace: gopts.namespace}
+	if gopts.depth >= 0 {
+		d := gopts.depth
+		req.Hops = &d
+	}
+	retrieval, err := client.Neighborhood(cmd.Context(), namespace, name, req)
+	if err != nil {
+		return Graph{}, err
+	}
+	return retrieval.Subgraph, nil
 }
 
 // resolveFormat determines the effective output format for the graph command.
@@ -197,20 +241,24 @@ func mermaidLabel(s string) string {
 	return strings.ReplaceAll(s, "|", "/")
 }
 
-// filterGraph restricts the graph to nodes of the given kind (case-insensitive)
-// and the edges that connect two retained nodes. An empty kind returns the
-// graph unchanged.
-func filterGraph(g Graph, kind string) Graph {
-	if kind == "" {
+// filterGraph restricts the graph to nodes matching the given kind and
+// namespace (case-insensitive, empty matches all) and the edges that connect
+// two retained nodes.
+func filterGraph(g Graph, kind, namespace string) Graph {
+	if kind == "" && namespace == "" {
 		return g
 	}
 	keep := map[string]bool{}
 	nodes := make([]Node, 0, len(g.Nodes))
 	for _, n := range g.Nodes {
-		if strings.EqualFold(n.Kind, kind) {
-			nodes = append(nodes, n)
-			keep[n.ID] = true
+		if kind != "" && !strings.EqualFold(n.Kind, kind) {
+			continue
 		}
+		if namespace != "" && !strings.EqualFold(n.Namespace, namespace) {
+			continue
+		}
+		nodes = append(nodes, n)
+		keep[n.ID] = true
 	}
 	edges := make([]Edge, 0, len(g.Edges))
 	for _, e := range g.Edges {
