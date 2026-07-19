@@ -103,6 +103,68 @@ type Graph struct {
 	Edges []Edge `json:"edges"`
 }
 
+// Seed mirrors the read API's retrieval seed (see internal/api seedDTO).
+type Seed struct {
+	ID    string  `json:"id"`
+	Kind  string  `json:"kind"`
+	Name  string  `json:"name"`
+	Score float64 `json:"score"`
+}
+
+// Card mirrors the read API's retrieval card (see internal/api cardDTO).
+type Card struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Namespace string `json:"namespace,omitempty"`
+	Name      string `json:"name"`
+	Text      string `json:"text"`
+}
+
+// Retrieval mirrors the read API's assembled GraphRAG context
+// (see internal/api retrievalDTO).
+type Retrieval struct {
+	Query    string `json:"query"`
+	Seeds    []Seed `json:"seeds"`
+	Cards    []Card `json:"cards"`
+	Subgraph Graph  `json:"subgraph"`
+}
+
+// Answer mirrors the read API's RAG answer (see internal/api answerDTO).
+type Answer struct {
+	Question  string    `json:"question"`
+	Answer    string    `json:"answer"`
+	Retrieval Retrieval `json:"retrieval"`
+}
+
+// QueryResult mirrors the read API's text-to-Cypher result
+// (see internal/projector QueryResult).
+type QueryResult struct {
+	Question string           `json:"question"`
+	Cypher   string           `json:"cypher"`
+	Rows     []map[string]any `json:"rows"`
+}
+
+// SearchRequest is the body of a rag/search request
+// (see internal/api ragSearchRequest).
+type SearchRequest struct {
+	Query      string   `json:"query"`
+	TopK       int      `json:"topK,omitempty"`
+	Hops       *int     `json:"hops,omitempty"`
+	EdgeTypes  []string `json:"edgeTypes,omitempty"`
+	Kinds      []string `json:"kinds,omitempty"`
+	Namespaces []string `json:"namespaces,omitempty"`
+}
+
+// QuestionRequest is the body of a rag/query or rag/answer request
+// (see internal/api ragQuestionRequest).
+type QuestionRequest struct {
+	Question  string   `json:"question"`
+	TopK      int      `json:"topK,omitempty"`
+	Hops      *int     `json:"hops,omitempty"`
+	EdgeTypes []string `json:"edgeTypes,omitempty"`
+	Model     string   `json:"model,omitempty"`
+}
+
 // Client is a thin HTTP client for the Astron read API.
 type Client struct {
 	baseURL string
@@ -171,6 +233,40 @@ func (c *Client) DeleteView(ctx context.Context, namespace, name string) error {
 	path := fmt.Sprintf("%s/%s/%s", apiViewsPath,
 		url.PathEscape(namespace), url.PathEscape(name))
 	return c.delete(ctx, path)
+}
+
+// ragPath builds the path of a projection's rag/<verb> endpoint.
+func ragPath(namespace, name, verb string) string {
+	return fmt.Sprintf("/api/projections/%s/%s/rag/%s",
+		url.PathEscape(namespace), url.PathEscape(name), verb)
+}
+
+// Search runs hybrid (vector + graph) retrieval against a projection.
+func (c *Client) Search(ctx context.Context, namespace, name string, req SearchRequest) (Retrieval, error) {
+	var out Retrieval
+	if err := c.postJSON(ctx, ragPath(namespace, name, "search"), req, &out); err != nil {
+		return Retrieval{}, err
+	}
+	return out, nil
+}
+
+// Answer runs retrieval-augmented question answering against a projection.
+func (c *Client) Answer(ctx context.Context, namespace, name string, req QuestionRequest) (Answer, error) {
+	var out Answer
+	if err := c.postJSON(ctx, ragPath(namespace, name, "answer"), req, &out); err != nil {
+		return Answer{}, err
+	}
+	return out, nil
+}
+
+// Query answers a question via a generated, read-only Cypher query
+// (text-to-Cypher).
+func (c *Client) Query(ctx context.Context, namespace, name string, req QuestionRequest) (QueryResult, error) {
+	var out QueryResult
+	if err := c.postJSON(ctx, ragPath(namespace, name, "query"), req, &out); err != nil {
+		return QueryResult{}, err
+	}
+	return out, nil
 }
 
 // Graph returns the materialized graph for a single projection.
