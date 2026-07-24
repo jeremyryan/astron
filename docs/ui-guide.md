@@ -170,7 +170,9 @@ This helps when managing many namespaces; grouping makes namespace boundaries cl
 
 ### Grouping Nodes Together
 
-Beyond namespace grouping, you can merge several individual nodes into a single collapsed node:
+**ReplicaSets are grouped by namespace automatically** as soon as a namespace has two or more of them, since a Deployment's rollout history tends to leave several old ReplicaSets behind that add noise without adding insight. Right-click the group and choose **Ungroup** to break it apart if you'd rather see them individually — they won't be automatically re-grouped again for the rest of the session.
+
+Beyond that default, you can merge any other set of nodes into a single collapsed node yourself:
 
 1. Select two or more nodes (Shift/Ctrl-click, or box-select).
 2. Right-click one of them and choose **Group**.

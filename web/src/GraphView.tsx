@@ -52,6 +52,12 @@ const isGroupNodeId = (id: string): boolean => id.startsWith(GROUP_NODE_PREFIX);
 // different resource kinds at once.
 const GROUP_NODE_COLOR = "#7f8c8d";
 
+// Kinds that are automatically collapsed into one group per namespace as soon
+// as two or more of them are visible, decluttering the common case of many
+// old ReplicaSets left behind by rollout history. Purely a starting point:
+// the user can Ungroup at any time (see the auto-grouping effect below).
+const AUTO_GROUP_KINDS = new Set(["ReplicaSet"]);
+
 // pluralize turns a Kubernetes kind name into a simple plural for a group
 // node's label ("Pod" -> "Pods", "Ingress" -> "Ingresses", "Gateway" ->
 // "Gateways"). A handful of common English pluralization rules, good enough
@@ -278,6 +284,12 @@ interface GraphActions {
 interface NodeGroup {
   id: string;
   memberIds: string[];
+  // Set when this group was created by the auto-grouping effect (rather than
+  // an explicit "Group" action), identified by its "<namespace>|<kind>"
+  // bucket key. Lets Ungroup opt that bucket out of auto-grouping instead of
+  // having it immediately reappear on the next graph poll.
+  auto?: boolean;
+  autoKey?: string;
 }
 
 // Context menu anchored at a viewport position for a right-clicked node.
@@ -343,6 +355,9 @@ export function GraphView({
   // Nodes the user has merged into a collapsed group node via the context
   // menu's Group/Ungroup actions. Purely local view state, not persisted.
   const [groups, setGroups] = useState<NodeGroup[]>([]);
+  // "<namespace>|<kind>" buckets the user has explicitly opted out of
+  // auto-grouping by ungrouping them; see the auto-grouping effect below.
+  const [autoGroupOptOut, setAutoGroupOptOut] = useState<Set<string>>(new Set());
 
   // Collapse the raw graph according to the current groups: grouped member
   // nodes are replaced by one synthetic node per group (labeled with the
@@ -427,6 +442,48 @@ export function GraphView({
       return next.length === prev.length ? prev : next;
     });
   }, [graph]);
+
+  // Auto-group AUTO_GROUP_KINDS (currently just ReplicaSet) by namespace: any
+  // two or more not-yet-grouped nodes of such a kind in the same namespace are
+  // swept into (or merged into an existing) auto-created group, so the graph
+  // starts decluttered without requiring a manual "Group". Nodes already in
+  // any group (auto or manually created) are left alone, so this never
+  // disturbs a group the user built by hand. A namespace/kind bucket the user
+  // has explicitly ungrouped is skipped until this view is remounted.
+  useEffect(() => {
+    setGroups((prev) => {
+      const memberOf = new Set<string>();
+      for (const g of prev) for (const id of g.memberIds) memberOf.add(id);
+
+      const buckets = new Map<string, string[]>();
+      for (const n of graph.nodes) {
+        if (!AUTO_GROUP_KINDS.has(n.kind) || memberOf.has(n.id)) continue;
+        const key = `${n.namespace ?? ""}|${n.kind}`;
+        (buckets.get(key) ?? buckets.set(key, []).get(key)!).push(n.id);
+      }
+      if (buckets.size === 0) return prev;
+
+      let changed = false;
+      const next = [...prev];
+      for (const [key, ids] of buckets) {
+        if (autoGroupOptOut.has(key)) continue;
+        const idx = next.findIndex((g) => g.autoKey === key);
+        if (idx >= 0) {
+          changed = true;
+          next[idx] = { ...next[idx], memberIds: [...next[idx].memberIds, ...ids] };
+        } else if (ids.length >= 2) {
+          changed = true;
+          next.push({
+            id: `${GROUP_NODE_PREFIX}auto-${crypto.randomUUID()}`,
+            memberIds: ids,
+            auto: true,
+            autoKey: key,
+          });
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [graph, autoGroupOptOut]);
 
   // Ref mirror of the latest display graph (groups collapsed) so the
   // once-registered canvas event handlers (tap, context menu, YAML) read
@@ -1501,6 +1558,14 @@ export function GraphView({
         setGroups((prev) => [...prev.filter((g) => !absorbed.has(g.id)), newGroup]);
       },
       ungroup: (id) => {
+        // If this was an auto-created group (e.g. the default ReplicaSet
+        // grouping), opt its namespace/kind bucket out so it doesn't
+        // immediately reappear on the next graph poll.
+        const dissolving = groups.find((g) => g.id === id);
+        if (dissolving?.auto && dissolving.autoKey) {
+          const key = dissolving.autoKey;
+          setAutoGroupOptOut((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
+        }
         setGroups((prev) => prev.filter((g) => g.id !== id));
       },
     };
