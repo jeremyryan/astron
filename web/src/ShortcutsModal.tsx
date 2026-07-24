@@ -38,6 +38,11 @@ const KEYBOARD_SHORTCUTS: Shortcut[] = [
     keys: ["Alt", "H"],
     action: "Reveal any hidden immediate neighbors of the selected node(s)",
   },
+  {
+    keys: ["Alt (hold)"],
+    action:
+      "Preview hidden immediate neighbors of the selection, translucent, for as long as it's held",
+  },
 ];
 
 const MOUSE_GESTURES: Shortcut[] = [

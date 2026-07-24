@@ -30,6 +30,8 @@ export function ViewControls({ projection, currentFilters, activeView, onActiveV
   const [saveOpen, setSaveOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Whether the "delete this view?" confirmation modal is open.
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const invalidate = () => qc.invalidateQueries({ queryKey: viewsKey });
 
@@ -109,7 +111,10 @@ export function ViewControls({ projection, currentFilters, activeView, onActiveV
           leftSection={<IconTrash size={14} stroke={1.5} />}
           disabled={!activeView}
           loading={deleteMut.isPending}
-          onClick={() => deleteMut.mutate()}
+          onClick={() => {
+            setError(null);
+            setDeleteConfirmOpen(true);
+          }}
         >
           Delete
         </Button>
@@ -164,6 +169,44 @@ export function ViewControls({ projection, currentFilters, activeView, onActiveV
             onClick={() => createMut.mutate(newName.trim())}
           >
             Save
+          </Button>
+        </Group>
+      </Modal>
+
+      <Modal
+        opened={deleteConfirmOpen}
+        onClose={() => setDeleteConfirmOpen(false)}
+        title="Delete view"
+        size="sm"
+      >
+        <Text size="sm">
+          Delete the view{" "}
+          <Text span fw={600}>
+            {activeView?.displayName || activeView?.name}
+          </Text>
+          ? This can't be undone.
+        </Text>
+        {error && (
+          <Text size="xs" c="red" mt="xs">
+            {error}
+          </Text>
+        )}
+        <Group justify="flex-end" mt="md">
+          <Button variant="default" size="xs" onClick={() => setDeleteConfirmOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            size="xs"
+            color="red"
+            leftSection={<IconTrash size={14} stroke={1.5} />}
+            loading={deleteMut.isPending}
+            onClick={() =>
+              deleteMut.mutate(undefined, {
+                onSuccess: () => setDeleteConfirmOpen(false),
+              })
+            }
+          >
+            Delete
           </Button>
         </Group>
       </Modal>

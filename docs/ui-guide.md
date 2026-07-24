@@ -341,6 +341,7 @@ These settings are persisted in your browser's local storage, so they persist ac
 | `Ctrl/Cmd + Arrow keys` | Pan the view, like dragging the background (hold `Shift` for a larger step) |
 | `F` | Fit every visible node to the view |
 | `Alt + H` | Reveal any hidden immediate neighbors of the selected node(s) |
+| `Alt` (hold) | Preview hidden immediate neighbors of the selection, translucent, for as long as it's held |
 | `Ctrl/Cmd + F` | (Browser search) Find in page |
 
 ---

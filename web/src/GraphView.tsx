@@ -510,6 +510,10 @@ export function GraphView({
   groupByNamespaceRef.current = groupByNamespace;
   const hiddenIdsRef = useRef(hiddenIds);
   hiddenIdsRef.current = hiddenIds;
+  // Recomputes which hidden neighbours of the selection are being "peeked"
+  // at (Alt held) into a translucent preview. Populated by the canvas effect;
+  // called again by the visibility effect below when hiddenIds changes.
+  const updatePeekRef = useRef<() => void>(() => {});
 
   // A signature of the graph's *structure* that warrants a full relayout: which
   // nodes exist and whether they're grouped. Edges are deliberately excluded so
@@ -694,6 +698,18 @@ export function GraphView({
         {
           selector: "node.hidden",
           style: { display: "none" },
+        },
+        // While Alt is held with a selection, its hidden immediate neighbours
+        // (and the edges connecting them) are temporarily shown, translucent,
+        // as a preview — without actually unhiding them (hiddenIds is
+        // untouched; releasing Alt hides them again).
+        {
+          selector: "node.hidden.peek",
+          style: { display: "element", opacity: 0.35 },
+        },
+        {
+          selector: "edge.peek",
+          style: { opacity: 0.35 },
         },
         {
           selector: "edge.no-label",
@@ -952,12 +968,59 @@ export function GraphView({
       }
     });
 
+    // Alt-hold "peek": while Alt is held with one or more nodes selected, any
+    // currently-hidden immediate neighbours of the selection (and the edges
+    // connecting them) are shown translucently, without touching hiddenIds —
+    // releasing Alt (or changing the selection) hides them again.
+    let altDown = false;
+    const updatePeek = () => {
+      cy.batch(() => {
+        cy.elements(".peek").removeClass("peek");
+        if (!altDown) return;
+        const selected = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
+        if (selected.empty()) return;
+        const selIds = new Set(selected.map((n) => n.id()));
+        const hiddenNeighborIds = new Set<string>();
+        for (const e of displayGraphRef.current.edges) {
+          if (selIds.has(e.source) && hiddenIdsRef.current.has(e.target)) {
+            hiddenNeighborIds.add(e.target);
+          }
+          if (selIds.has(e.target) && hiddenIdsRef.current.has(e.source)) {
+            hiddenNeighborIds.add(e.source);
+          }
+        }
+        hiddenNeighborIds.forEach((id) => {
+          const n = cy.getElementById(id);
+          if (n.empty()) return;
+          n.addClass("peek");
+          n.connectedEdges().addClass("peek");
+        });
+      });
+    };
+    updatePeekRef.current = updatePeek;
+    const trackAlt = (e: KeyboardEvent) => {
+      if (e.key !== "Alt") return;
+      altDown = e.type === "keydown";
+      updatePeek();
+    };
+    // Also stop peeking if focus leaves the window while Alt is held (e.g.
+    // Alt-Tab), since no keyup will otherwise be seen.
+    const clearAltOnBlur = () => {
+      if (!altDown) return;
+      altDown = false;
+      updatePeek();
+    };
+    window.addEventListener("keydown", trackAlt);
+    window.addEventListener("keyup", trackAlt);
+    window.addEventListener("blur", clearAltOnBlur);
+
     // Track how many real nodes are selected so the alignment tools can appear
     // for multi-selections (e.g. via Shift box-select).
     const updateSelectedCount = () => {
       const sel = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
       setSelectedCount(sel.length);
       selectedIdsCbRef.current?.(sel.map((n) => n.id()));
+      updatePeek();
     };
     cy.on("select unselect", "node", updateSelectedCount);
 
@@ -1776,6 +1839,9 @@ export function GraphView({
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keydown", trackShift);
       window.removeEventListener("keyup", trackShift);
+      window.removeEventListener("keydown", trackAlt);
+      window.removeEventListener("keyup", trackAlt);
+      window.removeEventListener("blur", clearAltOnBlur);
       window.removeEventListener("mouseup", endDrag);
       window.removeEventListener("mouseup", endGroupDrag);
       window.removeEventListener("mouseup", endEdgeRotate);
@@ -1798,6 +1864,7 @@ export function GraphView({
       cy.destroy();
       cyRef.current = null;
       actionsRef.current = null;
+      updatePeekRef.current = () => {};
     };
     // The display graph is intentionally read via displayGraphRef (not a
     // dep): only structural changes (structuralKey) rebuild the canvas; data
@@ -1966,6 +2033,10 @@ export function GraphView({
         g.toggleClass("hidden", !anyVisible);
       });
     });
+    // Hidden state changed (a node was hidden/unhidden, or the canvas was
+    // rebuilt): recompute the Alt-hold preview so it doesn't show a node
+    // that's no longer hidden, or miss one that just became hidden.
+    updatePeekRef.current();
   }, [displayGraph, hiddenIds]);
 
   // "Add Link" gesture: while linkingSourceId is set, draw a dashed arrow from
