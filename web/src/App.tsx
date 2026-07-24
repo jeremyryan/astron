@@ -105,7 +105,10 @@ function ProjectionNavItem({
   // part in the comparison too.
   const isSelected =
     projection.namespace === selectedNamespace && projection.name === selectedName;
-  const items = views ?? [];
+  const items = useMemo(
+    () => [...(views ?? [])].sort((a, b) => a.name.localeCompare(b.name)),
+    [views],
+  );
   return (
     <Box>
       <NavLink
@@ -167,9 +170,14 @@ function ProjectionList({
       </Text>
     );
 
+  const sorted = useMemo(
+    () => [...data].sort((a, b) => a.name.localeCompare(b.name)),
+    [data],
+  );
+
   return (
     <Stack gap={4}>
-      {data.map((p) => (
+      {sorted.map((p) => (
         <ProjectionNavItem
           key={p.uid}
           projection={p}
@@ -323,6 +331,8 @@ function ResourceList({
   selectedIds,
   hiddenIds,
   onToggleVisibility,
+  search,
+  onSearchChange,
 }: {
   projectionName: string;
   nodes: GraphNode[];
@@ -330,10 +340,12 @@ function ResourceList({
   selectedIds: Set<string>;
   hiddenIds: Set<string>;
   onToggleVisibility: (id: string) => void;
-}) {
-
   // Free-text filter applied to resource names (case-insensitive substring).
-  const [search, setSearch] = useState("");
+  // Lifted to the parent so it survives navigating to a node/edge's details
+  // and back, instead of resetting each time this list remounts.
+  search: string;
+  onSearchChange: (value: string) => void;
+}) {
   const filteredNodes = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return nodes;
@@ -391,7 +403,7 @@ function ResourceList({
         aria-label="Search resources by name"
         leftSection={<IconSearch size={14} stroke={1.5} />}
         value={search}
-        onChange={(e) => setSearch(e.currentTarget.value)}
+        onChange={(e) => onSearchChange(e.currentTarget.value)}
       />
       {groups.length === 0 && (
         <Text size="sm" c="dimmed">
@@ -751,6 +763,9 @@ function GraphPanel({
   // When true, the inspector shows the resource list even if a node/edge is
   // selected (the user navigated "Back" from the detail view).
   const [showResourceList, setShowResourceList] = useState(false);
+  // Free-text filter for the resource list, lifted here so it persists across
+  // navigating to a node/edge's details and back.
+  const [resourceSearch, setResourceSearch] = useState("");
   // Whether the inspector panel is collapsed to a thin strip.
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   // Which inspector tab is active. The chat tab is only offered when the
@@ -1209,6 +1224,8 @@ function GraphPanel({
                         }
                       }}
                       onToggleVisibility={toggleNodeVisibility}
+                      search={resourceSearch}
+                      onSearchChange={setResourceSearch}
                     />
                   )}
                 </Box>

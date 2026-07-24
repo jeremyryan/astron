@@ -24,6 +24,8 @@ export {
   IconFocus2,
   IconArrowsMaximize,
   IconRoute,
+  IconStack2,
+  IconStackPop,
   IconDownload,
   IconLayoutAlignMiddle,
   IconLayoutAlignCenter,

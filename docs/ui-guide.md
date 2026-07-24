@@ -168,6 +168,17 @@ Toggle the **Group by Namespace** checkbox to:
 
 This helps when managing many namespaces; grouping makes namespace boundaries clear.
 
+### Grouping Nodes Together
+
+Beyond namespace grouping, you can merge several individual nodes into a single collapsed node:
+
+1. Select two or more nodes (Shift/Ctrl-click, or box-select).
+2. Right-click one of them and choose **Group**.
+
+The selected nodes collapse into one dashed, warm-accented node labeled with the plural of each kind it contains (e.g. a group of ReplicaSets is labeled "ReplicaSets"; a mix of Pods and Services is labeled "Pods/Services"). It shows the generic blank icon, since it may stand in for several different kinds, and carries every edge that any of its members had — so its connections to the rest of the graph are preserved.
+
+Grouping is a display-only convenience (nothing changes in the cluster or the underlying graph data), so it resets if you reload the page. To undo it, right-click the group node and choose **Ungroup** to restore its individual members. You can also select a group alongside other nodes/groups and choose **Group** again to merge them further.
+
 ---
 
 ## Saving and Managing Views
@@ -326,6 +337,8 @@ These settings are persisted in your browser's local storage, so they persist ac
 | `Shift + -` | Zoom out |
 | `Shift + 0` | Reset the zoom to fit the whole graph |
 | `Ctrl/Cmd + Arrow keys` | Pan the view, like dragging the background (hold `Shift` for a larger step) |
+| `F` | Fit every visible node to the view |
+| `Alt + H` | Reveal any hidden immediate neighbors of the selected node(s) |
 | `Ctrl/Cmd + F` | (Browser search) Find in page |
 
 ---

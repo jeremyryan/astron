@@ -20,6 +20,8 @@ import {
   IconFocus2,
   IconArrowsMaximize,
   IconRoute,
+  IconStack2,
+  IconStackPop,
   IconTopologyStar3,
   IconX,
 } from "./icons";
@@ -39,6 +41,41 @@ cytoscape.use(fcose);
 const GROUP_CLASS = "namespace-group";
 const GROUP_PREFIX = "ns::";
 const CLUSTER_GROUP_ID = `${GROUP_PREFIX}__cluster__`;
+
+// Prefix for synthetic "collapsed group" node ids: several selected nodes
+// merged into one node via the context menu's Group/Ungroup actions. Distinct
+// from GROUP_PREFIX/GROUP_CLASS above, which are only for the namespace
+// compound boxes.
+const GROUP_NODE_PREFIX = "grp::";
+const isGroupNodeId = (id: string): boolean => id.startsWith(GROUP_NODE_PREFIX);
+// Neutral color for a collapsed group node, since it may stand in for several
+// different resource kinds at once.
+const GROUP_NODE_COLOR = "#7f8c8d";
+
+// pluralize turns a Kubernetes kind name into a simple plural for a group
+// node's label ("Pod" -> "Pods", "Ingress" -> "Ingresses", "Gateway" ->
+// "Gateways"). A handful of common English pluralization rules, good enough
+// for the built-in and custom resource kinds this graph deals with.
+function pluralize(kind: string): string {
+  if (/(s|x|z|ch|sh)$/i.test(kind)) return `${kind}es`;
+  if (/[^aeiou]y$/i.test(kind)) return `${kind.slice(0, -1)}ies`;
+  return `${kind}s`;
+}
+
+// nodeVisual computes a display-graph node's label/color/icon: the usual
+// kind+name label with the kind's official (or generic) icon for a normal
+// resource, or the combined plural-kinds label with a neutral color and the
+// generic blank icon for a collapsed group node.
+function nodeVisual(n: GraphNode): { label: string; color: string; icon: string } {
+  if (isGroupNodeId(n.id)) {
+    return { label: n.name, color: GROUP_NODE_COLOR, icon: genericIcon };
+  }
+  return {
+    label: `${n.kind}\n${n.name}`,
+    color: colorForKind(n.kind),
+    icon: iconForKind(n.kind) ?? genericIcon,
+  };
+}
 
 // phaseColor maps a Pod status (phase, or a refining reason like
 // CrashLoopBackOff) to a node border color so pod health is visible at a glance.
@@ -93,24 +130,23 @@ function toElements(graph: Graph, groupByNamespace: boolean): ElementDefinition[
   }
 
   for (const n of graph.nodes as GraphNode[]) {
+    const visual = nodeVisual(n);
     const data: Record<string, unknown> = {
       id: n.id,
-      label: `${n.kind}\n${n.name}`,
+      label: visual.label,
       kind: n.kind,
-      color: colorForKind(n.kind),
+      color: visual.color,
     };
     // Border pods (and any status-bearing node) by health. Prefer the refined
     // `status` (e.g. CrashLoopBackOff) over the coarse `phase`.
     const statusColor = phaseColor(n.properties?.status ?? n.properties?.phase);
     if (statusColor) data.statusColor = statusColor;
-    // Use the kind's official icon, falling back to the generic Kubernetes
-    // badge so resources without a dedicated icon still render as a badge.
-    data.icon = iconForKind(n.kind) ?? genericIcon;
+    data.icon = visual.icon;
 
     if (groupByNamespace) {
       data.parent = n.namespace ? GROUP_PREFIX + n.namespace : CLUSTER_GROUP_ID;
     }
-    elements.push({ data });
+    elements.push({ data, classes: isGroupNodeId(n.id) ? "resource-group" : undefined });
   }
 
   // Drop edges whose endpoints are not present to avoid render errors.
@@ -227,6 +263,21 @@ interface GraphActions {
   selectConnected(ids: string[]): void;
   deselectAll(): void;
   arrangeNeighbors(id: string): void;
+  unhideNeighbors(ids: string[]): void;
+  // Merge the given nodes (which may include already-grouped nodes, whose
+  // members are absorbed) into one collapsed group node.
+  group(ids: string[]): void;
+  // Dissolve a collapsed group node back into its individual member nodes.
+  ungroup(id: string): void;
+}
+
+// A user-created merge of several nodes into one node for display purposes.
+// Purely a client-side view concern (not persisted): grouping lives only in
+// this component's state, keyed by the real resource ids it currently
+// contains.
+interface NodeGroup {
+  id: string;
+  memberIds: string[];
 }
 
 // Context menu anchored at a viewport position for a right-clicked node.
@@ -289,11 +340,103 @@ export function GraphView({
   // always calls the latest callback without rebuilding the graph.
   const selectedIdsCbRef = useRef(onSelectedIdsChange);
   selectedIdsCbRef.current = onSelectedIdsChange;
-  // Ref mirror of the latest graph so the once-registered canvas event handlers
-  // (tap, context menu, YAML) read current data without being rebuilt on every
-  // poll.
-  const graphRef = useRef(graph);
-  graphRef.current = graph;
+  // Nodes the user has merged into a collapsed group node via the context
+  // menu's Group/Ungroup actions. Purely local view state, not persisted.
+  const [groups, setGroups] = useState<NodeGroup[]>([]);
+
+  // Collapse the raw graph according to the current groups: grouped member
+  // nodes are replaced by one synthetic node per group (labeled with the
+  // plural of each distinct kind it contains, e.g. "Pods/Services"), and edges
+  // touching a grouped node are redirected to the group, deduplicated, and
+  // dropped if both ends land on the same group (an edge internal to it).
+  // Manual (user-created) edges keep every original edge they aggregate, so
+  // the context menu can still edit/delete an edge that maps unambiguously to
+  // one real link.
+  const { displayGraph, groupInfo, edgeOriginals } = useMemo(() => {
+    const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
+    const memberOfGroup = new Map<string, string>();
+    const groupInfo = new Map<
+      string,
+      { label: string; memberIds: string[]; namespace?: string }
+    >();
+    for (const g of groups) {
+      const presentIds = g.memberIds.filter((id) => nodeById.has(id));
+      if (presentIds.length === 0) continue;
+      const kinds = [...new Set(presentIds.map((id) => nodeById.get(id)!.kind))].sort();
+      groupInfo.set(g.id, {
+        label: kinds.map(pluralize).join("/"),
+        memberIds: presentIds,
+        namespace: nodeById.get(presentIds[0])!.namespace,
+      });
+      for (const id of presentIds) memberOfGroup.set(id, g.id);
+    }
+    const mapId = (id: string) => memberOfGroup.get(id) ?? id;
+
+    const nodes: GraphNode[] = [];
+    const emittedGroups = new Set<string>();
+    for (const n of graph.nodes) {
+      const gid = memberOfGroup.get(n.id);
+      if (!gid) {
+        nodes.push(n);
+        continue;
+      }
+      if (emittedGroups.has(gid)) continue;
+      emittedGroups.add(gid);
+      const info = groupInfo.get(gid)!;
+      nodes.push({
+        id: gid,
+        apiVersion: "",
+        kind: "Group",
+        name: info.label,
+        namespace: info.namespace,
+        properties: {
+          members: info.memberIds.map((id) => nodeById.get(id)!.name).join(", "),
+          memberCount: String(info.memberIds.length),
+        },
+      });
+    }
+
+    const edges: GraphEdge[] = [];
+    const edgeIndex = new Map<string, number>();
+    const edgeOriginals = new Map<string, GraphEdge[]>();
+    for (const e of graph.edges) {
+      const source = mapId(e.source);
+      const target = mapId(e.target);
+      if (source === target) continue; // internal to a single collapsed group
+      const key = `${source}|${target}|${e.type}`;
+      const idx = edgeIndex.get(key);
+      if (idx === undefined) {
+        edgeIndex.set(key, edges.length);
+        edgeOriginals.set(key, [e]);
+        edges.push({ ...e, id: key, source, target });
+      } else {
+        edges[idx] = { ...edges[idx], manual: edges[idx].manual || e.manual };
+        edgeOriginals.get(key)!.push(e);
+      }
+    }
+
+    return { displayGraph: { nodes, edges }, groupInfo, edgeOriginals };
+  }, [graph, groups]);
+
+  // Drop groups whose members have all been deleted from the underlying
+  // graph, so stale entries don't accumulate forever.
+  useEffect(() => {
+    setGroups((prev) => {
+      const ids = new Set(graph.nodes.map((n) => n.id));
+      const next = prev.filter((g) => g.memberIds.some((id) => ids.has(id)));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [graph]);
+
+  // Ref mirror of the latest display graph (groups collapsed) so the
+  // once-registered canvas event handlers (tap, context menu, YAML) read
+  // current data without being rebuilt on every poll.
+  const displayGraphRef = useRef(displayGraph);
+  displayGraphRef.current = displayGraph;
+  const groupInfoRef = useRef(groupInfo);
+  groupInfoRef.current = groupInfo;
+  const edgeOriginalsRef = useRef(edgeOriginals);
+  edgeOriginalsRef.current = edgeOriginals;
   // User-tunable layout parameters from settings. A ref mirror lets the once-
   // built layout read the latest without adding them as rebuild dependencies.
   const layoutParams = useMemo(
@@ -308,6 +451,8 @@ export function GraphView({
   layoutParamsRef.current = layoutParams;
   const groupByNamespaceRef = useRef(groupByNamespace);
   groupByNamespaceRef.current = groupByNamespace;
+  const hiddenIdsRef = useRef(hiddenIds);
+  hiddenIdsRef.current = hiddenIds;
 
   // A signature of the graph's *structure* that warrants a full relayout: which
   // nodes exist and whether they're grouped. Edges are deliberately excluded so
@@ -315,9 +460,9 @@ export function GraphView({
   // reconciled in place — added/removed without moving any nodes — by the
   // data-sync effect below. Only node changes trigger the expensive rebuild.
   const structuralKey = useMemo(() => {
-    const nodeIds = graph.nodes.map((n) => n.id).sort().join(",");
+    const nodeIds = displayGraph.nodes.map((n) => n.id).sort().join(",");
     return `${groupByNamespace ? "g" : "f"}|${nodeIds}`;
-  }, [graph, groupByNamespace]);
+  }, [displayGraph, groupByNamespace]);
 
   // Snapshot of the previous canvas (node positions and viewport), captured
   // right before a rebuild. When the node set merely shrinks or grows a little
@@ -338,7 +483,7 @@ export function GraphView({
     // full fresh layout. Preset applies when the grouping mode is unchanged and
     // the surviving nodes outnumber the new ones — i.e. this is an incremental
     // filter change, not a projection switch or grouping toggle.
-    const elements = toElements(graphRef.current, groupByNamespace);
+    const elements = toElements(displayGraphRef.current, groupByNamespace);
     const saved = savedViewRef.current;
     let usePreset = false;
     if (saved && saved.grouped === groupByNamespace && saved.positions.size > 0) {
@@ -351,7 +496,7 @@ export function GraphView({
         // Adjacency over the current graph, for placing new nodes near the
         // things they connect to.
         const neighbors = new Map<string, string[]>();
-        for (const e of graphRef.current.edges) {
+        for (const e of displayGraphRef.current.edges) {
           (neighbors.get(e.source) ?? neighbors.set(e.source, []).get(e.source)!).push(e.target);
           (neighbors.get(e.target) ?? neighbors.set(e.target, []).get(e.target)!).push(e.source);
         }
@@ -466,7 +611,20 @@ export function GraphView({
           selector: "node[statusColor]",
           style: { "border-width": 3, "border-color": "data(statusColor)", "border-opacity": 1 },
         },
-        // Selection takes precedence over the health ring: a bright white ring.
+        // A collapsed group node (several selected nodes merged via the context
+        // menu's Group action) gets a dashed warm-accent ring so it reads as a
+        // stand-in for multiple resources rather than a single one.
+        {
+          selector: "node.resource-group",
+          style: {
+            "border-width": 3,
+            "border-style": "dashed",
+            "border-color": "#e8785a",
+            "border-opacity": 0.95,
+          },
+        },
+        // Selection takes precedence over the health ring or the group's dashed
+        // ring: a bright white ring.
         {
           selector: "node:selected",
           style: { "border-width": 3, "border-color": "#fff", "border-opacity": 1 },
@@ -669,7 +827,7 @@ export function GraphView({
       tapTimer = setTimeout(resetTapCount, 350);
 
       if (tapCount === 1) {
-        const found = graphRef.current.nodes.find((n) => n.id === id);
+        const found = displayGraphRef.current.nodes.find((n) => n.id === id);
         onSelect(found ? { type: "node", node: found } : null);
         return;
       }
@@ -722,10 +880,10 @@ export function GraphView({
       }
       setMenu(null);
       setEdgeMenu(null);
-      const edge = graphRef.current.edges.find((e) => e.id === evt.target.id());
+      const edge = displayGraphRef.current.edges.find((e) => e.id === evt.target.id());
       if (!edge) return;
-      const source = graphRef.current.nodes.find((n) => n.id === edge.source);
-      const target = graphRef.current.nodes.find((n) => n.id === edge.target);
+      const source = displayGraphRef.current.nodes.find((n) => n.id === edge.source);
+      const target = displayGraphRef.current.nodes.find((n) => n.id === edge.target);
       onSelect({ type: "edge", edge, source, target });
     });
     cy.on("tap", (evt) => {
@@ -771,21 +929,25 @@ export function GraphView({
     // background (or panning/zooming) dismisses it.
     cy.on("cxttap", "node", (evt) => {
       if (linkingRef.current) return;
-      const found = graphRef.current.nodes.find((n) => n.id === evt.target.id());
+      const found = displayGraphRef.current.nodes.find((n) => n.id === evt.target.id());
       if (!found) return;
       const oe = evt.originalEvent as MouseEvent;
       setEdgeMenu(null);
       setMenu({ x: oe.clientX, y: oe.clientY, node: found });
     });
     // Right-click a user-created (manual) edge to delete it. Derived edges have
-    // no menu.
+    // no menu. When the displayed edge aggregates more than one real edge (or
+    // either endpoint is a collapsed group), there's no single unambiguous
+    // link to edit/delete, so no menu is offered for it either.
     cy.on("cxttap", "edge", (evt) => {
       if (linkingRef.current) return;
-      const edge = graphRef.current.edges.find((e) => e.id === evt.target.id());
+      const edge = displayGraphRef.current.edges.find((e) => e.id === evt.target.id());
       if (!edge || !edge.manual) return;
+      const originals = edgeOriginalsRef.current.get(edge.id) ?? [];
+      if (originals.length !== 1 || !originals[0].manual) return;
       const oe = evt.originalEvent as MouseEvent;
       setMenu(null);
-      setEdgeMenu({ x: oe.clientX, y: oe.clientY, edge });
+      setEdgeMenu({ x: oe.clientX, y: oe.clientY, edge: originals[0] });
     });
     cy.on("cxttap", (evt) => {
       if (evt.target === cy) {
@@ -1200,25 +1362,28 @@ export function GraphView({
     // stay in sync.
     const actions: GraphActions = {
       showYaml: (id) => {
-        const found = graphRef.current.nodes.find((n) => n.id === id);
+        // Not meaningful for a collapsed group node (no single manifest); the
+        // menu/keyboard shortcut only offer this for a real single node.
+        if (isGroupNodeId(id)) return;
+        const found = displayGraphRef.current.nodes.find((n) => n.id === id);
         if (found) onShowYaml(found);
       },
       startLink: (id) => {
-        if (!linkingRef.current) setLinkingSourceId(id);
+        if (!linkingRef.current && !isGroupNodeId(id)) setLinkingSourceId(id);
       },
       // Hidden nodes stay listed in the resource list so they can be shown
-      // again.
+      // again. Ids may be real resource ids or a collapsed group's id.
       hide: (ids) => onSetVisibility(ids, true),
       hideOthers: (ids) => {
         const keep = new Set(ids);
         onSetVisibility(
-          graphRef.current.nodes.filter((n) => !keep.has(n.id)).map((n) => n.id),
+          displayGraphRef.current.nodes.filter((n) => !keep.has(n.id)).map((n) => n.id),
           true,
         );
       },
       unhideAll: () =>
         onSetVisibility(
-          graphRef.current.nodes.map((n) => n.id),
+          displayGraphRef.current.nodes.map((n) => n.id),
           false,
         ),
       center: (ids) => {
@@ -1300,6 +1465,44 @@ export function GraphView({
           n.position({ x: cp.x + radius * Math.cos(a), y: cp.y + radius * Math.sin(a) });
         });
       },
+      // Reveal any currently-hidden immediate neighbours of the given nodes
+      // (searched over the full graph, so a hidden neighbour can be found and
+      // unhidden even though hidden nodes are display:none on the canvas).
+      unhideNeighbors: (ids) => {
+        const idSet = new Set(ids);
+        const neighborIds = new Set<string>();
+        for (const e of displayGraphRef.current.edges) {
+          if (idSet.has(e.source)) neighborIds.add(e.target);
+          if (idSet.has(e.target)) neighborIds.add(e.source);
+        }
+        const toShow = [...neighborIds].filter((nid) => hiddenIdsRef.current.has(nid));
+        if (toShow.length > 0) onSetVisibility(toShow, false);
+      },
+      // Merge the given nodes into one collapsed group node. Any id that is
+      // already a group has its members absorbed (and the old group dropped),
+      // so grouping across an existing group merges the two.
+      group: (ids) => {
+        const memberIds = new Set<string>();
+        const absorbed = new Set<string>();
+        for (const id of ids) {
+          const info = groupInfoRef.current.get(id);
+          if (info) {
+            absorbed.add(id);
+            info.memberIds.forEach((m) => memberIds.add(m));
+          } else {
+            memberIds.add(id);
+          }
+        }
+        if (memberIds.size < 2) return;
+        const newGroup: NodeGroup = {
+          id: `${GROUP_NODE_PREFIX}${crypto.randomUUID()}`,
+          memberIds: [...memberIds],
+        };
+        setGroups((prev) => [...prev.filter((g) => !absorbed.has(g.id)), newGroup]);
+      },
+      ungroup: (id) => {
+        setGroups((prev) => prev.filter((g) => g.id !== id));
+      },
     };
     actionsRef.current = actions;
 
@@ -1324,6 +1527,8 @@ export function GraphView({
     //               around it (single node)
     //   Ctrl+Arrows pan the viewport, like dragging the background (hold
     //               Shift for a larger step; no selection needed)
+    //   F           fits every visible node to the view (no selection needed)
+    //   Alt+H       reveals hidden immediate neighbours of the selection
     const ARROW_DELTAS: Record<string, [number, number]> = {
       ArrowUp: [0, -1],
       ArrowDown: [0, 1],
@@ -1404,6 +1609,25 @@ export function GraphView({
         if (selected.length !== 1) return;
         e.preventDefault();
         actions.arrangeNeighbors(selected.first().id());
+        return;
+      }
+
+      // "f": fit every (visible) node to the view, same as the toolbar button.
+      // Needs no selection.
+      if (e.key.toLowerCase() === "f" && !(e.ctrlKey || e.metaKey || e.altKey || e.shiftKey)) {
+        e.preventDefault();
+        fittedSubgraphRef.current = false;
+        cy.animate({ fit: { eles: cy.elements(), padding: 30 }, duration: 250 });
+        return;
+      }
+
+      // Alt+H: reveal any currently-hidden immediate neighbours of the
+      // selected node(s).
+      if (e.key.toLowerCase() === "h" && e.altKey && !(e.ctrlKey || e.metaKey)) {
+        const selected = cy.nodes(":selected").filter((n) => !n.hasClass(GROUP_CLASS));
+        if (selected.empty()) return;
+        e.preventDefault();
+        actions.unhideNeighbors(selected.map((n) => n.id()));
         return;
       }
 
@@ -1510,9 +1734,9 @@ export function GraphView({
       cyRef.current = null;
       actionsRef.current = null;
     };
-    // graph is intentionally read via graphRef (not a dep): only structural
-    // changes (structuralKey) rebuild the canvas; data updates are reconciled
-    // in place by the effect below.
+    // The display graph is intentionally read via displayGraphRef (not a
+    // dep): only structural changes (structuralKey) rebuild the canvas; data
+    // updates are reconciled in place by the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [structuralKey, onSelect, onShowYaml, groupByNamespace]);
 
@@ -1521,25 +1745,28 @@ export function GraphView({
   // node add/remove is handled by the rebuild effect above (structuralKey).
   // Edges, however, are reconciled here — added, removed and patched in place —
   // so creating or deleting a link (custom or derived) never moves any nodes.
+  // Reads the group-collapsed display graph, so a group node's label/color/
+  // icon and its aggregated edges get reconciled the same way as any other.
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy) return;
     cy.batch(() => {
-      for (const n of graph.nodes) {
+      for (const n of displayGraph.nodes) {
         const el = cy.getElementById(n.id);
         if (el.empty()) continue;
-        el.data("label", `${n.kind}\n${n.name}`);
-        el.data("color", colorForKind(n.kind));
-        el.data("icon", iconForKind(n.kind) ?? genericIcon);
+        const visual = nodeVisual(n);
+        el.data("label", visual.label);
+        el.data("color", visual.color);
+        el.data("icon", visual.icon);
         const statusColor = phaseColor(n.properties?.status ?? n.properties?.phase);
         if (statusColor) el.data("statusColor", statusColor);
         else el.removeData("statusColor");
       }
 
       // Desired edges: those with an id whose endpoints are present as nodes.
-      const nodeIds = new Set(graph.nodes.map((n) => n.id));
+      const nodeIds = new Set(displayGraph.nodes.map((n) => n.id));
       const wantEdges = new Map<string, GraphEdge>();
-      for (const e of graph.edges) {
+      for (const e of displayGraph.edges) {
         if (e.id && nodeIds.has(e.source) && nodeIds.has(e.target)) wantEdges.set(e.id, e);
       }
       // Remove real edges that are no longer present, along with any orphaned
@@ -1573,7 +1800,7 @@ export function GraphView({
         }
       }
     });
-  }, [graph]);
+  }, [displayGraph]);
 
   // Re-run the layout when the user changes a layout parameter in settings. The
   // initial layout runs at canvas creation, so skip the first invocation.
@@ -1642,7 +1869,7 @@ export function GraphView({
     const withinNodes = cy.nodes().filter((n) => within.has(n.id()));
     cy.animate({ fit: { eles: withinNodes, padding: 50 }, duration: 250 });
     fittedSubgraphRef.current = true;
-  }, [graph, selectedId, maxDistance]);
+  }, [displayGraph, selectedId, maxDistance]);
 
   // Toggle edge labels without rebuilding the graph. Re-runs after a rebuild
   // (graph dep) so the current preference is reapplied to fresh elements.
@@ -1650,7 +1877,7 @@ export function GraphView({
     const cy = cyRef.current;
     if (!cy) return;
     cy.edges().toggleClass("no-label", !showEdgeLabels);
-  }, [graph, showEdgeLabels]);
+  }, [displayGraph, showEdgeLabels]);
 
   // Apply per-node visibility without rebuilding: hidden nodes get display:none
   // (which also hides their edges) rather than being removed, so unaffected
@@ -1674,7 +1901,7 @@ export function GraphView({
         g.toggleClass("hidden", !anyVisible);
       });
     });
-  }, [graph, hiddenIds]);
+  }, [displayGraph, hiddenIds]);
 
   // "Add Link" gesture: while linkingSourceId is set, draw a dashed arrow from
   // the source node to the cursor. Tapping another node creates the link;
@@ -2030,6 +2257,10 @@ export function GraphView({
           const targetIds =
             selIds.length > 0 && selIds.includes(menu.node.id) ? selIds : [menu.node.id];
           const multi = targetIds.length > 1;
+          // Whether the right-clicked node is itself a collapsed group (from an
+          // earlier Group action), which hides the single-real-node-only items
+          // (YAML, Add Link, Arrange Neighbors) and offers Ungroup instead.
+          const clickedIsGroup = isGroupNodeId(menu.node.id);
           const act = actionsRef.current;
           // Runs a shared action and closes the menu.
           const run = (fn: (a: GraphActions) => void) => () => {
@@ -2061,10 +2292,12 @@ export function GraphView({
                   <Text size="xs" truncate>
                     {multi
                       ? `${targetIds.length} nodes selected`
-                      : `${menu.node.kind}/${menu.node.name}`}
+                      : clickedIsGroup
+                        ? `${menu.node.name} (group)`
+                        : `${menu.node.kind}/${menu.node.name}`}
                   </Text>
                 </Menu.Label>
-                {!multi && (
+                {!multi && !clickedIsGroup && (
                   <>
                     <Menu.Item
                       leftSection={<IconCode size={16} stroke={1.5} />}
@@ -2088,6 +2321,14 @@ export function GraphView({
                       Arrange Neighbors
                     </Menu.Item>
                   </>
+                )}
+                {!multi && clickedIsGroup && (
+                  <Menu.Item
+                    leftSection={<IconStackPop size={16} stroke={1.5} />}
+                    onClick={run((a) => a.ungroup(menu.node.id))}
+                  >
+                    Ungroup
+                  </Menu.Item>
                 )}
                 <Menu.Item
                   leftSection={
@@ -2133,6 +2374,12 @@ export function GraphView({
                 </Menu.Item>
                 {multi && (
                   <>
+                    <Menu.Item
+                      leftSection={<IconStack2 size={16} stroke={1.5} />}
+                      onClick={run((a) => a.group(targetIds))}
+                    >
+                      Group
+                    </Menu.Item>
                     <Menu.Item
                       leftSection={<IconRoute size={16} stroke={1.5} />}
                       rightSection={hint("J")}

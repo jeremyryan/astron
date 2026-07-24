@@ -33,6 +33,11 @@ const KEYBOARD_SHORTCUTS: Shortcut[] = [
     keys: ["Ctrl/Cmd", "↑", "↓", "←", "→"],
     action: "Pan the view, like dragging the background; hold Shift for a larger step",
   },
+  { keys: ["F"], action: "Fit every visible node to the view" },
+  {
+    keys: ["Alt", "H"],
+    action: "Reveal any hidden immediate neighbors of the selected node(s)",
+  },
 ];
 
 const MOUSE_GESTURES: Shortcut[] = [
