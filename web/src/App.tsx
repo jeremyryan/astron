@@ -148,6 +148,13 @@ function ProjectionList({
     refetchInterval: 10_000,
   });
 
+  // Hooks must run on every render (before the early returns below), so sort
+  // unconditionally; data is undefined while loading.
+  const sorted = useMemo(
+    () => [...(data ?? [])].sort((a, b) => a.name.localeCompare(b.name)),
+    [data],
+  );
+
   if (isLoading)
     return (
       <Group gap="xs">
@@ -169,11 +176,6 @@ function ProjectionList({
         No GraphProjections found.
       </Text>
     );
-
-  const sorted = useMemo(
-    () => [...data].sort((a, b) => a.name.localeCompare(b.name)),
-    [data],
-  );
 
   return (
     <Stack gap={4}>
