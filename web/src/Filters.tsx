@@ -308,30 +308,31 @@ export function FilterPanel({
                   : "All kinds are shown except those unchecked."}
               </Text>
               {kinds.map(({ kind, count }) => (
-                <Checkbox
-                  key={kind}
-                  size="xs"
-                  checked={kindVisible(kind)}
-                  onChange={() => onToggleKind(kind)}
-                  styles={{ labelWrapper: { flex: 1 } }}
-                  label={
-                    <Group justify="space-between" wrap="nowrap" gap={8}>
-                      <Group gap={8} wrap="nowrap">
-                        <img
-                          src={iconForKindOrGeneric(kind)}
-                          width={16}
-                          height={16}
-                          alt=""
-                          style={{ flex: "0 0 auto" }}
-                        />
-                        <Text size="sm">{kind}</Text>
+                <div key={kind} className="checkbox-item">
+                  <Checkbox
+                    size="xs"
+                    checked={kindVisible(kind)}
+                    onChange={() => onToggleKind(kind)}
+                    styles={{ labelWrapper: { flex: 1 } }}
+                    label={
+                      <Group justify="space-between" wrap="nowrap" gap={8}>
+                        <Group gap={8} wrap="nowrap">
+                          <img
+                            src={iconForKindOrGeneric(kind)}
+                            width={16}
+                            height={16}
+                            alt=""
+                            style={{ flex: "0 0 auto" }}
+                          />
+                          <Text size="sm">{kind}</Text>
+                        </Group>
+                        <Text size="xs" c="dimmed">
+                          {count}
+                        </Text>
                       </Group>
-                      <Text size="xs" c="dimmed">
-                        {count}
-                      </Text>
-                    </Group>
-                  }
-                />
+                    }
+                  />
+                </div>
               ))}
             </Stack>
           )}
@@ -359,27 +360,28 @@ export function FilterPanel({
           >
             <Stack gap={6}>
               {namespaces.map(({ namespace, count }) => (
-                <Checkbox
-                  key={namespace || "__cluster__"}
-                  size="xs"
-                  checked={!hiddenNamespaces.has(namespace)}
-                  onChange={() => onToggleNamespace(namespace)}
-                  styles={{ labelWrapper: { flex: 1 } }}
-                  label={
-                    <Group justify="space-between" wrap="nowrap" gap={8}>
-                      <Text
-                        size="sm"
-                        c={namespace ? undefined : "dimmed"}
-                        style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                      >
-                        {namespace || "(cluster-scoped)"}
-                      </Text>
-                      <Text size="xs" c="dimmed">
-                        {count}
-                      </Text>
-                    </Group>
-                  }
-                />
+                <div key={namespace || "__cluster__"} className="checkbox-item">
+                  <Checkbox
+                    size="xs"
+                    checked={!hiddenNamespaces.has(namespace)}
+                    onChange={() => onToggleNamespace(namespace)}
+                    styles={{ labelWrapper: { flex: 1 } }}
+                    label={
+                      <Group justify="space-between" wrap="nowrap" gap={8}>
+                        <Text
+                          size="sm"
+                          c={namespace ? undefined : "dimmed"}
+                          style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                        >
+                          {namespace || "(cluster-scoped)"}
+                        </Text>
+                        <Text size="xs" c="dimmed">
+                          {count}
+                        </Text>
+                      </Group>
+                    }
+                  />
+                </div>
               ))}
             </Stack>
           </FilterSection>
