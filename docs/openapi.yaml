@@ -202,6 +202,11 @@ components:
         topK:
           type: integer
       type: object
+    ApiRenameSnapshotReq:
+      properties:
+        name:
+          type: string
+      type: object
     ApiRetrievalDTO:
       properties:
         cards:
@@ -1014,6 +1019,63 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
           description: Service Unavailable
       summary: Delete a snapshot and its copied graph data
+      tags:
+      - snapshots
+    patch:
+      operationId: renameSnapshot
+      parameters:
+      - description: Projection namespace
+        in: path
+        name: namespace
+        required: true
+        schema:
+          description: Projection namespace
+          type: string
+      - description: Projection name
+        in: path
+        name: name
+        required: true
+        schema:
+          description: Projection name
+          type: string
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiRenameSnapshotReq'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Internal Server Error
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+      summary: Rename a snapshot
       tags:
       - snapshots
   /api/projections/{namespace}/{name}/snapshots/{id}/graph:

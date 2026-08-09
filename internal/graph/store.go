@@ -124,6 +124,10 @@ type SnapshotStore interface {
 	// snapshot does not exist.
 	ReadSnapshot(ctx context.Context, projection ProjectionID, snapshotID string) (GraphData, error)
 
+	// RenameSnapshot updates a snapshot's display name. It returns
+	// ErrSnapshotNotFound when the snapshot does not exist.
+	RenameSnapshot(ctx context.Context, projection ProjectionID, snapshotID, name string) error
+
 	// DeleteSnapshot removes a snapshot and all of its copied data. Deleting a
 	// snapshot that does not exist is not an error.
 	DeleteSnapshot(ctx context.Context, projection ProjectionID, snapshotID string) error

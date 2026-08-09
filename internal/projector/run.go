@@ -186,6 +186,17 @@ func (p *Projector) ReadSnapshot(ctx context.Context, snapshotID string) (graph.
 	return ss.ReadSnapshot(ctx, p.opts.ID, snapshotID)
 }
 
+// RenameSnapshot updates the display name of one of this projection's
+// snapshots, if the backing store supports snapshots. It returns
+// ErrSnapshotsNotSupported otherwise.
+func (p *Projector) RenameSnapshot(ctx context.Context, snapshotID, name string) error {
+	ss, ok := p.opts.Store.(graph.SnapshotStore)
+	if !ok {
+		return ErrSnapshotsNotSupported
+	}
+	return ss.RenameSnapshot(ctx, p.opts.ID, snapshotID, name)
+}
+
 // AddSnapshotLink creates a user-defined link between two node copies of one
 // of this projection's snapshots, if the backing store supports snapshots. It
 // returns ErrSnapshotsNotSupported otherwise. Unlike live-graph links, no

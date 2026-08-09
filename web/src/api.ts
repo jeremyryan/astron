@@ -194,6 +194,19 @@ export function getSnapshotGraph(
   );
 }
 
+export async function renameSnapshot(
+  projectionNamespace: string,
+  projectionName: string,
+  id: string,
+  name: string,
+): Promise<void> {
+  await sendJSON<void>(
+    "PATCH",
+    `/api/projections/${encodeURIComponent(projectionNamespace)}/${encodeURIComponent(projectionName)}/snapshots/${encodeURIComponent(id)}`,
+    { name },
+  );
+}
+
 export async function deleteSnapshot(
   projectionNamespace: string,
   projectionName: string,

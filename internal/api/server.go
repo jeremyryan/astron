@@ -81,6 +81,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/projections/{namespace}/{name}/snapshots", s.handleCreateSnapshot)
 	mux.HandleFunc("GET /api/projections/{namespace}/{name}/snapshots", s.handleListSnapshots)
 	mux.HandleFunc("GET /api/projections/{namespace}/{name}/snapshots/{id}/graph", s.handleSnapshotGraph)
+	mux.HandleFunc("PATCH /api/projections/{namespace}/{name}/snapshots/{id}", s.handleRenameSnapshot)
 	mux.HandleFunc("POST /api/projections/{namespace}/{name}/snapshots/{id}/links", s.handleCreateSnapshotLink)
 	mux.HandleFunc("PATCH /api/projections/{namespace}/{name}/snapshots/{id}/links", s.handleUpdateSnapshotLink)
 	mux.HandleFunc("DELETE /api/projections/{namespace}/{name}/snapshots/{id}/links", s.handleDeleteSnapshotLink)
@@ -556,6 +557,43 @@ func (s *Server) handleDeleteSnapshotLink(w http.ResponseWriter, r *http.Request
 			writeError(w, http.StatusServiceUnavailable, err)
 		default:
 			writeError(w, http.StatusBadRequest, err)
+		}
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// renameSnapshotRequest is the rename-snapshot request body.
+type renameSnapshotRequest struct {
+	Name string `json:"name"`
+}
+
+// handleRenameSnapshot updates a snapshot's display name.
+func (s *Server) handleRenameSnapshot(w http.ResponseWriter, r *http.Request) {
+	var req renameSnapshotRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		writeError(w, http.StatusBadRequest, errors.New("a snapshot name is required"))
+		return
+	}
+
+	id, ok := s.projectionID(w, r)
+	if !ok {
+		return
+	}
+
+	if err := s.projectors.RenameSnapshot(r.Context(), id, r.PathValue("id"), name); err != nil {
+		switch {
+		case errors.Is(err, graph.ErrSnapshotNotFound):
+			writeError(w, http.StatusNotFound, err)
+		case errors.Is(err, projector.ErrNotRunning), errors.Is(err, projector.ErrSnapshotsNotSupported):
+			writeError(w, http.StatusServiceUnavailable, err)
+		default:
+			writeError(w, http.StatusInternalServerError, err)
 		}
 		return
 	}

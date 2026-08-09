@@ -254,6 +254,18 @@ func (m *Manager) ReadSnapshot(ctx context.Context, id graph.ProjectionID, snaps
 	return p.ReadSnapshot(ctx, snapshotID)
 }
 
+// RenameSnapshot updates the display name of one of a running projection's
+// snapshots. It returns ErrNotRunning when no projector is serving the
+// projection, or ErrSnapshotsNotSupported when the store cannot store
+// snapshots.
+func (m *Manager) RenameSnapshot(ctx context.Context, id graph.ProjectionID, snapshotID, name string) error {
+	p, ok := m.Get(id)
+	if !ok {
+		return ErrNotRunning
+	}
+	return p.RenameSnapshot(ctx, snapshotID, name)
+}
+
 // AddSnapshotLink creates a user-defined link between two node copies of a
 // running projection's snapshot. It returns ErrNotRunning when no projector
 // is serving the projection, or ErrSnapshotsNotSupported when the store

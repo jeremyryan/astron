@@ -122,6 +122,13 @@ RETURN s.id AS id, s.name AS name, s.createdAt AS createdAt,
        s.nodes AS nodes, s.relationships AS relationships
 ORDER BY s.createdAt DESC`
 
+// renameSnapshotCypher updates a snapshot's display name. It returns whether
+// the snapshot existed so the caller can report ErrSnapshotNotFound.
+const renameSnapshotCypher = `
+MATCH (s:` + snapshotMetaLabel + ` {id: $id, ` + projectionProperty + `: $projection})
+SET s.name = $name
+RETURN count(s) AS c`
+
 // deleteSnapshotCypher removes a snapshot's metadata node and all its copies.
 const deleteSnapshotCypher = `
 OPTIONAL MATCH (s:` + snapshotMetaLabel + ` {id: $id, ` + projectionProperty + `: $projection})
@@ -511,6 +518,31 @@ func (s *Neo4jStore) SetSnapshotLinkNote(ctx context.Context, projection Project
 	})
 	if err != nil {
 		return fmt.Errorf("setting link note on snapshot %q: %w", snapshotID, err)
+	}
+	return nil
+}
+
+// RenameSnapshot updates a snapshot's display name. It returns
+// ErrSnapshotNotFound when the snapshot does not exist.
+func (s *Neo4jStore) RenameSnapshot(ctx context.Context, projection ProjectionID, snapshotID, name string) error {
+	sess := s.session(ctx)
+	defer func() { _ = sess.Close(ctx) }()
+
+	result, err := sess.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		res, err := tx.Run(ctx, renameSnapshotCypher, map[string]any{
+			"projection": string(projection), "id": snapshotID, "name": name,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return res.Single(ctx)
+	})
+	if err != nil {
+		return fmt.Errorf("renaming snapshot %q for projection %q: %w", snapshotID, projection, err)
+	}
+	rec := result.(*neo4j.Record)
+	if c, _ := rec.Get("c"); asInt64(c) == 0 {
+		return ErrSnapshotNotFound
 	}
 	return nil
 }

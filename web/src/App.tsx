@@ -35,11 +35,13 @@ import {
   createLink,
   createSnapshot,
   deleteLink,
+  deleteSnapshot,
   getGraph,
   getSnapshotGraph,
   listProjections,
   listSnapshots,
   listViews,
+  renameSnapshot,
   updateLink,
   type Graph,
   type GraphEdge,
@@ -78,11 +80,13 @@ import {
   IconHierarchy2,
   IconListTree,
   IconMessageChatbot,
+  IconPencil,
   IconSearch,
   IconSettings,
   IconTag,
   IconTagOff,
   IconTopologyStar3,
+  IconTrash,
 } from "./icons";
 
 // projectionPath / viewPath build the client-side routes for a projection and
@@ -247,6 +251,162 @@ function AddSnapshotModal({
           </Button>
           <Button onClick={() => void save()} loading={saving}>
             Save
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
+
+// RenameSnapshotModal lets the user edit a snapshot's display name.
+function RenameSnapshotModal({
+  projection,
+  snapshot,
+  opened,
+  onClose,
+}: {
+  projection: Projection;
+  snapshot: Snapshot | null;
+  opened: boolean;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [name, setName] = useState("");
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // Reset the form whenever the modal is (re)opened, prefilled with the
+  // snapshot's current name.
+  useEffect(() => {
+    if (opened) {
+      setName(snapshot?.name ?? "");
+      setNameError(null);
+      setSaveError(null);
+      setSaving(false);
+    }
+  }, [opened, snapshot]);
+
+  const save = async () => {
+    if (!snapshot) return;
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setNameError("Name is required");
+      return;
+    }
+    if (trimmed === snapshot.name) {
+      onClose();
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await renameSnapshot(projection.namespace, projection.name, snapshot.id, trimmed);
+      await queryClient.invalidateQueries({
+        queryKey: ["snapshots", projection.namespace, projection.name],
+      });
+      onClose();
+    } catch (e) {
+      setSaveError((e as Error).message);
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal opened={opened} onClose={onClose} title="Rename Snapshot" centered>
+      <Stack gap="sm">
+        <TextInput
+          label="Name"
+          value={name}
+          error={nameError}
+          onChange={(e) => {
+            setName(e.currentTarget.value);
+            if (e.currentTarget.value.trim()) setNameError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void save();
+          }}
+          data-autofocus
+        />
+        {saveError && (
+          <Text size="sm" c="red">
+            {saveError}
+          </Text>
+        )}
+        <Group justify="flex-end" gap="xs">
+          <Button variant="default" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={() => void save()} loading={saving}>
+            Save
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
+
+// DeleteSnapshotModal confirms deleting a snapshot, deletes it via the API,
+// and (only on success) calls onDeleted so the caller can navigate away from
+// a snapshot that no longer exists.
+function DeleteSnapshotModal({
+  projection,
+  snapshot,
+  opened,
+  onClose,
+  onDeleted,
+}: {
+  projection: Projection;
+  snapshot: Snapshot | null;
+  opened: boolean;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    if (opened) {
+      setDeleteError(null);
+      setDeleting(false);
+    }
+  }, [opened]);
+
+  const confirmDelete = async () => {
+    if (!snapshot) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteSnapshot(projection.namespace, projection.name, snapshot.id);
+      await queryClient.invalidateQueries({
+        queryKey: ["snapshots", projection.namespace, projection.name],
+      });
+      onClose();
+      onDeleted();
+    } catch (e) {
+      setDeleteError((e as Error).message);
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <Modal opened={opened} onClose={onClose} title="Delete Snapshot" centered>
+      <Stack gap="sm">
+        <Text size="sm">
+          Delete the snapshot “{snapshot?.name}”? This can&apos;t be undone.
+        </Text>
+        {deleteError && (
+          <Text size="sm" c="red">
+            {deleteError}
+          </Text>
+        )}
+        <Group justify="flex-end" gap="xs">
+          <Button variant="default" onClick={onClose} disabled={deleting}>
+            Cancel
+          </Button>
+          <Button color="red" onClick={() => void confirmDelete()} loading={deleting}>
+            Delete
           </Button>
         </Group>
       </Stack>
@@ -1058,6 +1218,12 @@ function GraphPanel({
 }) {
   const { settings, update } = useSettings();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  // Whether the Rename/Delete Snapshot modals are open. Only meaningful while
+  // viewing a snapshot (the edit/delete buttons next to its name in the
+  // graph title only render then).
+  const [renameSnapshotOpen, setRenameSnapshotOpen] = useState(false);
+  const [deleteSnapshotOpen, setDeleteSnapshotOpen] = useState(false);
   // The currently inspected element (node or edge), or null.
   const [selection, setSelection] = useState<GraphSelection | null>(null);
   const selectedNode = selection?.type === "node" ? selection.node : null;
@@ -1477,6 +1643,32 @@ function GraphPanel({
               <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap", flexShrink: 8 }}>
                 {new Date(activeSnapshot.createdAt).toLocaleString()}
               </Text>
+              {/* Edit/delete this snapshot. The title itself is
+                  non-interactive (see .graph-title), so these opt back into
+                  pointer events and never shrink away. */}
+              <Tooltip label="Rename snapshot" position="bottom">
+                <ActionIcon
+                  variant="subtle"
+                  size="sm"
+                  aria-label="Rename snapshot"
+                  style={{ flexShrink: 0, pointerEvents: "auto" }}
+                  onClick={() => setRenameSnapshotOpen(true)}
+                >
+                  <IconPencil size={14} stroke={1.5} />
+                </ActionIcon>
+              </Tooltip>
+              <Tooltip label="Delete snapshot" position="bottom">
+                <ActionIcon
+                  variant="subtle"
+                  color="red"
+                  size="sm"
+                  aria-label="Delete snapshot"
+                  style={{ flexShrink: 0, pointerEvents: "auto" }}
+                  onClick={() => setDeleteSnapshotOpen(true)}
+                >
+                  <IconTrash size={14} stroke={1.5} />
+                </ActionIcon>
+              </Tooltip>
             </>
           ) : (
             <Text size="sm" fw={600} style={{ whiteSpace: "nowrap" }}>
@@ -1484,6 +1676,23 @@ function GraphPanel({
             </Text>
           )}
         </div>
+        {activeSnapshot && (
+          <>
+            <RenameSnapshotModal
+              projection={projection}
+              snapshot={activeSnapshot}
+              opened={renameSnapshotOpen}
+              onClose={() => setRenameSnapshotOpen(false)}
+            />
+            <DeleteSnapshotModal
+              projection={projection}
+              snapshot={activeSnapshot}
+              opened={deleteSnapshotOpen}
+              onClose={() => setDeleteSnapshotOpen(false)}
+              onDeleted={() => navigate(projectionPath(projection))}
+            />
+          </>
+        )}
         {isLoading && (
           <Group gap="xs" p="md">
             <Loader size="sm" />

@@ -92,6 +92,11 @@ type snapshotPath struct {
 	ID string `path:"id" doc:"Snapshot ID"`
 }
 
+type renameSnapshotReq struct {
+	snapshotPath
+	renameSnapshotRequest
+}
+
 type snapshotLinkReq struct {
 	snapshotPath
 	linkRequest
@@ -237,6 +242,12 @@ func apiEndpoints() []endpoint {
 			tag: "snapshots", summary: "Delete a user-defined edge from a snapshot",
 			req: new(deleteSnapshotLinkReq), status: http.StatusNoContent,
 			errors: []int{http.StatusBadRequest, http.StatusNotFound, http.StatusServiceUnavailable},
+		},
+		{
+			method: http.MethodPatch, path: "/api/projections/{namespace}/{name}/snapshots/{id}", id: "renameSnapshot",
+			tag: "snapshots", summary: "Rename a snapshot",
+			req: new(renameSnapshotReq), status: http.StatusNoContent,
+			errors: []int{http.StatusBadRequest, http.StatusNotFound, http.StatusServiceUnavailable, http.StatusInternalServerError},
 		},
 		{
 			method: http.MethodDelete, path: "/api/projections/{namespace}/{name}/snapshots/{id}", id: "deleteSnapshot",
