@@ -356,12 +356,15 @@ function ProjectionNavItem({
       </div>
       {/* Snapshots: point-in-time copies of the projection's graph, grouped
           under a collapsible "Snapshots" header. */}
-      <Group pl={28} pr={8} py={2} justify="space-between" wrap="nowrap">
+      <Group gap={0} wrap="nowrap" justify="space-between" align="center">
         <UnstyledButton
           className="nav-section-header"
+          pl={28}
+          pr={8}
+          py={2}
           onClick={() => setSnapshotsCollapsed((v) => !v)}
           aria-expanded={!snapshotsCollapsed}
-          style={{ flex: 1, minWidth: 0, overflow: "hidden" }}
+          style={{ flex: 1, minWidth: 0, overflow: "hidden", width: "100%" }}
         >
           <Group gap={6} wrap="nowrap">
             <IconChevronRight
