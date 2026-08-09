@@ -81,6 +81,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/projections/{namespace}/{name}/snapshots", s.handleCreateSnapshot)
 	mux.HandleFunc("GET /api/projections/{namespace}/{name}/snapshots", s.handleListSnapshots)
 	mux.HandleFunc("GET /api/projections/{namespace}/{name}/snapshots/{id}/graph", s.handleSnapshotGraph)
+	mux.HandleFunc("POST /api/projections/{namespace}/{name}/snapshots/{id}/links", s.handleCreateSnapshotLink)
+	mux.HandleFunc("PATCH /api/projections/{namespace}/{name}/snapshots/{id}/links", s.handleUpdateSnapshotLink)
+	mux.HandleFunc("DELETE /api/projections/{namespace}/{name}/snapshots/{id}/links", s.handleDeleteSnapshotLink)
 	mux.HandleFunc("DELETE /api/projections/{namespace}/{name}/snapshots/{id}", s.handleDeleteSnapshot)
 	mux.HandleFunc("POST /api/projections/{namespace}/{name}/links", s.handleCreateLink)
 	mux.HandleFunc("PATCH /api/projections/{namespace}/{name}/links", s.handleUpdateLink)
@@ -455,6 +458,108 @@ func (s *Server) handleSnapshotGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, graphToDTO(data))
+}
+
+// handleCreateSnapshotLink creates a user-defined edge between two node
+// copies of a snapshot, mirroring handleCreateLink for the live graph.
+func (s *Server) handleCreateSnapshotLink(w http.ResponseWriter, r *http.Request) {
+	var req linkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if strings.TrimSpace(req.From) == "" || strings.TrimSpace(req.To) == "" {
+		writeError(w, http.StatusBadRequest, errors.New("from and to node ids are required"))
+		return
+	}
+	relType := strings.TrimSpace(req.Type)
+	if relType == "" {
+		relType = graph.ManualLinkType
+	}
+
+	id, ok := s.projectionID(w, r)
+	if !ok {
+		return
+	}
+
+	if err := s.projectors.AddSnapshotLink(r.Context(), id, r.PathValue("id"), req.From, req.To, relType); err != nil {
+		switch {
+		case errors.Is(err, projector.ErrNotRunning), errors.Is(err, projector.ErrSnapshotsNotSupported):
+			writeError(w, http.StatusServiceUnavailable, err)
+		default:
+			writeError(w, http.StatusBadRequest, err)
+		}
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"from": req.From, "to": req.To, "type": relType})
+}
+
+// handleUpdateSnapshotLink sets or clears the note on a user-defined edge of
+// a snapshot, mirroring handleUpdateLink for the live graph.
+func (s *Server) handleUpdateSnapshotLink(w http.ResponseWriter, r *http.Request) {
+	var req linkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if strings.TrimSpace(req.From) == "" || strings.TrimSpace(req.To) == "" {
+		writeError(w, http.StatusBadRequest, errors.New("from and to node ids are required"))
+		return
+	}
+	relType := strings.TrimSpace(req.Type)
+	if relType == "" {
+		relType = graph.ManualLinkType
+	}
+
+	id, ok := s.projectionID(w, r)
+	if !ok {
+		return
+	}
+
+	if err := s.projectors.UpdateSnapshotLinkNote(r.Context(), id, r.PathValue("id"), req.From, req.To, relType, strings.TrimSpace(req.Note)); err != nil {
+		switch {
+		case errors.Is(err, projector.ErrNotRunning), errors.Is(err, projector.ErrSnapshotsNotSupported):
+			writeError(w, http.StatusServiceUnavailable, err)
+		default:
+			writeError(w, http.StatusBadRequest, err)
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"from": req.From, "to": req.To, "type": relType, "note": strings.TrimSpace(req.Note),
+	})
+}
+
+// handleDeleteSnapshotLink removes a user-defined edge from a snapshot,
+// mirroring handleDeleteLink for the live graph.
+func (s *Server) handleDeleteSnapshotLink(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	from := strings.TrimSpace(q.Get("from"))
+	to := strings.TrimSpace(q.Get("to"))
+	if from == "" || to == "" {
+		writeError(w, http.StatusBadRequest, errors.New("from and to query parameters are required"))
+		return
+	}
+	relType := strings.TrimSpace(q.Get("type"))
+	if relType == "" {
+		relType = graph.ManualLinkType
+	}
+
+	id, ok := s.projectionID(w, r)
+	if !ok {
+		return
+	}
+
+	if err := s.projectors.DeleteSnapshotLink(r.Context(), id, r.PathValue("id"), from, to, relType); err != nil {
+		switch {
+		case errors.Is(err, projector.ErrNotRunning), errors.Is(err, projector.ErrSnapshotsNotSupported):
+			writeError(w, http.StatusServiceUnavailable, err)
+		default:
+			writeError(w, http.StatusBadRequest, err)
+		}
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleDeleteSnapshot removes a snapshot and its copied graph data.

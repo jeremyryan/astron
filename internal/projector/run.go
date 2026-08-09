@@ -186,6 +186,40 @@ func (p *Projector) ReadSnapshot(ctx context.Context, snapshotID string) (graph.
 	return ss.ReadSnapshot(ctx, p.opts.ID, snapshotID)
 }
 
+// AddSnapshotLink creates a user-defined link between two node copies of one
+// of this projection's snapshots, if the backing store supports snapshots. It
+// returns ErrSnapshotsNotSupported otherwise. Unlike live-graph links, no
+// re-sync is enqueued: snapshots are excluded from cards and embeddings.
+func (p *Projector) AddSnapshotLink(ctx context.Context, snapshotID, fromID, toID, relType string) error {
+	ss, ok := p.opts.Store.(graph.SnapshotStore)
+	if !ok {
+		return ErrSnapshotsNotSupported
+	}
+	return ss.AddSnapshotLink(ctx, p.opts.ID, snapshotID, fromID, toID, relType)
+}
+
+// DeleteSnapshotLink removes a user-defined link between two node copies of
+// one of this projection's snapshots, if the backing store supports
+// snapshots. It returns ErrSnapshotsNotSupported otherwise.
+func (p *Projector) DeleteSnapshotLink(ctx context.Context, snapshotID, fromID, toID, relType string) error {
+	ss, ok := p.opts.Store.(graph.SnapshotStore)
+	if !ok {
+		return ErrSnapshotsNotSupported
+	}
+	return ss.DeleteSnapshotLink(ctx, p.opts.ID, snapshotID, fromID, toID, relType)
+}
+
+// UpdateSnapshotLinkNote sets (or clears) the note on a user-defined link of
+// one of this projection's snapshots, if the backing store supports
+// snapshots. It returns ErrSnapshotsNotSupported otherwise.
+func (p *Projector) UpdateSnapshotLinkNote(ctx context.Context, snapshotID, fromID, toID, relType, note string) error {
+	ss, ok := p.opts.Store.(graph.SnapshotStore)
+	if !ok {
+		return ErrSnapshotsNotSupported
+	}
+	return ss.SetSnapshotLinkNote(ctx, p.opts.ID, snapshotID, fromID, toID, relType, note)
+}
+
 // DeleteSnapshot removes one of this projection's snapshots, if the backing
 // store supports snapshots. It returns ErrSnapshotsNotSupported otherwise.
 func (p *Projector) DeleteSnapshot(ctx context.Context, snapshotID string) error {

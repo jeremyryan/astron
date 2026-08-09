@@ -254,6 +254,42 @@ func (m *Manager) ReadSnapshot(ctx context.Context, id graph.ProjectionID, snaps
 	return p.ReadSnapshot(ctx, snapshotID)
 }
 
+// AddSnapshotLink creates a user-defined link between two node copies of a
+// running projection's snapshot. It returns ErrNotRunning when no projector
+// is serving the projection, or ErrSnapshotsNotSupported when the store
+// cannot store snapshots.
+func (m *Manager) AddSnapshotLink(ctx context.Context, id graph.ProjectionID, snapshotID, fromID, toID, relType string) error {
+	p, ok := m.Get(id)
+	if !ok {
+		return ErrNotRunning
+	}
+	return p.AddSnapshotLink(ctx, snapshotID, fromID, toID, relType)
+}
+
+// DeleteSnapshotLink removes a user-defined link between two node copies of a
+// running projection's snapshot. It returns ErrNotRunning when no projector
+// is serving the projection, or ErrSnapshotsNotSupported when the store
+// cannot store snapshots.
+func (m *Manager) DeleteSnapshotLink(ctx context.Context, id graph.ProjectionID, snapshotID, fromID, toID, relType string) error {
+	p, ok := m.Get(id)
+	if !ok {
+		return ErrNotRunning
+	}
+	return p.DeleteSnapshotLink(ctx, snapshotID, fromID, toID, relType)
+}
+
+// UpdateSnapshotLinkNote sets (or clears) the note on a user-defined link of
+// a running projection's snapshot. It returns ErrNotRunning when no projector
+// is serving the projection, or ErrSnapshotsNotSupported when the store
+// cannot store snapshots.
+func (m *Manager) UpdateSnapshotLinkNote(ctx context.Context, id graph.ProjectionID, snapshotID, fromID, toID, relType, note string) error {
+	p, ok := m.Get(id)
+	if !ok {
+		return ErrNotRunning
+	}
+	return p.UpdateSnapshotLinkNote(ctx, snapshotID, fromID, toID, relType, note)
+}
+
 // DeleteSnapshot removes one of a running projection's snapshots. It returns
 // ErrNotRunning when no projector is serving the projection, or
 // ErrSnapshotsNotSupported when the store cannot store snapshots.

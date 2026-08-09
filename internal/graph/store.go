@@ -127,6 +127,15 @@ type SnapshotStore interface {
 	// DeleteSnapshot removes a snapshot and all of its copied data. Deleting a
 	// snapshot that does not exist is not an error.
 	DeleteSnapshot(ctx context.Context, projection ProjectionID, snapshotID string) error
+
+	// AddSnapshotLink, DeleteSnapshotLink, and SetSnapshotLinkNote manage
+	// user-created links between a snapshot's node copies, mirroring the
+	// LinkStore operations on live nodes. Snapshot links live only on the
+	// snapshot; they are never synced, embedded, or reflected back to the
+	// live graph.
+	AddSnapshotLink(ctx context.Context, projection ProjectionID, snapshotID, fromID, toID, relType string) error
+	DeleteSnapshotLink(ctx context.Context, projection ProjectionID, snapshotID, fromID, toID, relType string) error
+	SetSnapshotLinkNote(ctx context.Context, projection ProjectionID, snapshotID, fromID, toID, relType, note string) error
 }
 
 // NodeEmbedding pairs a node's identity with the embedding vector derived from

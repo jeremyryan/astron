@@ -1061,8 +1061,9 @@ function GraphPanel({
   // Label filters and the AND/OR mode used to combine them.
   const [labelFilters, setLabelFilters] = useState<LabelFilter[]>([]);
   const [labelMode, setLabelMode] = useState<LabelMatchMode>("any");
+  const graphQueryKey = ["graph", projection.uid, activeSnapshot?.id ?? "live"];
   const { data, isLoading, error } = useQuery({
-    queryKey: ["graph", projection.uid, activeSnapshot?.id ?? "live"],
+    queryKey: graphQueryKey,
     queryFn: () =>
       activeSnapshot
         ? getSnapshotGraph(projection.namespace, projection.name, activeSnapshot.id)
@@ -1401,9 +1402,9 @@ function GraphPanel({
             groupByNamespace={groupByNamespace}
             showEdgeLabels={showEdgeLabels}
             onAddLink={(from, to) => {
-              createLink(projection.namespace, projection.name, from, to)
+              createLink(projection.namespace, projection.name, from, to, activeSnapshot?.id)
                 .then(() =>
-                  queryClient.invalidateQueries({ queryKey: ["graph", projection.uid] }),
+                  queryClient.invalidateQueries({ queryKey: graphQueryKey }),
                 )
                 .catch(() => {
                   // Surfacing failures in the UI can come later; for now the
@@ -1411,9 +1412,16 @@ function GraphPanel({
                 });
             }}
             onDeleteLink={(edge) => {
-              deleteLink(projection.namespace, projection.name, edge.source, edge.target, edge.type)
+              deleteLink(
+                projection.namespace,
+                projection.name,
+                edge.source,
+                edge.target,
+                edge.type,
+                activeSnapshot?.id,
+              )
                 .then(() =>
-                  queryClient.invalidateQueries({ queryKey: ["graph", projection.uid] }),
+                  queryClient.invalidateQueries({ queryKey: graphQueryKey }),
                 )
                 .catch(() => {
                   // Best-effort; the edge stays if the delete fails.
@@ -1437,9 +1445,17 @@ function GraphPanel({
         onClose={() => setEditLink(null)}
         onSave={(edge, note) => {
           setEditLink(null);
-          updateLink(projection.namespace, projection.name, edge.source, edge.target, edge.type, note)
+          updateLink(
+            projection.namespace,
+            projection.name,
+            edge.source,
+            edge.target,
+            edge.type,
+            note,
+            activeSnapshot?.id,
+          )
             .then(() =>
-              queryClient.invalidateQueries({ queryKey: ["graph", projection.uid] }),
+              queryClient.invalidateQueries({ queryKey: graphQueryKey }),
             )
             .catch(() => {
               // Best-effort; the note simply won't be saved.

@@ -267,17 +267,21 @@ export function getChatModels(namespace: string, name: string): Promise<ChatMode
 // createLink adds a user-defined edge between two nodes (by their graph node
 // ids) within a projection. The backend defaults the relationship type to a
 // Custom link.
+// linksPath returns the manual-links endpoint for the live graph or, when a
+// snapshot id is given, for that snapshot's copied graph.
+function linksPath(namespace: string, name: string, snapshotId?: string): string {
+  const base = `/api/projections/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
+  return snapshotId ? `${base}/snapshots/${encodeURIComponent(snapshotId)}/links` : `${base}/links`;
+}
+
 export async function createLink(
   namespace: string,
   name: string,
   from: string,
   to: string,
+  snapshotId?: string,
 ): Promise<void> {
-  await sendJSON<void>(
-    "POST",
-    `/api/projections/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/links`,
-    { from, to },
-  );
+  await sendJSON<void>("POST", linksPath(namespace, name, snapshotId), { from, to });
 }
 
 // updateLink sets (or clears, when note is empty) the free-text note associated
@@ -289,12 +293,9 @@ export async function updateLink(
   to: string,
   type: string,
   note: string,
+  snapshotId?: string,
 ): Promise<void> {
-  await sendJSON<void>(
-    "PATCH",
-    `/api/projections/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/links`,
-    { from, to, type, note },
-  );
+  await sendJSON<void>("PATCH", linksPath(namespace, name, snapshotId), { from, to, type, note });
 }
 
 // deleteLink removes a user-created edge between two nodes within a projection.
@@ -304,10 +305,8 @@ export async function deleteLink(
   from: string,
   to: string,
   type: string,
+  snapshotId?: string,
 ): Promise<void> {
   const params = new URLSearchParams({ from, to, type });
-  await sendJSON<void>(
-    "DELETE",
-    `/api/projections/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/links?${params.toString()}`,
-  );
+  await sendJSON<void>("DELETE", `${linksPath(namespace, name, snapshotId)}?${params.toString()}`);
 }

@@ -92,6 +92,18 @@ type snapshotPath struct {
 	ID string `path:"id" doc:"Snapshot ID"`
 }
 
+type snapshotLinkReq struct {
+	snapshotPath
+	linkRequest
+}
+
+type deleteSnapshotLinkReq struct {
+	snapshotPath
+	From string `query:"from" doc:"Source node ID"`
+	To   string `query:"to" doc:"Target node ID"`
+	Type string `query:"type" doc:"Relationship type (defaults to CUSTOM)"`
+}
+
 type updateLinkReq struct {
 	projectionPath
 	linkRequest
@@ -207,6 +219,24 @@ func apiEndpoints() []endpoint {
 			tag: "snapshots", summary: "Read the nodes and edges captured by a snapshot",
 			req: new(snapshotPath), resp: new(graphDTO), status: http.StatusOK,
 			errors: []int{http.StatusNotFound, http.StatusServiceUnavailable, http.StatusInternalServerError},
+		},
+		{
+			method: http.MethodPost, path: "/api/projections/{namespace}/{name}/snapshots/{id}/links", id: "createSnapshotLink",
+			tag: "snapshots", summary: "Create a user-defined edge between two snapshot nodes",
+			req: new(snapshotLinkReq), resp: new(linkResponse), status: http.StatusCreated,
+			errors: []int{http.StatusBadRequest, http.StatusNotFound, http.StatusServiceUnavailable},
+		},
+		{
+			method: http.MethodPatch, path: "/api/projections/{namespace}/{name}/snapshots/{id}/links", id: "updateSnapshotLink",
+			tag: "snapshots", summary: "Set or clear the note on a snapshot's user-defined edge",
+			req: new(snapshotLinkReq), resp: new(linkResponse), status: http.StatusOK,
+			errors: []int{http.StatusBadRequest, http.StatusNotFound, http.StatusServiceUnavailable},
+		},
+		{
+			method: http.MethodDelete, path: "/api/projections/{namespace}/{name}/snapshots/{id}/links", id: "deleteSnapshotLink",
+			tag: "snapshots", summary: "Delete a user-defined edge from a snapshot",
+			req: new(deleteSnapshotLinkReq), status: http.StatusNoContent,
+			errors: []int{http.StatusBadRequest, http.StatusNotFound, http.StatusServiceUnavailable},
 		},
 		{
 			method: http.MethodDelete, path: "/api/projections/{namespace}/{name}/snapshots/{id}", id: "deleteSnapshot",

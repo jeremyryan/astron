@@ -382,6 +382,139 @@ func (s *Neo4jStore) ReadSnapshot(ctx context.Context, projection ProjectionID, 
 	return data, nil
 }
 
+// addSnapshotLinkCypher matches both endpoints by their UID within the
+// snapshot, merges the relationship, and flags it manual. The relationship
+// type is interpolated (it cannot be parameterized) after validation by the
+// caller. Mirrors addManualLinkCypher for live nodes.
+func addSnapshotLinkCypher(relType string) string {
+	return fmt.Sprintf(`
+MATCH (from:%[1]s {%[2]s: $snapshot, %[3]s: $projection, uid: $fromID})
+MATCH (to:%[1]s {%[2]s: $snapshot, %[3]s: $projection, uid: $toID})
+MERGE (from)-[r:%[4]s]->(to)
+SET r.%[3]s = $projection, r.%[2]s = $snapshot, r.%[5]s = true
+RETURN count(r) AS c`,
+		snapshotResourceLabel, snapshotProperty, projectionProperty,
+		relType, manualProperty)
+}
+
+// snapshotLinkMatch is the shared MATCH clause for updating or deleting a
+// manual relationship between two snapshot node copies (by UID).
+const snapshotLinkMatch = `
+MATCH (from:` + snapshotResourceLabel + ` {` + snapshotProperty + `: $snapshot, uid: $fromID})-[r {` + snapshotProperty + `: $snapshot}]->(to:` + snapshotResourceLabel + ` {` + snapshotProperty + `: $snapshot, uid: $toID})
+WHERE type(r) = $relType AND coalesce(r.` + manualProperty + `, false) = true`
+
+const setSnapshotLinkNoteCypher = snapshotLinkMatch + `
+SET r.` + manualNoteProperty + ` = $note`
+
+const clearSnapshotLinkNoteCypher = snapshotLinkMatch + `
+REMOVE r.` + manualNoteProperty
+
+const deleteSnapshotLinkCypher = snapshotLinkMatch + `
+DELETE r`
+
+// AddSnapshotLink creates a user-defined link between two node copies of a
+// snapshot, so annotations work on frozen graphs the same way they do on the
+// live projection. Snapshot links live only on the snapshot: they are never
+// synced, embedded, or reflected back to the live graph.
+func (s *Neo4jStore) AddSnapshotLink(ctx context.Context, projection ProjectionID, snapshotID, fromID, toID, relType string) error {
+	if fromID == "" || toID == "" {
+		return fmt.Errorf("both endpoint ids are required")
+	}
+	if fromID == toID {
+		return fmt.Errorf("cannot link a node to itself")
+	}
+	rt, err := sanitizeRelType(relType)
+	if err != nil {
+		return err
+	}
+
+	sess := s.session(ctx)
+	defer func() { _ = sess.Close(ctx) }()
+
+	created, err := sess.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		res, err := tx.Run(ctx, addSnapshotLinkCypher(rt), map[string]any{
+			"projection": string(projection),
+			"snapshot":   snapshotID,
+			"fromID":     fromID,
+			"toID":       toID,
+		})
+		if err != nil {
+			return int64(0), err
+		}
+		// When either MATCH finds nothing, the MERGE never runs and the query
+		// produces no rows; treat that as "endpoint(s) not found".
+		rec, err := res.Single(ctx)
+		if err != nil {
+			return int64(0), nil
+		}
+		c, _ := rec.Get("c")
+		return asInt64(c), nil
+	})
+	if err != nil {
+		return fmt.Errorf("adding link to snapshot %q: %w", snapshotID, err)
+	}
+	if created.(int64) == 0 {
+		return fmt.Errorf("one or both nodes were not found in snapshot %q", snapshotID)
+	}
+	return nil
+}
+
+// DeleteSnapshotLink removes a user-defined link between two node copies of a
+// snapshot. Only links flagged manual are removed, so captured projector
+// edges are never affected. It is idempotent.
+func (s *Neo4jStore) DeleteSnapshotLink(ctx context.Context, projection ProjectionID, snapshotID, fromID, toID, relType string) error {
+	rt, err := sanitizeRelType(relType)
+	if err != nil {
+		return err
+	}
+
+	sess := s.session(ctx)
+	defer func() { _ = sess.Close(ctx) }()
+
+	_, err = sess.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		return tx.Run(ctx, deleteSnapshotLinkCypher, map[string]any{
+			"snapshot": snapshotID,
+			"fromID":   fromID,
+			"toID":     toID,
+			"relType":  rt,
+		})
+	})
+	if err != nil {
+		return fmt.Errorf("deleting link from snapshot %q: %w", snapshotID, err)
+	}
+	return nil
+}
+
+// SetSnapshotLinkNote sets (or, when note is empty, clears) the free-text
+// note on a user-defined link between two node copies of a snapshot.
+func (s *Neo4jStore) SetSnapshotLinkNote(ctx context.Context, projection ProjectionID, snapshotID, fromID, toID, relType, note string) error {
+	rt, err := sanitizeRelType(relType)
+	if err != nil {
+		return err
+	}
+
+	sess := s.session(ctx)
+	defer func() { _ = sess.Close(ctx) }()
+
+	cypher := setSnapshotLinkNoteCypher
+	if note == "" {
+		cypher = clearSnapshotLinkNoteCypher
+	}
+	_, err = sess.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		return tx.Run(ctx, cypher, map[string]any{
+			"snapshot": snapshotID,
+			"fromID":   fromID,
+			"toID":     toID,
+			"relType":  rt,
+			"note":     note,
+		})
+	})
+	if err != nil {
+		return fmt.Errorf("setting link note on snapshot %q: %w", snapshotID, err)
+	}
+	return nil
+}
+
 // DeleteSnapshot removes a snapshot's metadata and copied data. It is
 // idempotent: deleting an absent snapshot is not an error.
 func (s *Neo4jStore) DeleteSnapshot(ctx context.Context, projection ProjectionID, snapshotID string) error {
