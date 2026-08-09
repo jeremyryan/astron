@@ -299,6 +299,20 @@ body {
   background: rgba(255, 255, 255, 0.06);
 }
 
+/* Clickable "Views"/"Snapshots" section header in the projection navbar
+   that expands/collapses that section. */
+.nav-section-header {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.nav-section-header:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
 /* A resource hidden from the graph via the list's visibility toggle. */
 .resource-link-hidden {
   color: var(--muted);

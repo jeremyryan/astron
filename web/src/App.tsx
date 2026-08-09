@@ -283,6 +283,11 @@ function ProjectionNavItem({
     queryFn: () => listSnapshots(projection.namespace, projection.name),
   });
   const [snapshotModalOpen, setSnapshotModalOpen] = useState(false);
+  // Views and Snapshots are each collapsible; collapsed by default only when
+  // there's nothing to show, so a projection with saved views/snapshots opens
+  // showing them.
+  const [viewsCollapsed, setViewsCollapsed] = useState(false);
+  const [snapshotsCollapsed, setSnapshotsCollapsed] = useState(false);
   // Projection names are only unique per namespace, so the namespace takes
   // part in the comparison too.
   const isSelected =
@@ -300,54 +305,118 @@ function ProjectionNavItem({
         label={<Text fw={600}>{projection.name}</Text>}
         description={`${projection.namespace} · ${projection.phase ?? "—"} · ${projection.nodeCount}n / ${projection.relationshipCount}e`}
       />
-      {/* Views associated with this projection, always shown indented below
-          it. With a snapshot active, selecting a view applies its filters to
-          the snapshot's captured graph instead of returning to live. */}
-      {items.map((v) => (
-        <NavLink
-          key={v.uid ?? `${v.namespace}/${v.name}`}
-          pl={28}
-          active={isSelected && activeViewName === v.name}
-          onClick={() =>
-            navigate(
-              isSelected && activeSnapshotId
-                ? snapshotPath(projection, activeSnapshotId, v.name)
-                : viewPath(projection, v.name),
-            )
-          }
-          leftSection={<IconBookmark size={14} stroke={1.5} />}
-          label={v.displayName || v.name}
-        />
-      ))}
-      {/* Snapshots: point-in-time copies of the projection's graph. */}
+      {/* Views associated with this projection, grouped under a collapsible
+          "Views" header. With a snapshot active, selecting a view applies its
+          filters to the snapshot's captured graph instead of returning to
+          live. */}
+      <UnstyledButton
+        className="nav-section-header"
+        pl={28}
+        pr={8}
+        py={2}
+        onClick={() => setViewsCollapsed((v) => !v)}
+        aria-expanded={!viewsCollapsed}
+      >
+        <Group gap={6} wrap="nowrap">
+          <IconChevronRight
+            size={12}
+            style={{
+              transition: "transform 150ms ease",
+              transform: viewsCollapsed ? "none" : "rotate(90deg)",
+              flex: "0 0 auto",
+            }}
+          />
+          <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: "0.06em" }}>
+            Views
+          </Text>
+        </Group>
+      </UnstyledButton>
+      {!viewsCollapsed && (
+        <>
+          {items.map((v) => (
+            <NavLink
+              key={v.uid ?? `${v.namespace}/${v.name}`}
+              pl={44}
+              active={isSelected && activeViewName === v.name}
+              onClick={() =>
+                navigate(
+                  isSelected && activeSnapshotId
+                    ? snapshotPath(projection, activeSnapshotId, v.name)
+                    : viewPath(projection, v.name),
+                )
+              }
+              leftSection={<IconBookmark size={14} stroke={1.5} />}
+              label={v.displayName || v.name}
+            />
+          ))}
+          {views && views.length === 0 && (
+            <Text size="xs" c="dimmed" pl={44} py={2}>
+              No views yet.
+            </Text>
+          )}
+        </>
+      )}
+      {/* Snapshots: point-in-time copies of the projection's graph, grouped
+          under a collapsible "Snapshots" header. */}
       <Group pl={28} pr={8} py={2} justify="space-between" wrap="nowrap">
-        <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: "0.06em" }}>
-          Snapshots
-        </Text>
-        <Button
-          size="compact-xs"
-          variant="subtle"
-          leftSection={<IconCamera size={12} />}
-          onClick={() => setSnapshotModalOpen(true)}
+        <UnstyledButton
+          className="nav-section-header"
+          onClick={() => setSnapshotsCollapsed((v) => !v)}
+          aria-expanded={!snapshotsCollapsed}
+          style={{ flex: 1, minWidth: 0, overflow: "hidden" }}
         >
-          Add Snapshot
-        </Button>
+          <Group gap={6} wrap="nowrap">
+            <IconChevronRight
+              size={12}
+              style={{
+                transition: "transform 150ms ease",
+                transform: snapshotsCollapsed ? "none" : "rotate(90deg)",
+                flex: "0 0 auto",
+              }}
+            />
+            <Text
+              size="xs"
+              fw={700}
+              tt="uppercase"
+              c="dimmed"
+              truncate
+              style={{ letterSpacing: "0.06em" }}
+            >
+              Snapshots
+            </Text>
+          </Group>
+        </UnstyledButton>
+        <Tooltip label="Add Snapshot" position="left">
+          <ActionIcon
+            variant="subtle"
+            size="sm"
+            aria-label="Add Snapshot"
+            onClick={() => setSnapshotModalOpen(true)}
+            style={{ flex: "0 0 auto" }}
+          >
+            <IconCamera size={14} stroke={1.5} />
+          </ActionIcon>
+        </Tooltip>
       </Group>
-      {(snapshots ?? []).map((s) => (
-        <NavLink
-          key={s.id}
-          pl={28}
-          active={isSelected && activeSnapshotId === s.id}
-          onClick={() => navigate(snapshotPath(projection, s.id))}
-          leftSection={<IconCamera size={14} stroke={1.5} />}
-          label={s.name}
-          description={new Date(s.createdAt).toLocaleString()}
-        />
-      ))}
-      {snapshots && snapshots.length === 0 && (
-        <Text size="xs" c="dimmed" pl={28} py={2}>
-          No snapshots yet.
-        </Text>
+      {!snapshotsCollapsed && (
+        <>
+          {(snapshots ?? []).map((s) => (
+            <NavLink
+              key={s.id}
+              pl={44}
+              active={isSelected && activeSnapshotId === s.id}
+              onClick={() => navigate(snapshotPath(projection, s.id))}
+              leftSection={<IconCamera size={14} stroke={1.5} />}
+              label={s.name}
+              description={new Date(s.createdAt).toLocaleString()}
+            />
+          ))}
+          {snapshots && snapshots.length === 0 && (
+            <Text size="xs" c="dimmed" pl={44} py={2}>
+              No snapshots yet.
+            </Text>
+          )}
+        </>
       )}
       <AddSnapshotModal
         projection={projection}
