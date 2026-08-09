@@ -44,4 +44,5 @@ export {
   IconMessageChatbot,
   IconListTree,
   IconSend2,
+  IconMarquee2,
 } from "@tabler/icons-react";

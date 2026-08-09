@@ -244,6 +244,10 @@ interface Props {
   // resource list) without centering or opening its details. The nonce makes
   // repeated requests for the same node re-trigger.
   toggleSelect: { id: string; nonce: number } | null;
+  // Request to replace the canvas selection with exactly this set of (real)
+  // node ids - used by the resource list's per-kind "select all visible"
+  // button. The nonce makes repeated requests with the same ids re-trigger.
+  selectIds?: { ids: string[]; nonce: number } | null;
   // Called whenever the set of selected (real) nodes changes, with their ids.
   // Lets the inspector highlight every selected resource in its list view.
   onSelectedIdsChange?: (ids: string[]) => void;
@@ -324,6 +328,7 @@ export function GraphView({
   onSetVisibility,
   hiddenIds,
   toggleSelect,
+  selectIds,
   onSelectedIdsChange,
   onGroupsChange,
   groupByNamespace,
@@ -2164,6 +2169,22 @@ export function GraphView({
     if (node.selected()) node.unselect();
     else node.select();
   }, [toggleSelect]);
+
+  // Replace the canvas selection with exactly the requested ids (e.g. the
+  // resource list's per-kind "select all visible" button), unlike
+  // toggleSelect above which flips a single node in/out of a multi-selection.
+  // Ids with no matching (visible) element - e.g. a node collapsed into a
+  // group, or already hidden - are silently skipped.
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy || !selectIds) return;
+    cy.batch(() => {
+      cy.elements(":selected").unselect();
+      let col = cy.collection();
+      for (const id of selectIds.ids) col = col.union(cy.getElementById(id));
+      col.select();
+    });
+  }, [selectIds]);
 
   // Align the currently selected nodes onto a common axis: "horizontal" puts
   // them in a row (shared Y = their average), "vertical" in a column (shared X).

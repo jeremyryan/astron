@@ -79,6 +79,7 @@ import {
   IconHelp,
   IconHierarchy2,
   IconListTree,
+  IconMarquee2,
   IconMessageChatbot,
   IconPencil,
   IconSearch,
@@ -786,6 +787,7 @@ function ResourceList({
   projectionName,
   nodes,
   onSelect,
+  onSelectKind,
   selectedIds,
   hiddenIds,
   onToggleVisibility,
@@ -795,6 +797,9 @@ function ResourceList({
   projectionName: string;
   nodes: GraphNode[];
   onSelect: (node: GraphNode, opts?: { additive?: boolean }) => void;
+  // Selects (on the canvas) every given id, replacing any existing selection.
+  // Used by each kind heading's "select all visible" button.
+  onSelectKind: (ids: string[]) => void;
   selectedIds: Set<string>;
   hiddenIds: Set<string>;
   onToggleVisibility: (id: string) => void;
@@ -883,31 +888,51 @@ function ResourceList({
             const icon = iconForKindOrGeneric(k.kind);
             const kindKey = `${g.namespace}/${k.kind}`;
             const collapsed = collapsedKinds.has(kindKey);
+            const visibleKindIds = k.nodes.filter((n) => !hiddenIds.has(n.id)).map((n) => n.id);
             return (
               <Stack gap={2} key={k.kind}>
-                <UnstyledButton
-                  className="resource-kind-header"
-                  onClick={() => toggleKindCollapsed(kindKey)}
-                  aria-expanded={!collapsed}
-                >
-                  <Group gap={6} wrap="nowrap" align="center">
-                    <IconChevronRight
-                      size={12}
-                      style={{
-                        transition: "transform 150ms ease",
-                        transform: collapsed ? "none" : "rotate(90deg)",
-                        flex: "0 0 auto",
-                      }}
-                    />
-                    <img src={icon} width={14} height={14} alt="" />
-                    <Text size="xs" fw={600}>
-                      {k.kind}
-                    </Text>
-                    <Text size="xs" c="dimmed">
-                      {k.nodes.length}
-                    </Text>
-                  </Group>
-                </UnstyledButton>
+                <Group gap={2} wrap="nowrap" align="center">
+                  <UnstyledButton
+                    className="resource-kind-header"
+                    onClick={() => toggleKindCollapsed(kindKey)}
+                    aria-expanded={!collapsed}
+                    style={{ flex: 1, minWidth: 0 }}
+                  >
+                    <Group gap={6} wrap="nowrap" align="center">
+                      <IconChevronRight
+                        size={12}
+                        style={{
+                          transition: "transform 150ms ease",
+                          transform: collapsed ? "none" : "rotate(90deg)",
+                          flex: "0 0 auto",
+                        }}
+                      />
+                      <img src={icon} width={14} height={14} alt="" />
+                      <Text size="xs" fw={600}>
+                        {k.kind}
+                      </Text>
+                      <Text size="xs" c="dimmed">
+                        {k.nodes.length}
+                      </Text>
+                    </Group>
+                  </UnstyledButton>
+                  <Tooltip
+                    label={`Select all visible ${k.kind} resources (${visibleKindIds.length})`}
+                    position="left"
+                  >
+                    <ActionIcon
+                      variant="subtle"
+                      color="gray"
+                      size="sm"
+                      style={{ flex: "0 0 auto" }}
+                      disabled={visibleKindIds.length === 0}
+                      aria-label={`Select all visible ${k.kind} resources`}
+                      onClick={() => onSelectKind(visibleKindIds)}
+                    >
+                      <IconMarquee2 size={14} />
+                    </ActionIcon>
+                  </Tooltip>
+                </Group>
                 <div className={`collapsible-section ${collapsed ? "collapsed" : "expanded"}`} style={{ paddingLeft: 20 }}>
                   <Stack gap={0}>
                     {k.nodes.map((n) => {
@@ -1324,6 +1349,16 @@ function GraphPanel({
   const toggleSelectCount = useRef(0);
   const toggleNodeSelection = (id: string) =>
     setToggleSelect({ id, nonce: (toggleSelectCount.current += 1) });
+  // The resource list's per-kind "select all visible" button replaces the
+  // canvas selection with exactly the given ids, rather than toggling one
+  // node at a time. The nonce re-triggers the effect for repeat clicks with
+  // the same kind (e.g. after individually unselecting one of them).
+  const [selectKindIds, setSelectKindIds] = useState<{ ids: string[]; nonce: number } | null>(
+    null,
+  );
+  const selectKindCount = useRef(0);
+  const selectVisibleOfKind = (ids: string[]) =>
+    setSelectKindIds({ ids, nonce: (selectKindCount.current += 1) });
   // Max hops from the selected node to keep visible; null = all (no fading).
   const [maxDistance, setMaxDistance] = useState<number | null>(null);
   // Whether to group resources into compound nodes by namespace.
@@ -1710,6 +1745,7 @@ function GraphPanel({
             onSetVisibility={setNodesVisibility}
             hiddenIds={hiddenNodeIds}
             toggleSelect={toggleSelect}
+            selectIds={selectKindIds}
             onSelect={handleSelect}
             onSelectedIdsChange={(ids) => setSelectedIds(new Set(ids))}
             onGroupsChange={setNodeGroups}
@@ -1875,6 +1911,7 @@ function GraphPanel({
                           handleSelect({ type: "node", node });
                         }
                       }}
+                      onSelectKind={selectVisibleOfKind}
                       onToggleVisibility={toggleNodeVisibility}
                       search={resourceSearch}
                       onSearchChange={setResourceSearch}
