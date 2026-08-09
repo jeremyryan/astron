@@ -223,12 +223,12 @@ func (m *Manager) ReadGraph(ctx context.Context, id graph.ProjectionID) (graph.G
 // snapshot. It returns ErrNotRunning when no projector is serving the
 // projection, or ErrSnapshotsNotSupported when the store cannot store
 // snapshots.
-func (m *Manager) CreateSnapshot(ctx context.Context, id graph.ProjectionID, name string) (graph.SnapshotInfo, error) {
+func (m *Manager) CreateSnapshot(ctx context.Context, id graph.ProjectionID, name string, nodeIDs []string) (graph.SnapshotInfo, error) {
 	p, ok := m.Get(id)
 	if !ok {
 		return graph.SnapshotInfo{}, ErrNotRunning
 	}
-	return p.CreateSnapshot(ctx, name)
+	return p.CreateSnapshot(ctx, name, nodeIDs)
 }
 
 // ListSnapshots returns a running projection's snapshots, newest first. It

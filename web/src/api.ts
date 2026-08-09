@@ -174,11 +174,13 @@ export function createSnapshot(
   projectionNamespace: string,
   projectionName: string,
   name: string,
+  // Node IDs to capture; omitted captures the entire projection.
+  nodeIds?: string[],
 ): Promise<Snapshot> {
   return sendJSON<Snapshot>(
     "POST",
     `/api/projections/${encodeURIComponent(projectionNamespace)}/${encodeURIComponent(projectionName)}/snapshots`,
-    { name },
+    { name, nodeIds },
   ) as Promise<Snapshot>;
 }
 

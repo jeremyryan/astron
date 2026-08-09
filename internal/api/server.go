@@ -372,6 +372,9 @@ type linkRequest struct {
 // snapshotRequest is the create-snapshot request body.
 type snapshotRequest struct {
 	Name string `json:"name"`
+	// NodeIDs optionally scopes the snapshot to these nodes (graph node IDs)
+	// and the relationships between them; empty captures the whole projection.
+	NodeIDs []string `json:"nodeIds,omitempty"`
 }
 
 // handleCreateSnapshot copies the projection's current graph into a new named
@@ -393,7 +396,7 @@ func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, err := s.projectors.CreateSnapshot(r.Context(), id, req.Name)
+	info, err := s.projectors.CreateSnapshot(r.Context(), id, req.Name, req.NodeIDs)
 	if err != nil {
 		switch {
 		case errors.Is(err, projector.ErrNotRunning), errors.Is(err, projector.ErrSnapshotsNotSupported):

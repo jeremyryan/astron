@@ -37,6 +37,10 @@ components:
       properties:
         name:
           type: string
+        nodeIds:
+          items:
+            type: string
+          type: array
       type: object
     ApiEdgeDTO:
       properties:

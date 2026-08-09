@@ -156,12 +156,12 @@ func (p *Projector) ReadGraph(ctx context.Context) (graph.GraphData, error) {
 // snapshot, if the backing store supports snapshots. It returns
 // ErrSnapshotsNotSupported otherwise. Snapshots are inert copies: the sync
 // loop never updates or prunes them.
-func (p *Projector) CreateSnapshot(ctx context.Context, name string) (graph.SnapshotInfo, error) {
+func (p *Projector) CreateSnapshot(ctx context.Context, name string, nodeIDs []string) (graph.SnapshotInfo, error) {
 	ss, ok := p.opts.Store.(graph.SnapshotStore)
 	if !ok {
 		return graph.SnapshotInfo{}, ErrSnapshotsNotSupported
 	}
-	return ss.CreateSnapshot(ctx, p.opts.ID, name)
+	return ss.CreateSnapshot(ctx, p.opts.ID, name, nodeIDs)
 }
 
 // ListSnapshots returns this projection's snapshots, newest first, if the

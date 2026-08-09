@@ -111,7 +111,10 @@ type SnapshotInfo struct {
 type SnapshotStore interface {
 	// CreateSnapshot copies the projection's current nodes and relationships
 	// into a new snapshot with the given display name and returns its metadata.
-	CreateSnapshot(ctx context.Context, projection ProjectionID, name string) (SnapshotInfo, error)
+	// When nodeIDs is non-empty only the nodes with those IDs (as returned by
+	// ReadGraph) and the relationships between them are copied; when empty the
+	// entire projection is copied.
+	CreateSnapshot(ctx context.Context, projection ProjectionID, name string, nodeIDs []string) (SnapshotInfo, error)
 
 	// ListSnapshots returns the projection's snapshots, newest first.
 	ListSnapshots(ctx context.Context, projection ProjectionID) ([]SnapshotInfo, error)

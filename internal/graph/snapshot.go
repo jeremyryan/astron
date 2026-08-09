@@ -67,10 +67,13 @@ CREATE (s:` + snapshotMetaLabel + ` {
   relationships: 0
 })`
 
-// copySnapshotNodesCypher copies every live node of the projection into the
+// copySnapshotNodesCypher copies the projection's live nodes into the
 // snapshot, stripping the sync and GraphRAG bookkeeping so copies are inert.
+// When $all is false only nodes whose id (uid) is in $ids are copied, scoping
+// the snapshot to e.g. the currently visible subset.
 const copySnapshotNodesCypher = `
 MATCH (n:` + resourceLabel + ` {` + projectionProperty + `: $projection})
+WHERE $all OR n.uid IN $ids
 CREATE (c:` + snapshotResourceLabel + `)
 SET c = properties(n),
     c.` + snapshotProperty + ` = $id,
@@ -134,8 +137,10 @@ DETACH DELETE n`
 
 // CreateSnapshot copies the projection's current nodes and relationships into
 // a new snapshot in a single write transaction, so the copy is consistent with
-// respect to a concurrent Sync.
-func (s *Neo4jStore) CreateSnapshot(ctx context.Context, projection ProjectionID, name string) (SnapshotInfo, error) {
+// respect to a concurrent Sync. A non-empty nodeIDs scopes the copy to those
+// nodes (and the relationships between them); relationships are wired between
+// the copies, so edges to excluded nodes are dropped naturally.
+func (s *Neo4jStore) CreateSnapshot(ctx context.Context, projection ProjectionID, name string, nodeIDs []string) (SnapshotInfo, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return SnapshotInfo{}, fmt.Errorf("a snapshot name is required")
@@ -150,7 +155,14 @@ func (s *Neo4jStore) CreateSnapshot(ctx context.Context, projection ProjectionID
 	defer func() { _ = sess.Close(ctx) }()
 
 	counts, err := sess.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
-		base := map[string]any{"projection": string(projection), "id": id}
+		ids := nodeIDs
+		if ids == nil {
+			ids = []string{}
+		}
+		base := map[string]any{
+			"projection": string(projection), "id": id,
+			"all": len(ids) == 0, "ids": ids,
+		}
 
 		meta := map[string]any{
 			"projection": string(projection), "id": id,

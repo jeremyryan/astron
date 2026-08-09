@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import {
@@ -10,6 +19,7 @@ import {
   Group,
   Loader,
   Modal,
+  Radio,
   NavLink,
   ScrollArea,
   Stack,
@@ -84,8 +94,30 @@ function viewPath(p: Projection, viewName: string): string {
   return `${projectionPath(p)}/${encodeURIComponent(viewName)}`;
 }
 
+// SnapshotScope describes what the graph canvas is currently showing, so the
+// Add Snapshot modal can offer to capture just the visible nodes or the whole
+// active view. Published by GraphPanel, consumed by the navbar's modal.
+interface SnapshotScope {
+  namespace: string;
+  name: string;
+  // Display name of the active view, when one is selected.
+  viewName?: string;
+  // Nodes currently visible on the canvas (filters and per-node hiding
+  // applied).
+  visibleNodeIds: string[];
+  // All nodes matched by the current view's filters (per-node hiding not
+  // applied).
+  scopeNodeIds: string[];
+}
+
+const SnapshotScopeContext = createContext<{
+  scope: SnapshotScope | null;
+  setScope: (s: SnapshotScope | null) => void;
+}>({ scope: null, setScope: () => {} });
+
 // AddSnapshotModal prompts for the new snapshot's name (which must not be
-// empty) and creates it via the API on Save.
+// empty), lets the user choose what to capture, and creates the snapshot via
+// the API on Save.
 function AddSnapshotModal({
   projection,
   opened,
@@ -96,10 +128,20 @@ function AddSnapshotModal({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
+  const { scope } = useContext(SnapshotScopeContext);
   const [name, setName] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // What to capture: the currently visible nodes, or everything in the active
+  // view (the entire projection when no view is selected).
+  const [captureMode, setCaptureMode] = useState<"visible" | "all">("all");
+
+  // The canvas scope only applies when this projection is the one displayed.
+  const canvasScope =
+    scope && scope.namespace === projection.namespace && scope.name === projection.name
+      ? scope
+      : null;
 
   // Reset the form whenever the modal is (re)opened.
   useEffect(() => {
@@ -108,6 +150,7 @@ function AddSnapshotModal({
       setNameError(null);
       setSaveError(null);
       setSaving(false);
+      setCaptureMode("all");
     }
   }, [opened]);
 
@@ -119,7 +162,13 @@ function AddSnapshotModal({
     setSaving(true);
     setSaveError(null);
     try {
-      await createSnapshot(projection.namespace, projection.name, name.trim());
+      // "visible" captures exactly what is on the canvas. "all" captures the
+      // active view's full node set - or, with no view selected, the entire
+      // projection (no node filter, resolved server-side).
+      let nodeIds: string[] | undefined;
+      if (canvasScope && captureMode === "visible") nodeIds = canvasScope.visibleNodeIds;
+      else if (canvasScope && canvasScope.viewName) nodeIds = canvasScope.scopeNodeIds;
+      await createSnapshot(projection.namespace, projection.name, name.trim(), nodeIds);
       await queryClient.invalidateQueries({
         queryKey: ["snapshots", projection.namespace, projection.name],
       });
@@ -138,6 +187,33 @@ function AddSnapshotModal({
           point-in-time snapshot. Snapshots are not kept in sync with the
           cluster.
         </Text>
+        {canvasScope ? (
+          <Radio.Group
+            label="Capture"
+            value={captureMode}
+            onChange={(v) => setCaptureMode(v as "visible" | "all")}
+          >
+            <Stack gap={6} mt={4}>
+              <Radio
+                value="all"
+                label={
+                  canvasScope.viewName
+                    ? `All nodes in the “${canvasScope.viewName}” view (${canvasScope.scopeNodeIds.length})`
+                    : "The entire projection"
+                }
+              />
+              <Radio
+                value="visible"
+                label={`Only the currently visible nodes (${canvasScope.visibleNodeIds.length})`}
+              />
+            </Stack>
+          </Radio.Group>
+        ) : (
+          <Text size="sm" c="dimmed">
+            The entire projection will be captured. Open the projection to
+            snapshot only its visible nodes.
+          </Text>
+        )}
         <TextInput
           label="Name"
           placeholder="e.g. before-upgrade"
@@ -986,6 +1062,24 @@ function GraphPanel({
     return { nodes, edges };
   }, [data, kindMode, hiddenKinds, kindVisible, hiddenNamespaces, labelFilters, labelMode]);
 
+  // Publish what the canvas currently shows so the navbar's Add Snapshot
+  // modal can offer to capture just the visible nodes or the active view's
+  // full node set. Cleared on unmount (no projection displayed).
+  const { setScope: setSnapshotScope } = useContext(SnapshotScopeContext);
+  useEffect(() => {
+    if (!filteredGraph) return;
+    setSnapshotScope({
+      namespace: projection.namespace,
+      name: projection.name,
+      viewName: activeView ? activeView.displayName || activeView.name : undefined,
+      visibleNodeIds: filteredGraph.nodes
+        .filter((n) => !hiddenNodeIds.has(n.id))
+        .map((n) => n.id),
+      scopeNodeIds: filteredGraph.nodes.map((n) => n.id),
+    });
+  }, [filteredGraph, hiddenNodeIds, projection.namespace, projection.name, activeView, setSnapshotScope]);
+  useEffect(() => () => setSnapshotScope(null), [setSnapshotScope]);
+
   // Edges whose endpoints are both visible, used only for the relationship
   // legend. The full filtered graph (including individually-hidden nodes) is
   // handed to the GraphView, which hides those nodes in place — removing them
@@ -1508,8 +1602,16 @@ function Shell({ children }: { children: ReactNode }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Whether the keyboard-shortcuts help modal is open.
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // What the graph canvas currently shows, published by GraphPanel so the
+  // navbar's Add Snapshot modal can offer visible/view capture scopes.
+  const [snapshotScope, setSnapshotScope] = useState<SnapshotScope | null>(null);
+  const snapshotScopeValue = useMemo(
+    () => ({ scope: snapshotScope, setScope: setSnapshotScope }),
+    [snapshotScope],
+  );
 
   return (
+    <SnapshotScopeContext.Provider value={snapshotScopeValue}>
     <AppShell header={{ height: 52 }} navbar={{ width: 260, breakpoint: "sm" }} padding={0}>
       <AppShell.Header>
         <Group h="100%" px="md" gap="sm" align="center" justify="space-between" wrap="nowrap">
@@ -1592,6 +1694,7 @@ function Shell({ children }: { children: ReactNode }) {
       <SettingsModal opened={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <ShortcutsModal opened={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
     </AppShell>
+    </SnapshotScopeContext.Provider>
   );
 }
 
