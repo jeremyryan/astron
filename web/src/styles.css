@@ -28,6 +28,18 @@ body {
   font-size: 14px;
 }
 
+/* Subtle horizontal gradient across the header: the panel color at each end,
+   easing through a faint blue tint (the brand accent) in the middle, so the
+   bar reads as a gentle wash rather than a flat block. */
+.app-header {
+  background: linear-gradient(
+    90deg,
+    var(--panel) 0%,
+    color-mix(in srgb, var(--panel) 80%, var(--accent) 20%) 50%,
+    var(--panel) 100%
+  );
+}
+
 /* AppShell.Main fills the viewport below the fixed header; the graph panel
    stretches to fill that area (its width offsets are handled by Mantine). */
 .app-main {
