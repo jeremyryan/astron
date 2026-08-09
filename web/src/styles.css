@@ -130,6 +130,35 @@ body {
   white-space: nowrap;
 }
 
+/* Floating title over the graph (top-left): the projection name, or the
+   snapshot name and capture time when a snapshot is being viewed.
+   Non-interactive so it never blocks graph interactions. */
+.graph-title {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  background: rgba(35, 39, 47, 0.9);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  pointer-events: none;
+  /* Never extend under the graph controls in the top-right corner: leave
+     room for them (about 210px) plus breathing space, truncating the text
+     instead. */
+  max-width: calc(100% - 240px);
+  overflow: hidden;
+}
+
+.graph-title > * {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Graph control buttons (zoom, export, grid toggle), upper-right of the
    display. The container is click-through so its padding, the gaps between
    buttons, and the buttons' rounded corners don't swallow clicks meant for the

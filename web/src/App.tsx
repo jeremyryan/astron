@@ -978,7 +978,6 @@ function GraphPanel({
   activeView,
   activeSnapshot,
   onActiveViewChange,
-  onExitSnapshot,
 }: {
   projection: Projection;
   activeView: View | null;
@@ -986,8 +985,6 @@ function GraphPanel({
   // live projection; views still apply their filters on top.
   activeSnapshot?: Snapshot | null;
   onActiveViewChange: (v: View | null) => void;
-  // Navigates back to the live graph (keeping the active view, if any).
-  onExitSnapshot?: () => void;
 }) {
   const { settings, update } = useSettings();
   const queryClient = useQueryClient();
@@ -1340,43 +1337,28 @@ function GraphPanel({
             : undefined
         }
       >
-        {/* Snapshot banner: a persistent reminder that this is a frozen,
-            point-in-time copy, with a way back to the live graph. */}
-        {activeSnapshot && (
-          <Group
-            gap="xs"
-            px="md"
-            py={6}
-            wrap="nowrap"
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              zIndex: 5,
-              background: "var(--mantine-color-brand-9)",
-              borderBottom: "1px solid var(--mantine-color-brand-7)",
-            }}
-          >
-            <IconCamera size={14} stroke={1.5} />
+        {/* Floating title (top-left): the projection name, or the snapshot
+            name and capture time when viewing a snapshot. Non-interactive so
+            it never blocks canvas clicks. */}
+        <div className="graph-title">
+          {activeSnapshot ? (
+            <>
+              <IconCamera size={13} stroke={1.5} style={{ flexShrink: 0 }} />
+              {/* When space runs out the timestamp gives way first, then the
+                  name truncates with an ellipsis. */}
+              <Text size="sm" fw={600} style={{ whiteSpace: "nowrap", flexShrink: 1 }}>
+                Snapshot: {activeSnapshot.name}
+              </Text>
+              <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap", flexShrink: 8 }}>
+                {new Date(activeSnapshot.createdAt).toLocaleString()}
+              </Text>
+            </>
+          ) : (
             <Text size="sm" fw={600} style={{ whiteSpace: "nowrap" }}>
-              Snapshot “{activeSnapshot.name}”
+              {projection.name}
             </Text>
-            <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
-              {new Date(activeSnapshot.createdAt).toLocaleString()} ·{" "}
-              {activeSnapshot.nodeCount} nodes / {activeSnapshot.relationshipCount} edges · not
-              kept in sync with the cluster
-            </Text>
-            <Button
-              size="compact-xs"
-              variant="default"
-              ml="auto"
-              onClick={() => onExitSnapshot?.()}
-            >
-              Back to live
-            </Button>
-          </Group>
-        )}
+          )}
+        </div>
         {isLoading && (
           <Group gap="xs" p="md">
             <Loader size="sm" />
@@ -1706,9 +1688,6 @@ function ProjectionRoute() {
       projection={projection}
       activeView={activeView}
       activeSnapshot={activeSnapshot}
-      onExitSnapshot={() =>
-        navigate(activeView ? viewPath(projection, activeView.name) : projectionPath(projection))
-      }
       onActiveViewChange={(v) =>
         navigate(
           activeSnapshot
