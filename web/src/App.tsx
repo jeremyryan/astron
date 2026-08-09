@@ -871,17 +871,38 @@ function GraphPanel({
     );
   }, [filteredGraph, hiddenNodeIds]);
 
-  const toggleNodeVisibility = (id: string) =>
+  // Hiding a node also deselects it: clear the inspector's detail view when
+  // the inspected node (or an endpoint of the inspected edge) is among the
+  // newly-hidden ids. The canvas-side deselection happens in GraphView's
+  // visibility effect.
+  const clearSelectionForHidden = (ids: string[]) => {
+    setSelection((prev) => {
+      if (!prev) return prev;
+      const hidden = new Set(ids);
+      if (prev.type === "node" && hidden.has(prev.node.id)) return null;
+      if (
+        prev.type === "edge" &&
+        (hidden.has(prev.edge.source) || hidden.has(prev.edge.target))
+      )
+        return null;
+      return prev;
+    });
+  };
+
+  const toggleNodeVisibility = (id: string) => {
+    if (!hiddenNodeIds.has(id)) clearSelectionForHidden([id]);
     setHiddenNodeIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+  };
 
   // Set the visibility of several nodes at once (used by the graph context
   // menu's Hide/View item so it acts on the whole current selection).
-  const setNodesVisibility = (ids: string[], hidden: boolean) =>
+  const setNodesVisibility = (ids: string[], hidden: boolean) => {
+    if (hidden) clearSelectionForHidden(ids);
     setHiddenNodeIds((prev) => {
       const next = new Set(prev);
       for (const id of ids) {
@@ -890,6 +911,7 @@ function GraphPanel({
       }
       return next;
     });
+  };
 
   // Distinct relationship types currently visible, for the color legend.
   const edgeTypes = useMemo(() => {

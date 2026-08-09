@@ -2020,7 +2020,12 @@ export function GraphView({
     cy.batch(() => {
       cy.nodes().forEach((n) => {
         if (n.hasClass(GROUP_CLASS)) return;
-        n.toggleClass("hidden", hiddenIds.has(n.id()));
+        const hidden = hiddenIds.has(n.id());
+        // A node being hidden is also deselected, so the selection (and
+        // anything acting on it, like shortcuts or the alignment tools) never
+        // includes invisible nodes.
+        if (hidden && n.selected()) n.unselect();
+        n.toggleClass("hidden", hidden);
       });
       // A namespace (or cluster-scoped) group box with every child hidden
       // would render as an empty container, so hide it too until one of its
