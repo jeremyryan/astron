@@ -247,6 +247,13 @@ interface Props {
   // Called whenever the set of selected (real) nodes changes, with their ids.
   // Lets the inspector highlight every selected resource in its list view.
   onSelectedIdsChange?: (ids: string[]) => void;
+  // Called whenever the current node groups (collapsed via the context menu's
+  // Group/Ungroup actions, or auto-grouped) change, with each group's id and
+  // the real resource ids it currently contains. Lets the inspector's
+  // resource list - which always lists individual resources, even when the
+  // canvas has some collapsed into a group node - mirror a group's
+  // selection/hidden state onto every one of its members.
+  onGroupsChange?: (groups: { id: string; memberIds: string[] }[]) => void;
   // When true, resources are grouped into compound nodes by namespace.
   groupByNamespace: boolean;
   // When false, edge (relationship-type) labels are hidden.
@@ -318,6 +325,7 @@ export function GraphView({
   hiddenIds,
   toggleSelect,
   onSelectedIdsChange,
+  onGroupsChange,
   groupByNamespace,
   showEdgeLabels,
   exportName,
@@ -494,6 +502,17 @@ export function GraphView({
   groupInfoRef.current = groupInfo;
   const edgeOriginalsRef = useRef(edgeOriginals);
   edgeOriginalsRef.current = edgeOriginals;
+
+  // Report the current group membership to the parent whenever it changes
+  // (grouping/ungrouping, or a group's members being filtered/deleted), so it
+  // can expand a selected or hidden group into its real member ids.
+  const groupsChangeCbRef = useRef(onGroupsChange);
+  groupsChangeCbRef.current = onGroupsChange;
+  useEffect(() => {
+    groupsChangeCbRef.current?.(
+      [...groupInfo.entries()].map(([id, info]) => ({ id, memberIds: info.memberIds })),
+    );
+  }, [groupInfo]);
   // User-tunable layout parameters from settings. A ref mirror lets the once-
   // built layout read the latest without adding them as rebuild dependencies.
   const layoutParams = useMemo(

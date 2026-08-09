@@ -1062,8 +1062,37 @@ function GraphPanel({
   const [selection, setSelection] = useState<GraphSelection | null>(null);
   const selectedNode = selection?.type === "node" ? selection.node : null;
   // Ids of all nodes selected on the canvas (supports box-select), used to
-  // highlight them in the resource list.
+  // highlight them in the resource list. May include a collapsed group's
+  // synthetic id (see nodeGroups below) alongside real resource ids.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // The canvas's current node groups (collapsed via the context menu's
+  // Group/Ungroup actions, or auto-grouped), each with the real resource ids
+  // it contains. Purely mirrored from GraphView so the resource list - which
+  // always lists individual resources, even when some are collapsed into a
+  // group node on the canvas - can reflect a group's selection/hidden state
+  // onto every one of its members.
+  const [nodeGroups, setNodeGroups] = useState<{ id: string; memberIds: string[] }[]>([]);
+  const groupMemberIds = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const g of nodeGroups) map.set(g.id, g.memberIds);
+    return map;
+  }, [nodeGroups]);
+  // The containing group's id for a given member, if it's currently grouped.
+  const groupIdForMember = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const g of nodeGroups) for (const m of g.memberIds) map.set(m, g.id);
+    return map;
+  }, [nodeGroups]);
+  // selectedIds/hiddenNodeIds as seen by the resource list: any selected or
+  // hidden group id is expanded to include its real member ids too, so every
+  // resource in a selected/hidden group is highlighted/greyed out in the
+  // list, not just the synthetic group entry (which isn't listed at all).
+  const resourceListSelectedIds = useMemo(() => {
+    if (nodeGroups.length === 0) return selectedIds;
+    const next = new Set(selectedIds);
+    for (const id of selectedIds) groupMemberIds.get(id)?.forEach((m) => next.add(m));
+    return next;
+  }, [selectedIds, groupMemberIds, nodeGroups.length]);
   // When true, the inspector shows the resource list even if a node/edge is
   // selected (the user navigated "Back" from the detail view).
   const [showResourceList, setShowResourceList] = useState(false);
@@ -1107,7 +1136,18 @@ function GraphPanel({
   const [hiddenNamespaces, setHiddenNamespaces] = useState<Set<string>>(new Set());
   // Individual node ids the user has hidden from the graph via the resource
   // list. They remain listed (so they can be shown again), just not drawn.
+  // May also contain a collapsed group's synthetic id (hiding a group hides
+  // it as one unit on the canvas).
   const [hiddenNodeIds, setHiddenNodeIds] = useState<Set<string>>(new Set());
+  // hiddenNodeIds as seen by the resource list: a hidden group's id is
+  // expanded to its real member ids (see resourceListSelectedIds above), so
+  // every resource in a hidden group shows as hidden in the list too.
+  const resourceListHiddenIds = useMemo(() => {
+    if (nodeGroups.length === 0) return hiddenNodeIds;
+    const next = new Set(hiddenNodeIds);
+    for (const id of hiddenNodeIds) groupMemberIds.get(id)?.forEach((m) => next.add(m));
+    return next;
+  }, [hiddenNodeIds, groupMemberIds, nodeGroups.length]);
   // Clicks in the resource list toggle a node's canvas selection without
   // centering or opening its details (Ctrl/Cmd-click toggles it in or out of
   // the multi-selection; a plain click on a selected resource unselects it).
@@ -1216,6 +1256,21 @@ function GraphPanel({
   };
 
   const toggleNodeVisibility = (id: string) => {
+    // This resource shows as hidden (possibly only because its group is
+    // hidden as a whole - see resourceListHiddenIds). There's no way to
+    // reveal just one member while the rest stay collapsed together on the
+    // canvas, so unhide the entire group instead, mirroring what hiding it
+    // did.
+    const groupId = groupIdForMember.get(id);
+    if (groupId && hiddenNodeIds.has(groupId)) {
+      setHiddenNodeIds((prev) => {
+        const next = new Set(prev);
+        next.delete(groupId);
+        next.delete(id);
+        return next;
+      });
+      return;
+    }
     if (!hiddenNodeIds.has(id)) clearSelectionForHidden([id]);
     setHiddenNodeIds((prev) => {
       const next = new Set(prev);
@@ -1448,6 +1503,7 @@ function GraphPanel({
             toggleSelect={toggleSelect}
             onSelect={handleSelect}
             onSelectedIdsChange={(ids) => setSelectedIds(new Set(ids))}
+            onGroupsChange={setNodeGroups}
             selectedId={selectedNode?.id ?? null}
             maxDistance={maxDistance}
             onShowYaml={setYamlNode}
@@ -1597,8 +1653,8 @@ function GraphPanel({
                     <ResourceList
                       projectionName={projection.name}
                       nodes={filteredGraph?.nodes ?? []}
-                      selectedIds={selectedIds}
-                      hiddenIds={hiddenNodeIds}
+                      selectedIds={resourceListSelectedIds}
+                      hiddenIds={resourceListHiddenIds}
                       onSelect={(node, opts) => {
                         if (opts?.additive) {
                           toggleNodeSelection(node.id);
