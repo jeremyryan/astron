@@ -331,31 +331,29 @@ function ProjectionNavItem({
           </Text>
         </Group>
       </UnstyledButton>
-      {!viewsCollapsed && (
-        <>
-          {items.map((v) => (
-            <NavLink
-              key={v.uid ?? `${v.namespace}/${v.name}`}
-              pl={44}
-              active={isSelected && activeViewName === v.name}
-              onClick={() =>
-                navigate(
-                  isSelected && activeSnapshotId
-                    ? snapshotPath(projection, activeSnapshotId, v.name)
-                    : viewPath(projection, v.name),
-                )
-              }
-              leftSection={<IconBookmark size={14} stroke={1.5} />}
-              label={v.displayName || v.name}
-            />
-          ))}
-          {views && views.length === 0 && (
-            <Text size="xs" c="dimmed" pl={44} py={2}>
-              No views yet.
-            </Text>
-          )}
-        </>
-      )}
+      <div className={`collapsible-section ${viewsCollapsed ? "collapsed" : "expanded"}`}>
+        {items.map((v) => (
+          <NavLink
+            key={v.uid ?? `${v.namespace}/${v.name}`}
+            pl={44}
+            active={isSelected && activeViewName === v.name}
+            onClick={() =>
+              navigate(
+                isSelected && activeSnapshotId
+                  ? snapshotPath(projection, activeSnapshotId, v.name)
+                  : viewPath(projection, v.name),
+              )
+            }
+            leftSection={<IconBookmark size={14} stroke={1.5} />}
+            label={v.displayName || v.name}
+          />
+        ))}
+        {views && views.length === 0 && (
+          <Text size="xs" c="dimmed" pl={44} py={2}>
+            No views yet.
+          </Text>
+        )}
+      </div>
       {/* Snapshots: point-in-time copies of the projection's graph, grouped
           under a collapsible "Snapshots" header. */}
       <Group pl={28} pr={8} py={2} justify="space-between" wrap="nowrap">
@@ -398,26 +396,24 @@ function ProjectionNavItem({
           </ActionIcon>
         </Tooltip>
       </Group>
-      {!snapshotsCollapsed && (
-        <>
-          {(snapshots ?? []).map((s) => (
-            <NavLink
-              key={s.id}
-              pl={44}
-              active={isSelected && activeSnapshotId === s.id}
-              onClick={() => navigate(snapshotPath(projection, s.id))}
-              leftSection={<IconCamera size={14} stroke={1.5} />}
-              label={s.name}
-              description={new Date(s.createdAt).toLocaleString()}
-            />
-          ))}
-          {snapshots && snapshots.length === 0 && (
-            <Text size="xs" c="dimmed" pl={44} py={2}>
-              No snapshots yet.
-            </Text>
-          )}
-        </>
-      )}
+      <div className={`collapsible-section ${snapshotsCollapsed ? "collapsed" : "expanded"}`}>
+        {(snapshots ?? []).map((s) => (
+          <NavLink
+            key={s.id}
+            pl={44}
+            active={isSelected && activeSnapshotId === s.id}
+            onClick={() => navigate(snapshotPath(projection, s.id))}
+            leftSection={<IconCamera size={14} stroke={1.5} />}
+            label={s.name}
+            description={new Date(s.createdAt).toLocaleString()}
+          />
+        ))}
+        {snapshots && snapshots.length === 0 && (
+          <Text size="xs" c="dimmed" pl={44} py={2}>
+            No snapshots yet.
+          </Text>
+        )}
+      </div>
       <AddSnapshotModal
         projection={projection}
         opened={snapshotModalOpen}
@@ -749,10 +745,11 @@ function ResourceList({
                     </Text>
                   </Group>
                 </UnstyledButton>
-                <Stack gap={0} pl={20} display={collapsed ? "none" : undefined}>
-                  {k.nodes.map((n) => {
-                    const hidden = hiddenIds.has(n.id);
-                    return (
+                <div className={`collapsible-section ${collapsed ? "collapsed" : "expanded"}`} style={{ paddingLeft: 20 }}>
+                  <Stack gap={0}>
+                    {k.nodes.map((n) => {
+                      const hidden = hiddenIds.has(n.id);
+                      return (
                       <Group key={n.id} gap={2} wrap="nowrap" align="center">
                         <UnstyledButton
                           className={
@@ -780,9 +777,10 @@ function ResourceList({
                           </ActionIcon>
                         </Tooltip>
                       </Group>
-                    );
-                  })}
-                </Stack>
+                      );
+                    })}
+                  </Stack>
+                </div>
               </Stack>
             );
           })}
