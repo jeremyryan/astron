@@ -18,6 +18,7 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -453,5 +454,41 @@ func TestGraphNotRunningReturnsEmpty(t *testing.T) {
 	}
 	if len(got.Nodes) != 0 || len(got.Edges) != 0 {
 		t.Fatalf("expected empty graph, got %+v", got)
+	}
+}
+
+func TestSnapshotEndpoints(t *testing.T) {
+	proj := &astronv1alpha1.GraphProjection{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default", UID: types.UID("uid-1")},
+	}
+	srv := newTestServer(t, proj)
+
+	do := func(method, path, body string) int {
+		rec := httptest.NewRecorder()
+		var rd io.Reader
+		if body != "" {
+			rd = strings.NewReader(body)
+		}
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(method, path, rd))
+		return rec.Code
+	}
+
+	// Missing name -> 400 (validated before the projection is even resolved).
+	if code := do(http.MethodPost, "/api/projections/default/demo/snapshots", `{"name":"  "}`); code != http.StatusBadRequest {
+		t.Fatalf("empty name: status = %d, want 400", code)
+	}
+	// Unknown projection -> 404.
+	if code := do(http.MethodPost, "/api/projections/default/missing/snapshots", `{"name":"before-upgrade"}`); code != http.StatusNotFound {
+		t.Fatalf("missing projection: status = %d, want 404", code)
+	}
+	// Known projection but no running projector -> 503.
+	if code := do(http.MethodPost, "/api/projections/default/demo/snapshots", `{"name":"before-upgrade"}`); code != http.StatusServiceUnavailable {
+		t.Fatalf("create, not running: status = %d, want 503", code)
+	}
+	if code := do(http.MethodGet, "/api/projections/default/demo/snapshots", ""); code != http.StatusServiceUnavailable {
+		t.Fatalf("list, not running: status = %d, want 503", code)
+	}
+	if code := do(http.MethodDelete, "/api/projections/default/demo/snapshots/abc", ""); code != http.StatusServiceUnavailable {
+		t.Fatalf("delete, not running: status = %d, want 503", code)
 	}
 }

@@ -16,7 +16,10 @@ limitations under the License.
 
 package graph
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Counts is a summary of how much data a projection currently has materialized
 // in the graph.
@@ -84,6 +87,38 @@ type LinkStore interface {
 	// properties, e.g. a note). It lets the projector fold manual links into the
 	// GraphRAG cards it builds from the derived graph.
 	ManualLinks(ctx context.Context, projection ProjectionID) ([]Relationship, error)
+}
+
+// SnapshotInfo describes one snapshot: an immutable point-in-time copy of a
+// projection's graph that is not kept in sync with the cluster.
+type SnapshotInfo struct {
+	// ID uniquely identifies the snapshot within its projection.
+	ID string
+	// Name is the user-provided display name.
+	Name string
+	// CreatedAt is when the snapshot was taken.
+	CreatedAt time.Time
+	// Nodes and Relationships are the sizes of the copied subgraph.
+	Nodes         int64
+	Relationships int64
+}
+
+// SnapshotStore is an optional capability for stores that support snapshots:
+// point-in-time copies of a projection's nodes and relationships that live in
+// the same database but are never touched by Sync's mark-and-sweep, so they
+// preserve the graph as it was even after the cluster moves on. It is kept
+// separate from Store so the feature stays additive.
+type SnapshotStore interface {
+	// CreateSnapshot copies the projection's current nodes and relationships
+	// into a new snapshot with the given display name and returns its metadata.
+	CreateSnapshot(ctx context.Context, projection ProjectionID, name string) (SnapshotInfo, error)
+
+	// ListSnapshots returns the projection's snapshots, newest first.
+	ListSnapshots(ctx context.Context, projection ProjectionID) ([]SnapshotInfo, error)
+
+	// DeleteSnapshot removes a snapshot and all of its copied data. Deleting a
+	// snapshot that does not exist is not an error.
+	DeleteSnapshot(ctx context.Context, projection ProjectionID, snapshotID string) error
 }
 
 // NodeEmbedding pairs a node's identity with the embedding vector derived from

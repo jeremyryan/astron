@@ -423,7 +423,11 @@ func (s *Neo4jStore) DeleteProjection(ctx context.Context, projection Projection
 	defer func() { _ = sess.Close(ctx) }()
 
 	_, err := sess.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
-		return tx.Run(ctx, deleteProjectionCypher, map[string]any{"projection": string(projection)})
+		if _, err := tx.Run(ctx, deleteProjectionCypher, map[string]any{"projection": string(projection)}); err != nil {
+			return nil, err
+		}
+		// Snapshots are scoped to their projection and do not outlive it.
+		return tx.Run(ctx, deleteProjectionSnapshotsCypher, map[string]any{"projection": string(projection)})
 	})
 	if err != nil {
 		return fmt.Errorf("deleting projection %q: %w", projection, err)

@@ -17,6 +17,8 @@ limitations under the License.
 package api
 
 import (
+	"time"
+
 	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
 	"github.com/project-astron/astron/internal/graph"
 	"github.com/project-astron/astron/internal/projector"
@@ -261,5 +263,25 @@ func dtoToViewSpec(in viewDTO) astronv1alpha1.GraphViewSpec {
 			MaxDistance:      in.Filters.MaxDistance,
 			GroupByNamespace: in.Filters.GroupByNamespace,
 		},
+	}
+}
+
+// snapshotDTO is the JSON shape of a snapshot's metadata.
+type snapshotDTO struct {
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	CreatedAt         string `json:"createdAt"`
+	NodeCount         int64  `json:"nodeCount"`
+	RelationshipCount int64  `json:"relationshipCount"`
+}
+
+// toSnapshotDTO converts a graph.SnapshotInfo to its JSON shape.
+func toSnapshotDTO(in graph.SnapshotInfo) snapshotDTO {
+	return snapshotDTO{
+		ID:                in.ID,
+		Name:              in.Name,
+		CreatedAt:         in.CreatedAt.UTC().Format(time.RFC3339),
+		NodeCount:         in.Nodes,
+		RelationshipCount: in.Relationships,
 	}
 }

@@ -152,6 +152,39 @@ func (p *Projector) ReadGraph(ctx context.Context) (graph.GraphData, error) {
 	return p.opts.Store.ReadGraph(ctx, p.opts.ID)
 }
 
+// CreateSnapshot copies this projection's current graph into a new named
+// snapshot, if the backing store supports snapshots. It returns
+// ErrSnapshotsNotSupported otherwise. Snapshots are inert copies: the sync
+// loop never updates or prunes them.
+func (p *Projector) CreateSnapshot(ctx context.Context, name string) (graph.SnapshotInfo, error) {
+	ss, ok := p.opts.Store.(graph.SnapshotStore)
+	if !ok {
+		return graph.SnapshotInfo{}, ErrSnapshotsNotSupported
+	}
+	return ss.CreateSnapshot(ctx, p.opts.ID, name)
+}
+
+// ListSnapshots returns this projection's snapshots, newest first, if the
+// backing store supports snapshots. It returns ErrSnapshotsNotSupported
+// otherwise.
+func (p *Projector) ListSnapshots(ctx context.Context) ([]graph.SnapshotInfo, error) {
+	ss, ok := p.opts.Store.(graph.SnapshotStore)
+	if !ok {
+		return nil, ErrSnapshotsNotSupported
+	}
+	return ss.ListSnapshots(ctx, p.opts.ID)
+}
+
+// DeleteSnapshot removes one of this projection's snapshots, if the backing
+// store supports snapshots. It returns ErrSnapshotsNotSupported otherwise.
+func (p *Projector) DeleteSnapshot(ctx context.Context, snapshotID string) error {
+	ss, ok := p.opts.Store.(graph.SnapshotStore)
+	if !ok {
+		return ErrSnapshotsNotSupported
+	}
+	return ss.DeleteSnapshot(ctx, p.opts.ID, snapshotID)
+}
+
 // AddLink creates a user-defined link between two nodes of this projection, if
 // the backing store supports manual links. It returns ErrLinksNotSupported
 // otherwise.

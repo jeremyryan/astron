@@ -78,6 +78,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/projections/{namespace}/{name}/rag/query", s.handleRAGQuery)
 	mux.HandleFunc("POST /api/projections/{namespace}/{name}/rag/answer", s.handleRAGAnswer)
 	mux.HandleFunc("GET /api/projections/{namespace}/{name}/rag/models", s.handleRAGModels)
+	mux.HandleFunc("POST /api/projections/{namespace}/{name}/snapshots", s.handleCreateSnapshot)
+	mux.HandleFunc("GET /api/projections/{namespace}/{name}/snapshots", s.handleListSnapshots)
+	mux.HandleFunc("DELETE /api/projections/{namespace}/{name}/snapshots/{id}", s.handleDeleteSnapshot)
 	mux.HandleFunc("POST /api/projections/{namespace}/{name}/links", s.handleCreateLink)
 	mux.HandleFunc("PATCH /api/projections/{namespace}/{name}/links", s.handleUpdateLink)
 	mux.HandleFunc("DELETE /api/projections/{namespace}/{name}/links", s.handleDeleteLink)
@@ -364,6 +367,86 @@ type linkRequest struct {
 	// Note is the free-text note associated with a link (used by the update
 	// endpoint; ignored on create).
 	Note string `json:"note"`
+}
+
+// snapshotRequest is the create-snapshot request body.
+type snapshotRequest struct {
+	Name string `json:"name"`
+}
+
+// handleCreateSnapshot copies the projection's current graph into a new named
+// snapshot: an immutable point-in-time copy that is not kept in sync with the
+// cluster.
+func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
+	var req snapshotRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		writeError(w, http.StatusBadRequest, errors.New("a snapshot name is required"))
+		return
+	}
+
+	id, ok := s.projectionID(w, r)
+	if !ok {
+		return
+	}
+
+	info, err := s.projectors.CreateSnapshot(r.Context(), id, req.Name)
+	if err != nil {
+		switch {
+		case errors.Is(err, projector.ErrNotRunning), errors.Is(err, projector.ErrSnapshotsNotSupported):
+			writeError(w, http.StatusServiceUnavailable, err)
+		default:
+			writeError(w, http.StatusInternalServerError, err)
+		}
+		return
+	}
+	writeJSON(w, http.StatusCreated, toSnapshotDTO(info))
+}
+
+// handleListSnapshots returns the projection's snapshots, newest first.
+func (s *Server) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.projectionID(w, r)
+	if !ok {
+		return
+	}
+
+	infos, err := s.projectors.ListSnapshots(r.Context(), id)
+	if err != nil {
+		switch {
+		case errors.Is(err, projector.ErrNotRunning), errors.Is(err, projector.ErrSnapshotsNotSupported):
+			writeError(w, http.StatusServiceUnavailable, err)
+		default:
+			writeError(w, http.StatusInternalServerError, err)
+		}
+		return
+	}
+	out := make([]snapshotDTO, 0, len(infos))
+	for _, info := range infos {
+		out = append(out, toSnapshotDTO(info))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// handleDeleteSnapshot removes a snapshot and its copied graph data.
+func (s *Server) handleDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.projectionID(w, r)
+	if !ok {
+		return
+	}
+
+	if err := s.projectors.DeleteSnapshot(r.Context(), id, r.PathValue("id")); err != nil {
+		switch {
+		case errors.Is(err, projector.ErrNotRunning), errors.Is(err, projector.ErrSnapshotsNotSupported):
+			writeError(w, http.StatusServiceUnavailable, err)
+		default:
+			writeError(w, http.StatusInternalServerError, err)
+		}
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleCreateLink creates a user-defined edge between two existing nodes of a

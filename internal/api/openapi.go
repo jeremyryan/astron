@@ -82,6 +82,16 @@ type createLinkReq struct {
 	linkRequest
 }
 
+type createSnapshotReq struct {
+	projectionPath
+	snapshotRequest
+}
+
+type snapshotPath struct {
+	projectionPath
+	ID string `path:"id" doc:"Snapshot ID"`
+}
+
 type updateLinkReq struct {
 	projectionPath
 	linkRequest
@@ -178,6 +188,24 @@ func apiEndpoints() []endpoint {
 			method: http.MethodGet, path: "/api/projections/{namespace}/{name}/rag/models", id: "ragModels",
 			tag: "graphrag", summary: "List the chat models selectable for a projection",
 			req: new(projectionPath), resp: new(projector.ChatModelList), status: http.StatusOK,
+			errors: []int{http.StatusNotFound, http.StatusServiceUnavailable, http.StatusInternalServerError},
+		},
+		{
+			method: http.MethodPost, path: "/api/projections/{namespace}/{name}/snapshots", id: "createSnapshot",
+			tag: "snapshots", summary: "Copy the projection's current graph into a named point-in-time snapshot",
+			req: new(createSnapshotReq), resp: new(snapshotDTO), status: http.StatusCreated,
+			errors: []int{http.StatusBadRequest, http.StatusNotFound, http.StatusServiceUnavailable, http.StatusInternalServerError},
+		},
+		{
+			method: http.MethodGet, path: "/api/projections/{namespace}/{name}/snapshots", id: "listSnapshots",
+			tag: "snapshots", summary: "List the projection's snapshots, newest first",
+			req: new(projectionPath), resp: new([]snapshotDTO), status: http.StatusOK,
+			errors: []int{http.StatusNotFound, http.StatusServiceUnavailable, http.StatusInternalServerError},
+		},
+		{
+			method: http.MethodDelete, path: "/api/projections/{namespace}/{name}/snapshots/{id}", id: "deleteSnapshot",
+			tag: "snapshots", summary: "Delete a snapshot and its copied graph data",
+			req: new(snapshotPath), status: http.StatusNoContent,
 			errors: []int{http.StatusNotFound, http.StatusServiceUnavailable, http.StatusInternalServerError},
 		},
 		{

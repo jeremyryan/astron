@@ -58,6 +58,10 @@ var ErrNotRunning = errors.New("no projector running for projection")
 // links.
 var ErrLinksNotSupported = errors.New("manual links are not supported by this store")
 
+// ErrSnapshotsNotSupported indicates the projection's store cannot store
+// snapshots.
+var ErrSnapshotsNotSupported = errors.New("snapshots are not supported by this store")
+
 // StoreFactory builds a graph.Store for a projection from a resolved config.
 type StoreFactory func(cfg graph.Neo4jConfig) (graph.Store, error)
 
@@ -213,6 +217,40 @@ func (m *Manager) ReadGraph(ctx context.Context, id graph.ProjectionID) (graph.G
 		return graph.GraphData{}, ErrNotRunning
 	}
 	return p.ReadGraph(ctx)
+}
+
+// CreateSnapshot copies a running projection's current graph into a new named
+// snapshot. It returns ErrNotRunning when no projector is serving the
+// projection, or ErrSnapshotsNotSupported when the store cannot store
+// snapshots.
+func (m *Manager) CreateSnapshot(ctx context.Context, id graph.ProjectionID, name string) (graph.SnapshotInfo, error) {
+	p, ok := m.Get(id)
+	if !ok {
+		return graph.SnapshotInfo{}, ErrNotRunning
+	}
+	return p.CreateSnapshot(ctx, name)
+}
+
+// ListSnapshots returns a running projection's snapshots, newest first. It
+// returns ErrNotRunning when no projector is serving the projection, or
+// ErrSnapshotsNotSupported when the store cannot store snapshots.
+func (m *Manager) ListSnapshots(ctx context.Context, id graph.ProjectionID) ([]graph.SnapshotInfo, error) {
+	p, ok := m.Get(id)
+	if !ok {
+		return nil, ErrNotRunning
+	}
+	return p.ListSnapshots(ctx)
+}
+
+// DeleteSnapshot removes one of a running projection's snapshots. It returns
+// ErrNotRunning when no projector is serving the projection, or
+// ErrSnapshotsNotSupported when the store cannot store snapshots.
+func (m *Manager) DeleteSnapshot(ctx context.Context, id graph.ProjectionID, snapshotID string) error {
+	p, ok := m.Get(id)
+	if !ok {
+		return ErrNotRunning
+	}
+	return p.DeleteSnapshot(ctx, snapshotID)
 }
 
 // AddLink creates a user-defined link between two nodes of a running

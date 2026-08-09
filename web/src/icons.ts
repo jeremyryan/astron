@@ -11,6 +11,7 @@ export {
   IconPencil,
   IconFileCode,
   IconSettings,
+  IconCamera,
   IconPlus,
   IconX,
   IconChevronRight,

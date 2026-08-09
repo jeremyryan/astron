@@ -1,0 +1,281 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package graph
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
+)
+
+// snapshotResourceLabel is applied to node copies belonging to a snapshot. The
+// distinct label keeps snapshot data invisible to Sync's pruning, ReadGraph,
+// and the vector index, all of which match resourceLabel.
+const snapshotResourceLabel = "SnapshotResource"
+
+// snapshotMetaLabel is applied to the one metadata node per snapshot.
+const snapshotMetaLabel = "Snapshot"
+
+// snapshotProperty stores the owning snapshot ID on every copied node and
+// relationship.
+const snapshotProperty = "_snapshot"
+
+// origKeyProperty preserves the copied node's live _key so relationships can
+// be rewired between the copies (and so a future diff view can correlate
+// snapshot nodes with their live counterparts).
+const origKeyProperty = "_origKey"
+
+// compile-time assertion that Neo4jStore satisfies SnapshotStore.
+var _ SnapshotStore = (*Neo4jStore)(nil)
+
+// newSnapshotID returns a random, URL-safe snapshot identifier.
+func newSnapshotID() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("generating snapshot id: %w", err)
+	}
+	return hex.EncodeToString(buf), nil
+}
+
+// createSnapshotMetaCypher records the snapshot's metadata node.
+const createSnapshotMetaCypher = `
+CREATE (s:` + snapshotMetaLabel + ` {
+  id: $id,
+  ` + projectionProperty + `: $projection,
+  name: $name,
+  createdAt: $createdAt,
+  nodes: 0,
+  relationships: 0
+})`
+
+// copySnapshotNodesCypher copies every live node of the projection into the
+// snapshot, stripping the sync and GraphRAG bookkeeping so copies are inert.
+const copySnapshotNodesCypher = `
+MATCH (n:` + resourceLabel + ` {` + projectionProperty + `: $projection})
+CREATE (c:` + snapshotResourceLabel + `)
+SET c = properties(n),
+    c.` + snapshotProperty + ` = $id,
+    c.` + origKeyProperty + ` = n._key,
+    c._key = $id + '|' + n._key
+REMOVE c.` + syncTokenProperty + `, c.` + embeddingProperty + `, c.` + cardProperty + `, c.` + cardHashProperty + `
+RETURN count(c) AS c`
+
+// snapshotRelTypesCypher lists the distinct relationship types present between
+// the projection's nodes, so each type can be copied (Cypher cannot
+// parameterize relationship types).
+const snapshotRelTypesCypher = `
+MATCH (:` + resourceLabel + ` {` + projectionProperty + `: $projection})-[r]->(:` + resourceLabel + ` {` + projectionProperty + `: $projection})
+RETURN DISTINCT type(r) AS t`
+
+// copySnapshotRelsCypher copies all relationships of one type between the
+// snapshot's node copies, wiring endpoints through origKeyProperty.
+func copySnapshotRelsCypher(relType string) string {
+	return fmt.Sprintf(`
+MATCH (a:%[1]s {%[2]s: $projection})-[r:%[3]s]->(b:%[1]s {%[2]s: $projection})
+MATCH (ca:%[4]s {%[5]s: $id, %[6]s: a._key})
+MATCH (cb:%[4]s {%[5]s: $id, %[6]s: b._key})
+CREATE (ca)-[cr:%[3]s]->(cb)
+SET cr = properties(r), cr.%[5]s = $id
+REMOVE cr.%[7]s
+RETURN count(cr) AS c`,
+		resourceLabel, projectionProperty, relType,
+		snapshotResourceLabel, snapshotProperty, origKeyProperty,
+		syncTokenProperty)
+}
+
+// updateSnapshotCountsCypher records the copied subgraph's size on the
+// metadata node.
+const updateSnapshotCountsCypher = `
+MATCH (s:` + snapshotMetaLabel + ` {id: $id, ` + projectionProperty + `: $projection})
+SET s.nodes = $nodes, s.relationships = $relationships`
+
+// listSnapshotsCypher returns the projection's snapshot metadata, newest first.
+const listSnapshotsCypher = `
+MATCH (s:` + snapshotMetaLabel + ` {` + projectionProperty + `: $projection})
+RETURN s.id AS id, s.name AS name, s.createdAt AS createdAt,
+       s.nodes AS nodes, s.relationships AS relationships
+ORDER BY s.createdAt DESC`
+
+// deleteSnapshotCypher removes a snapshot's metadata node and all its copies.
+const deleteSnapshotCypher = `
+OPTIONAL MATCH (s:` + snapshotMetaLabel + ` {id: $id, ` + projectionProperty + `: $projection})
+DELETE s
+WITH 1 AS _
+OPTIONAL MATCH (n:` + snapshotResourceLabel + ` {` + snapshotProperty + `: $id, ` + projectionProperty + `: $projection})
+DETACH DELETE n`
+
+// deleteProjectionSnapshotsCypher removes every snapshot belonging to a
+// projection; used when the projection itself is deleted.
+const deleteProjectionSnapshotsCypher = `
+OPTIONAL MATCH (s:` + snapshotMetaLabel + ` {` + projectionProperty + `: $projection})
+DELETE s
+WITH 1 AS _
+OPTIONAL MATCH (n:` + snapshotResourceLabel + ` {` + projectionProperty + `: $projection})
+DETACH DELETE n`
+
+// CreateSnapshot copies the projection's current nodes and relationships into
+// a new snapshot in a single write transaction, so the copy is consistent with
+// respect to a concurrent Sync.
+func (s *Neo4jStore) CreateSnapshot(ctx context.Context, projection ProjectionID, name string) (SnapshotInfo, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return SnapshotInfo{}, fmt.Errorf("a snapshot name is required")
+	}
+	id, err := newSnapshotID()
+	if err != nil {
+		return SnapshotInfo{}, err
+	}
+	createdAt := time.Now().UTC()
+
+	sess := s.session(ctx)
+	defer func() { _ = sess.Close(ctx) }()
+
+	counts, err := sess.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		base := map[string]any{"projection": string(projection), "id": id}
+
+		meta := map[string]any{
+			"projection": string(projection), "id": id,
+			"name": name, "createdAt": createdAt.Format(time.RFC3339Nano),
+		}
+		if _, err := tx.Run(ctx, createSnapshotMetaCypher, meta); err != nil {
+			return nil, err
+		}
+
+		res, err := tx.Run(ctx, copySnapshotNodesCypher, base)
+		if err != nil {
+			return nil, err
+		}
+		rec, err := res.Single(ctx)
+		if err != nil {
+			return nil, err
+		}
+		nodeCount, _ := rec.Get("c")
+
+		res, err = tx.Run(ctx, snapshotRelTypesCypher, base)
+		if err != nil {
+			return nil, err
+		}
+		var relTypes []string
+		for res.Next(ctx) {
+			if t, ok := res.Record().Get("t"); ok {
+				relTypes = append(relTypes, t.(string))
+			}
+		}
+		if err := res.Err(); err != nil {
+			return nil, err
+		}
+
+		var relCount int64
+		for _, t := range relTypes {
+			rt, err := sanitizeRelType(t)
+			if err != nil {
+				return nil, fmt.Errorf("unexpected relationship type %q: %w", t, err)
+			}
+			res, err := tx.Run(ctx, copySnapshotRelsCypher(rt), base)
+			if err != nil {
+				return nil, err
+			}
+			rec, err := res.Single(ctx)
+			if err != nil {
+				return nil, err
+			}
+			c, _ := rec.Get("c")
+			relCount += asInt64(c)
+		}
+
+		params := map[string]any{
+			"projection": string(projection), "id": id,
+			"nodes": asInt64(nodeCount), "relationships": relCount,
+		}
+		if _, err := tx.Run(ctx, updateSnapshotCountsCypher, params); err != nil {
+			return nil, err
+		}
+		return Counts{Nodes: asInt64(nodeCount), Relationships: relCount}, nil
+	})
+	if err != nil {
+		return SnapshotInfo{}, fmt.Errorf("creating snapshot for projection %q: %w", projection, err)
+	}
+
+	c := counts.(Counts)
+	return SnapshotInfo{
+		ID: id, Name: name, CreatedAt: createdAt,
+		Nodes: c.Nodes, Relationships: c.Relationships,
+	}, nil
+}
+
+// ListSnapshots returns the projection's snapshots, newest first.
+func (s *Neo4jStore) ListSnapshots(ctx context.Context, projection ProjectionID) ([]SnapshotInfo, error) {
+	sess := s.session(ctx)
+	defer func() { _ = sess.Close(ctx) }()
+
+	out, err := sess.ExecuteRead(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		res, err := tx.Run(ctx, listSnapshotsCypher, map[string]any{"projection": string(projection)})
+		if err != nil {
+			return nil, err
+		}
+		var infos []SnapshotInfo
+		for res.Next(ctx) {
+			rec := res.Record()
+			info := SnapshotInfo{}
+			if v, ok := rec.Get("id"); ok {
+				info.ID, _ = v.(string)
+			}
+			if v, ok := rec.Get("name"); ok {
+				info.Name, _ = v.(string)
+			}
+			if v, ok := rec.Get("createdAt"); ok {
+				if raw, ok := v.(string); ok {
+					info.CreatedAt, _ = time.Parse(time.RFC3339Nano, raw)
+				}
+			}
+			if v, ok := rec.Get("nodes"); ok {
+				info.Nodes = asInt64(v)
+			}
+			if v, ok := rec.Get("relationships"); ok {
+				info.Relationships = asInt64(v)
+			}
+			infos = append(infos, info)
+		}
+		return infos, res.Err()
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing snapshots for projection %q: %w", projection, err)
+	}
+	return out.([]SnapshotInfo), nil
+}
+
+// DeleteSnapshot removes a snapshot's metadata and copied data. It is
+// idempotent: deleting an absent snapshot is not an error.
+func (s *Neo4jStore) DeleteSnapshot(ctx context.Context, projection ProjectionID, snapshotID string) error {
+	sess := s.session(ctx)
+	defer func() { _ = sess.Close(ctx) }()
+
+	_, err := sess.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		return tx.Run(ctx, deleteSnapshotCypher, map[string]any{
+			"projection": string(projection), "id": snapshotID,
+		})
+	})
+	if err != nil {
+		return fmt.Errorf("deleting snapshot %q for projection %q: %w", snapshotID, projection, err)
+	}
+	return nil
+}

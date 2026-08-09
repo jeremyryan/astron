@@ -151,6 +151,48 @@ export async function deleteView(namespace: string, name: string): Promise<void>
   );
 }
 
+// ----- Snapshots (point-in-time graph copies) -----
+
+export interface Snapshot {
+  id: string;
+  name: string;
+  createdAt: string;
+  nodeCount: number;
+  relationshipCount: number;
+}
+
+export function listSnapshots(
+  projectionNamespace: string,
+  projectionName: string,
+): Promise<Snapshot[]> {
+  return getJSON<Snapshot[]>(
+    `/api/projections/${encodeURIComponent(projectionNamespace)}/${encodeURIComponent(projectionName)}/snapshots`,
+  );
+}
+
+export function createSnapshot(
+  projectionNamespace: string,
+  projectionName: string,
+  name: string,
+): Promise<Snapshot> {
+  return sendJSON<Snapshot>(
+    "POST",
+    `/api/projections/${encodeURIComponent(projectionNamespace)}/${encodeURIComponent(projectionName)}/snapshots`,
+    { name },
+  ) as Promise<Snapshot>;
+}
+
+export async function deleteSnapshot(
+  projectionNamespace: string,
+  projectionName: string,
+  id: string,
+): Promise<void> {
+  await sendJSON<void>(
+    "DELETE",
+    `/api/projections/${encodeURIComponent(projectionNamespace)}/${encodeURIComponent(projectionName)}/snapshots/${encodeURIComponent(id)}`,
+  );
+}
+
 // ----- GraphRAG chat -----
 
 // AnswerCard is a natural-language description of a resource that grounded an

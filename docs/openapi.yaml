@@ -33,6 +33,11 @@ components:
         type:
           type: string
       type: object
+    ApiCreateSnapshotReq:
+      properties:
+        name:
+          type: string
+      type: object
     ApiEdgeDTO:
       properties:
         id:
@@ -221,6 +226,21 @@ components:
         score:
           format: double
           type: number
+      type: object
+    ApiSnapshotDTO:
+      properties:
+        createdAt:
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        nodeCount:
+          format: int64
+          type: integer
+        relationshipCount:
+          format: int64
+          type: integer
       type: object
     ApiUpdateLinkReq:
       properties:
@@ -830,6 +850,157 @@ paths:
       summary: Hybrid (vector + graph) retrieval for a query
       tags:
       - graphrag
+  /api/projections/{namespace}/{name}/snapshots:
+    get:
+      operationId: listSnapshots
+      parameters:
+      - description: Projection namespace
+        in: path
+        name: namespace
+        required: true
+        schema:
+          description: Projection namespace
+          type: string
+      - description: Projection name
+        in: path
+        name: name
+        required: true
+        schema:
+          description: Projection name
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ApiSnapshotDTO'
+                type: array
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Internal Server Error
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+      summary: List the projection's snapshots, newest first
+      tags:
+      - snapshots
+    post:
+      operationId: createSnapshot
+      parameters:
+      - description: Projection namespace
+        in: path
+        name: namespace
+        required: true
+        schema:
+          description: Projection namespace
+          type: string
+      - description: Projection name
+        in: path
+        name: name
+        required: true
+        schema:
+          description: Projection name
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiCreateSnapshotReq'
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSnapshotDTO'
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Internal Server Error
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+      summary: Copy the projection's current graph into a named point-in-time snapshot
+      tags:
+      - snapshots
+  /api/projections/{namespace}/{name}/snapshots/{id}:
+    delete:
+      operationId: deleteSnapshot
+      parameters:
+      - description: Projection namespace
+        in: path
+        name: namespace
+        required: true
+        schema:
+          description: Projection namespace
+          type: string
+      - description: Projection name
+        in: path
+        name: name
+        required: true
+        schema:
+          description: Projection name
+          type: string
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Internal Server Error
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+      summary: Delete a snapshot and its copied graph data
+      tags:
+      - snapshots
   /api/resource:
     get:
       operationId: getResourceYAML

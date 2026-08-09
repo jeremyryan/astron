@@ -23,9 +23,11 @@ import {
 } from "@mantine/core";
 import {
   createLink,
+  createSnapshot,
   deleteLink,
   getGraph,
   listProjections,
+  listSnapshots,
   listViews,
   updateLink,
   type Graph,
@@ -54,6 +56,7 @@ import { colorForRelationship, iconForKindOrGeneric } from "./kinds";
 import {
   IconArrowLeft,
   IconBookmark,
+  IconCamera,
   IconChevronLeft,
   IconChevronRight,
   IconEye,
@@ -81,10 +84,96 @@ function viewPath(p: Projection, viewName: string): string {
   return `${projectionPath(p)}/${encodeURIComponent(viewName)}`;
 }
 
+// AddSnapshotModal prompts for the new snapshot's name (which must not be
+// empty) and creates it via the API on Save.
+function AddSnapshotModal({
+  projection,
+  opened,
+  onClose,
+}: {
+  projection: Projection;
+  opened: boolean;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [name, setName] = useState("");
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // Reset the form whenever the modal is (re)opened.
+  useEffect(() => {
+    if (opened) {
+      setName("");
+      setNameError(null);
+      setSaveError(null);
+      setSaving(false);
+    }
+  }, [opened]);
+
+  const save = async () => {
+    if (!name.trim()) {
+      setNameError("Name is required");
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await createSnapshot(projection.namespace, projection.name, name.trim());
+      await queryClient.invalidateQueries({
+        queryKey: ["snapshots", projection.namespace, projection.name],
+      });
+      onClose();
+    } catch (e) {
+      setSaveError((e as Error).message);
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal opened={opened} onClose={onClose} title="Add Snapshot" centered>
+      <Stack gap="sm">
+        <Text size="sm" c="dimmed">
+          Capture the projection&apos;s current nodes and edges as a
+          point-in-time snapshot. Snapshots are not kept in sync with the
+          cluster.
+        </Text>
+        <TextInput
+          label="Name"
+          placeholder="e.g. before-upgrade"
+          value={name}
+          error={nameError}
+          onChange={(e) => {
+            setName(e.currentTarget.value);
+            if (e.currentTarget.value.trim()) setNameError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void save();
+          }}
+          data-autofocus
+        />
+        {saveError && (
+          <Text size="sm" c="red">
+            {saveError}
+          </Text>
+        )}
+        <Group justify="flex-end" gap="xs">
+          <Button variant="default" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={() => void save()} loading={saving}>
+            Save
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
+
 // ProjectionNavItem renders one projection in the navbar with its saved Views
-// nested beneath it. Clicking the projection selects it (custom filters);
-// clicking a view selects the projection and applies that view's filters. The
-// current selection comes from the URL (/<projection>[/<view>]).
+// and Snapshots nested beneath it. Clicking the projection selects it (custom
+// filters); clicking a view selects the projection and applies that view's
+// filters. The current selection comes from the URL (/<projection>[/<view>]).
 function ProjectionNavItem({
   projection,
   selectedNamespace,
@@ -101,6 +190,11 @@ function ProjectionNavItem({
     queryKey: ["views", projection.namespace, projection.name],
     queryFn: () => listViews(projection.namespace, projection.name),
   });
+  const { data: snapshots } = useQuery({
+    queryKey: ["snapshots", projection.namespace, projection.name],
+    queryFn: () => listSnapshots(projection.namespace, projection.name),
+  });
+  const [snapshotModalOpen, setSnapshotModalOpen] = useState(false);
   // Projection names are only unique per namespace, so the namespace takes
   // part in the comparison too.
   const isSelected =
@@ -129,6 +223,39 @@ function ProjectionNavItem({
           label={v.displayName || v.name}
         />
       ))}
+      {/* Snapshots: point-in-time copies of the projection's graph. */}
+      <Group pl={28} pr={8} py={2} justify="space-between" wrap="nowrap">
+        <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: "0.06em" }}>
+          Snapshots
+        </Text>
+        <Button
+          size="compact-xs"
+          variant="subtle"
+          leftSection={<IconCamera size={12} />}
+          onClick={() => setSnapshotModalOpen(true)}
+        >
+          Add Snapshot
+        </Button>
+      </Group>
+      {(snapshots ?? []).map((s) => (
+        <NavLink
+          key={s.id}
+          pl={28}
+          leftSection={<IconCamera size={14} stroke={1.5} />}
+          label={s.name}
+          description={new Date(s.createdAt).toLocaleString()}
+        />
+      ))}
+      {snapshots && snapshots.length === 0 && (
+        <Text size="xs" c="dimmed" pl={28} py={2}>
+          No snapshots yet.
+        </Text>
+      )}
+      <AddSnapshotModal
+        projection={projection}
+        opened={snapshotModalOpen}
+        onClose={() => setSnapshotModalOpen(false)}
+      />
     </Box>
   );
 }
