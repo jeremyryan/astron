@@ -673,14 +673,14 @@ export function GraphView({
           style: { "border-width": 3, "border-color": "data(statusColor)", "border-opacity": 1 },
         },
         // A collapsed group node (several selected nodes merged via the context
-        // menu's Group action) gets a dashed warm-accent ring so it reads as a
-        // stand-in for multiple resources rather than a single one.
+        // menu's Group action) uses a dashed outline (like regular nodes) in the
+        // same neutral gray, with dashed style to visually distinguish it.
         {
           selector: "node.resource-group",
           style: {
             "border-width": 3,
             "border-style": "dashed",
-            "border-color": "#e8785a",
+            "border-color": "#3c4350",
             "border-opacity": 0.95,
           },
         },
