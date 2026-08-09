@@ -175,6 +175,17 @@ func (p *Projector) ListSnapshots(ctx context.Context) ([]graph.SnapshotInfo, er
 	return ss.ListSnapshots(ctx, p.opts.ID)
 }
 
+// ReadSnapshot returns the graph captured by one of this projection's
+// snapshots, if the backing store supports snapshots. It returns
+// ErrSnapshotsNotSupported otherwise.
+func (p *Projector) ReadSnapshot(ctx context.Context, snapshotID string) (graph.GraphData, error) {
+	ss, ok := p.opts.Store.(graph.SnapshotStore)
+	if !ok {
+		return graph.GraphData{}, ErrSnapshotsNotSupported
+	}
+	return ss.ReadSnapshot(ctx, p.opts.ID, snapshotID)
+}
+
 // DeleteSnapshot removes one of this projection's snapshots, if the backing
 // store supports snapshots. It returns ErrSnapshotsNotSupported otherwise.
 func (p *Projector) DeleteSnapshot(ctx context.Context, snapshotID string) error {

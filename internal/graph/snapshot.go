@@ -20,12 +20,16 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 )
+
+// ErrSnapshotNotFound indicates the requested snapshot does not exist.
+var ErrSnapshotNotFound = errors.New("snapshot not found")
 
 // snapshotResourceLabel is applied to node copies belonging to a snapshot. The
 // distinct label keeps snapshot data invisible to Sync's pruning, ReadGraph,
@@ -273,6 +277,109 @@ func (s *Neo4jStore) ListSnapshots(ctx context.Context, projection ProjectionID)
 		return nil, fmt.Errorf("listing snapshots for projection %q: %w", projection, err)
 	}
 	return out.([]SnapshotInfo), nil
+}
+
+// readSnapshotCypher returns a snapshot's copied nodes and the relationships
+// between them, in one row (mirroring readGraphCypher). Endpoint identities
+// come from the copies' uid property so callers see the same node IDs as the
+// live graph.
+const readSnapshotCypher = `
+MATCH (n:` + snapshotResourceLabel + ` {` + snapshotProperty + `: $id, ` + projectionProperty + `: $projection})
+WITH collect(n) AS nodes
+OPTIONAL MATCH (a:` + snapshotResourceLabel + ` {` + snapshotProperty + `: $id})-[r {` + snapshotProperty + `: $id}]->(b:` + snapshotResourceLabel + `)
+RETURN nodes, collect({type: type(r), fromUID: a.uid, toUID: b.uid, props: properties(r)}) AS rels`
+
+// snapshotExistsCypher checks for the snapshot's metadata node.
+const snapshotExistsCypher = `
+MATCH (s:` + snapshotMetaLabel + ` {id: $id, ` + projectionProperty + `: $projection})
+RETURN count(s) AS c`
+
+// ReadSnapshot returns the nodes and relationships captured by a snapshot, in
+// the same shape as ReadGraph. It returns ErrSnapshotNotFound when the
+// snapshot does not exist.
+func (s *Neo4jStore) ReadSnapshot(ctx context.Context, projection ProjectionID, snapshotID string) (GraphData, error) {
+	sess := s.session(ctx)
+	defer func() { _ = sess.Close(ctx) }()
+
+	params := map[string]any{"projection": string(projection), "id": snapshotID}
+	result, err := sess.ExecuteRead(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		res, err := tx.Run(ctx, snapshotExistsCypher, params)
+		if err != nil {
+			return nil, err
+		}
+		rec, err := res.Single(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if c, _ := rec.Get("c"); asInt64(c) == 0 {
+			return nil, ErrSnapshotNotFound
+		}
+
+		res, err = tx.Run(ctx, readSnapshotCypher, params)
+		if err != nil {
+			return nil, err
+		}
+		return res.Single(ctx)
+	})
+	if err != nil {
+		if errors.Is(err, ErrSnapshotNotFound) {
+			return GraphData{}, ErrSnapshotNotFound
+		}
+		return GraphData{}, fmt.Errorf("reading snapshot %q for projection %q: %w", snapshotID, projection, err)
+	}
+
+	rec := result.(*neo4j.Record)
+	data := GraphData{}
+
+	rawNodes, _ := rec.Get("nodes")
+	if nodes, ok := rawNodes.([]any); ok {
+		for _, n := range nodes {
+			node, ok := n.(neo4j.Node)
+			if !ok {
+				continue
+			}
+			// Strip the snapshot bookkeeping so copies read like live nodes.
+			props := make(map[string]any, len(node.Props))
+			for k, v := range node.Props {
+				if k == snapshotProperty || k == origKeyProperty {
+					continue
+				}
+				props[k] = v
+			}
+			data.Nodes = append(data.Nodes, nodeFromProps(props))
+		}
+	}
+
+	rawRels, _ := rec.Get("rels")
+	if rels, ok := rawRels.([]any); ok {
+		for _, r := range rels {
+			row, ok := r.(map[string]any)
+			if !ok || row["type"] == nil {
+				continue
+			}
+			props := map[string]any{}
+			manual := false
+			if p, ok := row["props"].(map[string]any); ok {
+				for k, v := range p {
+					switch k {
+					case manualProperty:
+						manual, _ = v.(bool)
+					case projectionProperty, snapshotProperty:
+					default:
+						props[k] = v
+					}
+				}
+			}
+			data.Relationships = append(data.Relationships, Relationship{
+				Type:       asString(row["type"]),
+				From:       Ref{UID: asString(row["fromUID"])},
+				To:         Ref{UID: asString(row["toUID"])},
+				Properties: props,
+				Manual:     manual,
+			})
+		}
+	}
+	return data, nil
 }
 
 // DeleteSnapshot removes a snapshot's metadata and copied data. It is

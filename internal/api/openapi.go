@@ -203,6 +203,12 @@ func apiEndpoints() []endpoint {
 			errors: []int{http.StatusNotFound, http.StatusServiceUnavailable, http.StatusInternalServerError},
 		},
 		{
+			method: http.MethodGet, path: "/api/projections/{namespace}/{name}/snapshots/{id}/graph", id: "getSnapshotGraph",
+			tag: "snapshots", summary: "Read the nodes and edges captured by a snapshot",
+			req: new(snapshotPath), resp: new(graphDTO), status: http.StatusOK,
+			errors: []int{http.StatusNotFound, http.StatusServiceUnavailable, http.StatusInternalServerError},
+		},
+		{
 			method: http.MethodDelete, path: "/api/projections/{namespace}/{name}/snapshots/{id}", id: "deleteSnapshot",
 			tag: "snapshots", summary: "Delete a snapshot and its copied graph data",
 			req: new(snapshotPath), status: http.StatusNoContent,

@@ -184,6 +184,16 @@ export function createSnapshot(
   ) as Promise<Snapshot>;
 }
 
+export function getSnapshotGraph(
+  projectionNamespace: string,
+  projectionName: string,
+  id: string,
+): Promise<Graph> {
+  return getJSON<Graph>(
+    `/api/projections/${encodeURIComponent(projectionNamespace)}/${encodeURIComponent(projectionName)}/snapshots/${encodeURIComponent(id)}/graph`,
+  );
+}
+
 export async function deleteSnapshot(
   projectionNamespace: string,
   projectionName: string,

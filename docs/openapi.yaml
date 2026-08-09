@@ -1005,6 +1005,57 @@ paths:
       summary: Delete a snapshot and its copied graph data
       tags:
       - snapshots
+  /api/projections/{namespace}/{name}/snapshots/{id}/graph:
+    get:
+      operationId: getSnapshotGraph
+      parameters:
+      - description: Projection namespace
+        in: path
+        name: namespace
+        required: true
+        schema:
+          description: Projection namespace
+          type: string
+      - description: Projection name
+        in: path
+        name: name
+        required: true
+        schema:
+          description: Projection name
+          type: string
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiGraphDTO'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Internal Server Error
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+      summary: Read the nodes and edges captured by a snapshot
+      tags:
+      - snapshots
   /api/resource:
     get:
       operationId: getResourceYAML

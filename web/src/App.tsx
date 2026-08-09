@@ -36,6 +36,7 @@ import {
   createSnapshot,
   deleteLink,
   getGraph,
+  getSnapshotGraph,
   listProjections,
   listSnapshots,
   listViews,
@@ -45,6 +46,7 @@ import {
   type GraphNode,
   type GraphSelection,
   type Projection,
+  type Snapshot,
   type View,
   type ViewFilters,
 } from "./api";
@@ -92,6 +94,12 @@ function projectionPath(p: Projection): string {
 }
 function viewPath(p: Projection, viewName: string): string {
   return `${projectionPath(p)}/${encodeURIComponent(viewName)}`;
+}
+// Snapshot routes live under a dedicated /snapshots/ segment so they never
+// collide with view names: /<ns>/<projection>/snapshots/<id>[/<view>].
+function snapshotPath(p: Projection, snapshotId: string, viewName?: string): string {
+  const base = `${projectionPath(p)}/snapshots/${encodeURIComponent(snapshotId)}`;
+  return viewName ? `${base}/${encodeURIComponent(viewName)}` : base;
 }
 
 // SnapshotScope describes what the graph canvas is currently showing, so the
@@ -248,18 +256,22 @@ function AddSnapshotModal({
 
 // ProjectionNavItem renders one projection in the navbar with its saved Views
 // and Snapshots nested beneath it. Clicking the projection selects it (custom
-// filters); clicking a view selects the projection and applies that view's
-// filters. The current selection comes from the URL (/<projection>[/<view>]).
+// filters); clicking a view applies that view's filters to whatever is being
+// displayed - the live graph, or the active snapshot's captured graph;
+// clicking a snapshot shows the nodes and edges it captured. The current
+// selection comes from the URL.
 function ProjectionNavItem({
   projection,
   selectedNamespace,
   selectedName,
   activeViewName,
+  activeSnapshotId,
 }: {
   projection: Projection;
   selectedNamespace?: string;
   selectedName?: string;
   activeViewName?: string;
+  activeSnapshotId?: string;
 }) {
   const navigate = useNavigate();
   const { data: views } = useQuery({
@@ -282,19 +294,27 @@ function ProjectionNavItem({
   return (
     <Box>
       <NavLink
-        active={isSelected && !activeViewName}
+        active={isSelected && !activeViewName && !activeSnapshotId}
         onClick={() => navigate(projectionPath(projection))}
         leftSection={<IconHierarchy2 size={16} stroke={1.5} />}
         label={<Text fw={600}>{projection.name}</Text>}
         description={`${projection.namespace} · ${projection.phase ?? "—"} · ${projection.nodeCount}n / ${projection.relationshipCount}e`}
       />
-      {/* Views associated with this projection, always shown indented below it. */}
+      {/* Views associated with this projection, always shown indented below
+          it. With a snapshot active, selecting a view applies its filters to
+          the snapshot's captured graph instead of returning to live. */}
       {items.map((v) => (
         <NavLink
           key={v.uid ?? `${v.namespace}/${v.name}`}
           pl={28}
           active={isSelected && activeViewName === v.name}
-          onClick={() => navigate(viewPath(projection, v.name))}
+          onClick={() =>
+            navigate(
+              isSelected && activeSnapshotId
+                ? snapshotPath(projection, activeSnapshotId, v.name)
+                : viewPath(projection, v.name),
+            )
+          }
           leftSection={<IconBookmark size={14} stroke={1.5} />}
           label={v.displayName || v.name}
         />
@@ -317,6 +337,8 @@ function ProjectionNavItem({
         <NavLink
           key={s.id}
           pl={28}
+          active={isSelected && activeSnapshotId === s.id}
+          onClick={() => navigate(snapshotPath(projection, s.id))}
           leftSection={<IconCamera size={14} stroke={1.5} />}
           label={s.name}
           description={new Date(s.createdAt).toLocaleString()}
@@ -340,10 +362,12 @@ function ProjectionList({
   selectedNamespace,
   selectedName,
   activeViewName,
+  activeSnapshotId,
 }: {
   selectedNamespace?: string;
   selectedName?: string;
   activeViewName?: string;
+  activeSnapshotId?: string;
 }) {
   const { data, isLoading, error } = useQuery({
     queryKey: ["projections"],
@@ -389,6 +413,7 @@ function ProjectionList({
           selectedNamespace={selectedNamespace}
           selectedName={selectedName}
           activeViewName={activeViewName}
+          activeSnapshotId={activeSnapshotId}
         />
       ))}
     </Stack>
@@ -951,11 +976,18 @@ function EdgeLegend({
 function GraphPanel({
   projection,
   activeView,
+  activeSnapshot,
   onActiveViewChange,
+  onExitSnapshot,
 }: {
   projection: Projection;
   activeView: View | null;
+  // When set, the panel shows this snapshot's captured graph instead of the
+  // live projection; views still apply their filters on top.
+  activeSnapshot?: Snapshot | null;
   onActiveViewChange: (v: View | null) => void;
+  // Navigates back to the live graph (keeping the active view, if any).
+  onExitSnapshot?: () => void;
 }) {
   const { settings, update } = useSettings();
   const queryClient = useQueryClient();
@@ -1030,9 +1062,13 @@ function GraphPanel({
   const [labelFilters, setLabelFilters] = useState<LabelFilter[]>([]);
   const [labelMode, setLabelMode] = useState<LabelMatchMode>("any");
   const { data, isLoading, error } = useQuery({
-    queryKey: ["graph", projection.uid],
-    queryFn: () => getGraph(projection.namespace, projection.name),
-    refetchInterval: 10_000,
+    queryKey: ["graph", projection.uid, activeSnapshot?.id ?? "live"],
+    queryFn: () =>
+      activeSnapshot
+        ? getSnapshotGraph(projection.namespace, projection.name, activeSnapshot.id)
+        : getGraph(projection.namespace, projection.name),
+    // Snapshots are immutable; only the live graph needs polling.
+    refetchInterval: activeSnapshot ? false : 10_000,
   });
 
   const kinds = useMemo(() => (data ? kindCounts(data) : []), [data]);
@@ -1064,10 +1100,11 @@ function GraphPanel({
 
   // Publish what the canvas currently shows so the navbar's Add Snapshot
   // modal can offer to capture just the visible nodes or the active view's
-  // full node set. Cleared on unmount (no projection displayed).
+  // full node set. Cleared on unmount (no projection displayed). Not
+  // published while viewing a snapshot: snapshots capture the live graph.
   const { setScope: setSnapshotScope } = useContext(SnapshotScopeContext);
   useEffect(() => {
-    if (!filteredGraph) return;
+    if (!filteredGraph || activeSnapshot) return;
     setSnapshotScope({
       namespace: projection.namespace,
       name: projection.name,
@@ -1077,7 +1114,7 @@ function GraphPanel({
         .map((n) => n.id),
       scopeNodeIds: filteredGraph.nodes.map((n) => n.id),
     });
-  }, [filteredGraph, hiddenNodeIds, projection.namespace, projection.name, activeView, setSnapshotScope]);
+  }, [filteredGraph, hiddenNodeIds, projection.namespace, projection.name, activeView, activeSnapshot, setSnapshotScope]);
   useEffect(() => () => setSnapshotScope(null), [setSnapshotScope]);
 
   // Edges whose endpoints are both visible, used only for the relationship
@@ -1302,6 +1339,43 @@ function GraphPanel({
             : undefined
         }
       >
+        {/* Snapshot banner: a persistent reminder that this is a frozen,
+            point-in-time copy, with a way back to the live graph. */}
+        {activeSnapshot && (
+          <Group
+            gap="xs"
+            px="md"
+            py={6}
+            wrap="nowrap"
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              zIndex: 5,
+              background: "var(--mantine-color-brand-9)",
+              borderBottom: "1px solid var(--mantine-color-brand-7)",
+            }}
+          >
+            <IconCamera size={14} stroke={1.5} />
+            <Text size="sm" fw={600} style={{ whiteSpace: "nowrap" }}>
+              Snapshot “{activeSnapshot.name}”
+            </Text>
+            <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
+              {new Date(activeSnapshot.createdAt).toLocaleString()} ·{" "}
+              {activeSnapshot.nodeCount} nodes / {activeSnapshot.relationshipCount} edges · not
+              kept in sync with the cluster
+            </Text>
+            <Button
+              size="compact-xs"
+              variant="default"
+              ml="auto"
+              onClick={() => onExitSnapshot?.()}
+            >
+              Back to live
+            </Button>
+          </Group>
+        )}
         {isLoading && (
           <Group gap="xs" p="md">
             <Loader size="sm" />
@@ -1525,7 +1599,7 @@ function NotFoundPage({ message }: { message?: string }) {
 // against the projection and view lists, rendering the graph panel on a match
 // and a 404 page when either name is unknown.
 function ProjectionRoute() {
-  const { namespace, projection: projectionName, view: viewName } = useParams();
+  const { namespace, projection: projectionName, view: viewName, snapshotId } = useParams();
   const navigate = useNavigate();
   const {
     data: projections,
@@ -1545,6 +1619,13 @@ function ProjectionRoute() {
     queryKey: ["views", projection?.namespace, projection?.name],
     queryFn: () => listViews(projection!.namespace, projection!.name),
     enabled: !!projection && !!viewName,
+  });
+  // Resolve the snapshot when the URL selects one. Shares the cache with the
+  // navbar's per-projection snapshots query.
+  const snapshotsQuery = useQuery({
+    queryKey: ["snapshots", projection?.namespace, projection?.name],
+    queryFn: () => listSnapshots(projection!.namespace, projection!.name),
+    enabled: !!projection && !!snapshotId,
   });
 
   if (isLoading)
@@ -1583,12 +1664,43 @@ function ProjectionRoute() {
       );
   }
 
+  let activeSnapshot: Snapshot | null = null;
+  if (snapshotId) {
+    if (snapshotsQuery.isLoading)
+      return (
+        <Group gap="xs" p="md">
+          <Loader size="sm" />
+          <Text c="dimmed">Loading snapshots…</Text>
+        </Group>
+      );
+    activeSnapshot = snapshotsQuery.data?.find((s) => s.id === snapshotId) ?? null;
+    if (!activeSnapshot)
+      return (
+        <NotFoundPage
+          message={`Snapshot was not found on projection “${projection.name}”.`}
+        />
+      );
+  }
+
   return (
     <GraphPanel
+      // Remount when switching between live and a snapshot so canvas state
+      // (layout, hidden nodes, selection) never carries across graphs.
+      key={activeSnapshot?.id ?? "live"}
       projection={projection}
       activeView={activeView}
+      activeSnapshot={activeSnapshot}
+      onExitSnapshot={() =>
+        navigate(activeView ? viewPath(projection, activeView.name) : projectionPath(projection))
+      }
       onActiveViewChange={(v) =>
-        navigate(v ? viewPath(projection, v.name) : projectionPath(projection))
+        navigate(
+          activeSnapshot
+            ? snapshotPath(projection, activeSnapshot.id, v?.name)
+            : v
+              ? viewPath(projection, v.name)
+              : projectionPath(projection),
+        )
       }
     />
   );
@@ -1597,7 +1709,7 @@ function ProjectionRoute() {
 // Shell is the persistent chrome (header + projections navbar) wrapped around
 // every route's content.
 function Shell({ children }: { children: ReactNode }) {
-  const { namespace, projection: projectionName, view: viewName } = useParams();
+  const { namespace, projection: projectionName, view: viewName, snapshotId } = useParams();
   // Whether the settings modal is open.
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Whether the keyboard-shortcuts help modal is open.
@@ -1685,6 +1797,7 @@ function Shell({ children }: { children: ReactNode }) {
             selectedNamespace={namespace}
             selectedName={projectionName}
             activeViewName={viewName}
+            activeSnapshotId={snapshotId}
           />
         </AppShell.Section>
       </AppShell.Navbar>
@@ -1717,6 +1830,22 @@ export default function App() {
       />
       <Route
         path="/:namespace/:projection"
+        element={
+          <Shell>
+            <ProjectionRoute />
+          </Shell>
+        }
+      />
+      <Route
+        path="/:namespace/:projection/snapshots/:snapshotId"
+        element={
+          <Shell>
+            <ProjectionRoute />
+          </Shell>
+        }
+      />
+      <Route
+        path="/:namespace/:projection/snapshots/:snapshotId/:view"
         element={
           <Shell>
             <ProjectionRoute />

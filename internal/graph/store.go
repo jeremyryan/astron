@@ -119,6 +119,11 @@ type SnapshotStore interface {
 	// ListSnapshots returns the projection's snapshots, newest first.
 	ListSnapshots(ctx context.Context, projection ProjectionID) ([]SnapshotInfo, error)
 
+	// ReadSnapshot returns the nodes and relationships captured by a snapshot,
+	// in the same shape as ReadGraph. It returns ErrSnapshotNotFound when the
+	// snapshot does not exist.
+	ReadSnapshot(ctx context.Context, projection ProjectionID, snapshotID string) (GraphData, error)
+
 	// DeleteSnapshot removes a snapshot and all of its copied data. Deleting a
 	// snapshot that does not exist is not an error.
 	DeleteSnapshot(ctx context.Context, projection ProjectionID, snapshotID string) error

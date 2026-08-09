@@ -80,6 +80,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/projections/{namespace}/{name}/rag/models", s.handleRAGModels)
 	mux.HandleFunc("POST /api/projections/{namespace}/{name}/snapshots", s.handleCreateSnapshot)
 	mux.HandleFunc("GET /api/projections/{namespace}/{name}/snapshots", s.handleListSnapshots)
+	mux.HandleFunc("GET /api/projections/{namespace}/{name}/snapshots/{id}/graph", s.handleSnapshotGraph)
 	mux.HandleFunc("DELETE /api/projections/{namespace}/{name}/snapshots/{id}", s.handleDeleteSnapshot)
 	mux.HandleFunc("POST /api/projections/{namespace}/{name}/links", s.handleCreateLink)
 	mux.HandleFunc("PATCH /api/projections/{namespace}/{name}/links", s.handleUpdateLink)
@@ -431,6 +432,29 @@ func (s *Server) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
 		out = append(out, toSnapshotDTO(info))
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// handleSnapshotGraph returns the nodes and edges captured by a snapshot, in
+// the same shape as the live graph endpoint.
+func (s *Server) handleSnapshotGraph(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.projectionID(w, r)
+	if !ok {
+		return
+	}
+
+	data, err := s.projectors.ReadSnapshot(r.Context(), id, r.PathValue("id"))
+	if err != nil {
+		switch {
+		case errors.Is(err, graph.ErrSnapshotNotFound):
+			writeError(w, http.StatusNotFound, err)
+		case errors.Is(err, projector.ErrNotRunning), errors.Is(err, projector.ErrSnapshotsNotSupported):
+			writeError(w, http.StatusServiceUnavailable, err)
+		default:
+			writeError(w, http.StatusInternalServerError, err)
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, graphToDTO(data))
 }
 
 // handleDeleteSnapshot removes a snapshot and its copied graph data.

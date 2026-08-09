@@ -242,6 +242,18 @@ func (m *Manager) ListSnapshots(ctx context.Context, id graph.ProjectionID) ([]g
 	return p.ListSnapshots(ctx)
 }
 
+// ReadSnapshot returns the graph captured by one of a running projection's
+// snapshots. It returns ErrNotRunning when no projector is serving the
+// projection, or ErrSnapshotsNotSupported when the store cannot store
+// snapshots.
+func (m *Manager) ReadSnapshot(ctx context.Context, id graph.ProjectionID, snapshotID string) (graph.GraphData, error) {
+	p, ok := m.Get(id)
+	if !ok {
+		return graph.GraphData{}, ErrNotRunning
+	}
+	return p.ReadSnapshot(ctx, snapshotID)
+}
+
 // DeleteSnapshot removes one of a running projection's snapshots. It returns
 // ErrNotRunning when no projector is serving the projection, or
 // ErrSnapshotsNotSupported when the store cannot store snapshots.
