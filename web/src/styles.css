@@ -98,6 +98,12 @@ body {
 .graph-canvas {
   position: absolute;
   inset: 0;
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in srgb, var(--panel) 70%, var(--accent) 30%) 0%,
+    color-mix(in srgb, var(--panel) 85%, var(--accent) 15%) 40%,
+    var(--panel) 100%
+  );
 }
 
 /* Optional reference grid overlaid on the display, toggled from the top-right
