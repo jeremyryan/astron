@@ -461,16 +461,18 @@ body {
 }
 
 /* Smooth open/close animation for collapsible sections (Views, Snapshots in
-   the sidebar and resource kind groups in the inspector). Uses max-height
-   transition from a small starting height to a calculated large height; the
-   maximum is generous to avoid truncation with dynamic content. */
+   the sidebar and resource kind groups in the inspector). Uses max-height and
+   opacity transitions to smoothly show/hide content; both animate together over
+   the same 250ms duration so the animation feels cohesive. */
 .collapsible-section {
   overflow: hidden;
-  transition: max-height 250ms cubic-bezier(0.2, 0, 0.2, 1);
+  transition: max-height 250ms cubic-bezier(0.2, 0, 0.2, 1),
+              opacity 250ms cubic-bezier(0.2, 0, 0.2, 1);
 }
 
 .collapsible-section.expanded {
   max-height: 2000px; /* Large enough for any reasonable section */
+  opacity: 1;
 }
 
 .collapsible-section.collapsed {
