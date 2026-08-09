@@ -1360,7 +1360,7 @@ function Shell({ children }: { children: ReactNode }) {
 
   return (
     <AppShell header={{ height: 52 }} navbar={{ width: 260, breakpoint: "sm" }} padding={0}>
-      <AppShell.Header>
+      <AppShell.Header className="app-header">
         <Group h="100%" px="md" gap="sm" align="center" justify="space-between" wrap="nowrap">
           <Group gap="sm" align="center" wrap="nowrap">
             <Link
