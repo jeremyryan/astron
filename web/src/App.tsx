@@ -1815,29 +1815,33 @@ function GraphPanel({
             });
         }}
       />
-      {inspectorCollapsed ? (
-        <aside className="inspector inspector-collapsed">
-          <div className="inspector-collapsed-inner">
-            <Tooltip label="Expand panel" position="left">
-              <ActionIcon
-                variant="subtle"
-                color="gray"
-                onClick={() => setInspectorCollapsed(false)}
-                aria-label="Expand panel"
-              >
-                <IconChevronLeft size={18} />
-              </ActionIcon>
-            </Tooltip>
-          </div>
-        </aside>
-      ) : (
-        (() => {
-          const showDetails =
-            !showResourceList && (selection?.type === "edge" || !!selectedNode);
-          const onChatTab = chatEnabled && inspectorTab === "chat";
-          return (
-            <aside className="inspector">
-              <div className="inspector-panel">
+      {(() => {
+        // Rendered unconditionally (visibility toggled via CSS, not
+        // conditional mounting) so collapsing/expanding the panel doesn't
+        // unmount the chat conversation and lose its history.
+        const showDetails =
+          !showResourceList && (selection?.type === "edge" || !!selectedNode);
+        const onChatTab = chatEnabled && inspectorTab === "chat";
+        return (
+          <aside className={inspectorCollapsed ? "inspector inspector-collapsed" : "inspector"}>
+            {inspectorCollapsed && (
+              <div className="inspector-collapsed-inner">
+                <Tooltip label="Expand panel" position="left">
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    onClick={() => setInspectorCollapsed(false)}
+                    aria-label="Expand panel"
+                  >
+                    <IconChevronLeft size={18} />
+                  </ActionIcon>
+                </Tooltip>
+              </div>
+            )}
+            <div
+              className="inspector-panel"
+              style={inspectorCollapsed ? { display: "none" } : undefined}
+            >
               <div className="inspector-header">
                 {showDetails && !onChatTab ? (
                   <Button
@@ -1938,11 +1942,10 @@ function GraphPanel({
                   />
                 </div>
               )}
-              </div>
-            </aside>
-          );
-        })()
-      )}
+            </div>
+          </aside>
+        );
+      })()}
     </div>
   );
 }
