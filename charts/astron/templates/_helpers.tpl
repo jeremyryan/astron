@@ -110,3 +110,28 @@ Name of the ConfigMap holding default configuration for new projections.
 {{- define "astron.projectionDefaultsName" -}}
 {{- default (printf "%s-projection-defaults" (include "astron.fullname" .)) .Values.projectionDefaults.name }}
 {{- end }}
+
+{{/*
+Name of the ConfigMap holding the controller-wide agentic model providers.
+Uses an externally-managed ConfigMap when providers.existingConfigMap is set,
+otherwise a chart-managed one named "<fullname>-providers".
+*/}}
+{{- define "astron.providersConfigName" -}}
+{{- if .Values.providers.existingConfigMap -}}
+{{- .Values.providers.existingConfigMap -}}
+{{- else -}}
+{{- printf "%s-providers" (include "astron.fullname" .) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Whether a providers ConfigMap should be mounted into the controller: either an
+external one is named, or inline embedding/chat providers are configured.
+*/}}
+{{- define "astron.providersEnabled" -}}
+{{- if .Values.providers.existingConfigMap -}}
+true
+{{- else if or .Values.providers.embeddingProviders .Values.providers.chatProviders -}}
+true
+{{- end -}}
+{{- end }}

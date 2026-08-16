@@ -56,6 +56,9 @@ spec:
             {{- else }}
             - --api-bind-address=0
             {{- end }}
+            {{- if include "astron.providersEnabled" . }}
+            - --providers-config-file=/etc/astron/providers/providers.yaml
+            {{- end }}
             {{- with .Values.controller.extraArgs }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -111,6 +114,18 @@ spec:
             {{- toYaml .Values.controller.resources | nindent 12 }}
           securityContext:
             {{- toYaml .Values.controller.securityContext | nindent 12 }}
+          {{- if include "astron.providersEnabled" . }}
+          volumeMounts:
+            - name: providers-config
+              mountPath: /etc/astron/providers
+              readOnly: true
+          {{- end }}
+      {{- if include "astron.providersEnabled" . }}
+      volumes:
+        - name: providers-config
+          configMap:
+            name: {{ include "astron.providersConfigName" . }}
+      {{- end }}
       {{- with .Values.controller.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

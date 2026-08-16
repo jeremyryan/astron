@@ -46,6 +46,7 @@ import (
 	"github.com/project-astron/astron/internal/controller"
 	"github.com/project-astron/astron/internal/graph"
 	"github.com/project-astron/astron/internal/projector"
+	"github.com/project-astron/astron/internal/rag"
 	"github.com/project-astron/astron/web"
 	// +kubebuilder:scaffold:imports
 )
@@ -74,6 +75,7 @@ func main() {
 	var apiAddr string
 	var neo4jFlags graph.Neo4jConfig
 	var neo4jConfigFile string
+	var providersConfigFile string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&apiAddr, "api-bind-address", ":8082",
 		"The address the read API and web UI server binds to. Set to 0 to disable.")
@@ -107,6 +109,10 @@ func main() {
 	flag.StringVar(&neo4jConfigFile, "neo4j-config-file", "",
 		"Path to a YAML file with uri/database/username/password keys, typically mounted "+
 			"from a ConfigMap. Flags and environment variables override its values.")
+	flag.StringVar(&providersConfigFile, "providers-config-file", "",
+		"Path to a YAML file listing controller-wide embedding and chat model providers "+
+			"(embeddingProviders/chatProviders), typically mounted from a ConfigMap and shared "+
+			"by every projection. Overrides "+rag.EnvProvidersConfigFile+".")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -126,6 +132,22 @@ func main() {
 		setupLog.Info("WARNING: no Neo4J URI configured; GraphProjections will fail until " +
 			"--neo4j-uri, " + graph.EnvNeo4jURI + ", or a --neo4j-config-file provides one")
 	}
+
+	// Load the controller-wide agentic model providers shared by every
+	// projection (the flag overrides the environment variable). This is a set
+	// of named embedding and chat providers; how projections select among them
+	// is layered on separately.
+	if providersConfigFile == "" {
+		providersConfigFile = os.Getenv(rag.EnvProvidersConfigFile)
+	}
+	providers, err := rag.LoadProvidersConfig(providersConfigFile)
+	if err != nil {
+		setupLog.Error(err, "Failed to load the providers configuration")
+		os.Exit(1)
+	}
+	setupLog.Info("Loaded agentic model providers",
+		"embeddingProviders", providers.EmbeddingProviderNames(),
+		"chatProviders", providers.ChatProviderNames())
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -228,6 +250,8 @@ func main() {
 	projectors := projector.NewManager(dynClient, mgr.GetRESTMapper(), func(cfg graph.Neo4jConfig) (graph.Store, error) {
 		return graph.NewNeo4jStore(cfg)
 	})
+	// Make the controller-wide providers available to every projection.
+	projectors.SetProviders(providers)
 
 	if err := (&controller.GraphProjectionReconciler{
 		Client:     mgr.GetClient(),

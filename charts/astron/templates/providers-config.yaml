@@ -1,0 +1,26 @@
+{{- /*
+Controller-wide agentic model providers, shared by every GraphProjection.
+The controller reads this file (mounted from the ConfigMap) via
+--providers-config-file. Rendered only when inline providers are configured and
+no external ConfigMap is supplied (providers.existingConfigMap takes over then).
+Credentials are never placed here: each provider references a Secret key.
+*/ -}}
+{{- if and (not .Values.providers.existingConfigMap) (or .Values.providers.embeddingProviders .Values.providers.chatProviders) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "astron.providersConfigName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "astron.labels" . | nindent 4 }}
+data:
+  providers.yaml: |
+    {{- $providers := dict }}
+    {{- with .Values.providers.embeddingProviders }}
+    {{- $_ := set $providers "embeddingProviders" . }}
+    {{- end }}
+    {{- with .Values.providers.chatProviders }}
+    {{- $_ := set $providers "chatProviders" . }}
+    {{- end }}
+    {{- toYaml $providers | nindent 4 }}
+{{- end }}

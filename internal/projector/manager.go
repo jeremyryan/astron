@@ -74,6 +74,11 @@ type Manager struct {
 	newStore      StoreFactory
 	engine        *relationship.Engine
 
+	// providers holds the controller-wide agentic model providers shared by
+	// every projection (loaded once from the providers ConfigMap). It is set
+	// at startup and read-only thereafter; nil means none are configured.
+	providers *rag.ProviderRegistry
+
 	mu      sync.Mutex
 	running map[graph.ProjectionID]*entry
 }
@@ -90,8 +95,24 @@ func NewManager(dynamicClient dynamic.Interface, mapper meta.RESTMapper, newStor
 		mapper:        mapper,
 		newStore:      newStore,
 		engine:        relationship.NewEngine(),
+		providers:     &rag.ProviderRegistry{},
 		running:       map[graph.ProjectionID]*entry{},
 	}
+}
+
+// SetProviders installs the controller-wide providers registry shared by every
+// projection. It is intended to be called once during startup, before the
+// manager begins reconciling.
+func (m *Manager) SetProviders(reg *rag.ProviderRegistry) {
+	if reg == nil {
+		reg = &rag.ProviderRegistry{}
+	}
+	m.providers = reg
+}
+
+// Providers returns the controller-wide providers registry. It is never nil.
+func (m *Manager) Providers() *rag.ProviderRegistry {
+	return m.providers
 }
 
 // Ensure makes the running state match the desired projection: it starts a new

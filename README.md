@@ -114,6 +114,8 @@ It is opt-in per `GraphProjection`.
 - **[GraphRAG User Guide](./docs/graphrag-guide.md)** — enable it, configure a
   provider, call the API, and wire up the `astron mcp-server`.
 - **[GraphRAG Design](./docs/graphrag.md)** — architecture and rationale.
+- **[Controller-wide model providers](./docs/providers.md)** — declare named
+  embedding/chat providers once on the controller, shared by every projection.
 
 ## Getting Started
 

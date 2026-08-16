@@ -173,6 +173,27 @@ projectionDefaults:
   # (e.g. resyncInterval, graphRAG defaults).
   extraSpec: {}
 
+# Controller-wide agentic model providers, shared by every GraphProjection.
+# When any provider is listed here (or an existing ConfigMap is referenced), the
+# chart mounts a providers ConfigMap into the controller and points it at the
+# file with --providers-config-file. Credentials are never inlined: each
+# provider references a Secret key via apiKeySecret.
+providers:
+  # -- Use an externally-managed ConfigMap (with a `providers.yaml` key) instead
+  # of rendering one from the lists below. When set, the inline lists are
+  # ignored.
+  existingConfigMap: ""
+  # -- Named embedding providers available cluster-wide. Each entry accepts:
+  # name (required, unique), provider (openai/azure/ollama/litellm/fake,
+  # default openai), model, baseURL (required for azure/ollama/litellm),
+  # dimensions, and apiKeySecret {name, namespace, key}.
+  embeddingProviders: []
+  # -- Named chat providers available cluster-wide. Each entry accepts:
+  # name (required, unique), provider (default openai), model,
+  # baseURL (required for azure/ollama/litellm), allowedModels, and
+  # apiKeySecret {name, namespace, key}.
+  chatProviders: []
+
 # Optionally create a default GraphProjection on install.
 defaultProjection:
   # -- Create a GraphProjection resource pointing at the configured Neo4J.
