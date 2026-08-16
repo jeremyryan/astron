@@ -168,6 +168,11 @@ func apiEndpoints() []endpoint {
 			summary: "Liveness/readiness probe", resp: new(healthResponse), status: http.StatusOK,
 		},
 		{
+			method: http.MethodGet, path: "/api/providers", id: "listProviders", tag: "providers",
+			summary: "List the controller-wide embedding and chat model providers",
+			resp:    new(providersDTO), status: http.StatusOK,
+		},
+		{
 			method: http.MethodGet, path: "/api/projections", id: "listProjections", tag: "projections",
 			summary: "List all GraphProjections", resp: new([]projectionDTO), status: http.StatusOK,
 		},

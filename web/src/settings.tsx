@@ -26,6 +26,12 @@ export interface Settings {
   layoutRepulsion: number;
   layoutEdgeLength: number;
   layoutGravity: number;
+  // Name of the controller-configured embedding provider to use, or null for
+  // none/unset. The available names come from GET /api/providers.
+  embeddingModel: string | null;
+  // Name of the controller-configured chat provider to use by default, or null
+  // for none/unset.
+  defaultChatModel: string | null;
 }
 
 // Bounds for the layout tuning controls (also used to clamp stored values).
@@ -45,6 +51,8 @@ const DEFAULT_PREFS: Prefs = {
   layoutRepulsion: 8000,
   layoutEdgeLength: 100,
   layoutGravity: 0.2,
+  embeddingModel: null,
+  defaultChatModel: null,
 };
 
 const STORAGE_KEY = "astron.settings";
@@ -71,6 +79,10 @@ function loadPrefs(): { prefs: Prefs; legacyWallpaper: string | null } {
         layoutRepulsion: num(parsed.layoutRepulsion, DEFAULT_PREFS.layoutRepulsion),
         layoutEdgeLength: num(parsed.layoutEdgeLength, DEFAULT_PREFS.layoutEdgeLength),
         layoutGravity: num(parsed.layoutGravity, DEFAULT_PREFS.layoutGravity),
+        embeddingModel:
+          typeof parsed.embeddingModel === "string" ? parsed.embeddingModel : null,
+        defaultChatModel:
+          typeof parsed.defaultChatModel === "string" ? parsed.defaultChatModel : null,
       },
       legacyWallpaper: parsed.wallpaper ?? null,
     };
@@ -172,6 +184,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         layoutRepulsion: settings.layoutRepulsion,
         layoutEdgeLength: settings.layoutEdgeLength,
         layoutGravity: settings.layoutGravity,
+        embeddingModel: settings.embeddingModel,
+        defaultChatModel: settings.defaultChatModel,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
     } catch {
@@ -183,6 +197,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     settings.layoutRepulsion,
     settings.layoutEdgeLength,
     settings.layoutGravity,
+    settings.embeddingModel,
+    settings.defaultChatModel,
   ]);
 
   // Persist the wallpaper to IndexedDB whenever it changes (once hydrated).

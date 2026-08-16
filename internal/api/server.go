@@ -71,6 +71,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/openapi.json", s.handleOpenAPI)
 	mux.HandleFunc("GET /api/docs", s.handleDocs)
 	mux.HandleFunc("GET /api/redoc.standalone.js", s.handleRedocBundle)
+	mux.HandleFunc("GET /api/providers", s.handleListProviders)
 	mux.HandleFunc("GET /api/projections", s.handleListProjections)
 	mux.HandleFunc("GET /api/projections/{namespace}/{name}/graph", s.handleGraph)
 	mux.HandleFunc("POST /api/projections/{namespace}/{name}/rag/search", s.handleRAGSearch)
@@ -103,6 +104,28 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleListProviders returns the controller-wide model providers (embedding
+// and chat) configured on the controller and shared by every projection, so
+// the UI can offer them for selection. Credentials are never included.
+func (s *Server) handleListProviders(w http.ResponseWriter, _ *http.Request) {
+	out := providersDTO{EmbeddingProviders: []providerDTO{}, ChatProviders: []providerDTO{}}
+	if reg := s.projectors.Providers(); reg != nil {
+		for _, name := range reg.EmbeddingProviderNames() {
+			if p, ok := reg.EmbeddingProvider(name); ok {
+				out.EmbeddingProviders = append(out.EmbeddingProviders,
+					providerDTO{Name: p.Name, Provider: string(p.Provider), Model: p.Model})
+			}
+		}
+		for _, name := range reg.ChatProviderNames() {
+			if p, ok := reg.ChatProvider(name); ok {
+				out.ChatProviders = append(out.ChatProviders,
+					providerDTO{Name: p.Name, Provider: string(p.Provider), Model: p.Model})
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleListProjections(w http.ResponseWriter, r *http.Request) {

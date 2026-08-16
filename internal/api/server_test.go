@@ -21,6 +21,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -38,6 +40,7 @@ import (
 
 	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
 	"github.com/project-astron/astron/internal/projector"
+	"github.com/project-astron/astron/internal/rag"
 )
 
 func testScheme(t *testing.T) *runtime.Scheme {
@@ -490,5 +493,70 @@ func TestSnapshotEndpoints(t *testing.T) {
 	}
 	if code := do(http.MethodDelete, "/api/projections/default/demo/snapshots/abc", ""); code != http.StatusServiceUnavailable {
 		t.Fatalf("delete, not running: status = %d, want 503", code)
+	}
+}
+
+func TestListProviders(t *testing.T) {
+	// An empty registry (no providers configured) returns empty lists, not null.
+	srv := newTestServer(t)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/providers", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var empty providersDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &empty); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if empty.EmbeddingProviders == nil || empty.ChatProviders == nil {
+		t.Fatalf("expected empty (non-null) lists, got %+v", empty)
+	}
+	if len(empty.EmbeddingProviders) != 0 || len(empty.ChatProviders) != 0 {
+		t.Fatalf("expected no providers, got %+v", empty)
+	}
+
+	// With providers configured, they are listed in declaration order with only
+	// the descriptive (non-secret) fields.
+	dir := t.TempDir()
+	file := filepath.Join(dir, "providers.yaml")
+	content := `
+embeddingProviders:
+  - name: openai-small
+    provider: openai
+    model: text-embedding-3-small
+    apiKeySecret:
+      name: k
+chatProviders:
+  - name: gpt4o
+    provider: openai
+    model: gpt-4o-mini
+`
+	if err := os.WriteFile(file, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := rag.LoadProvidersConfig(file)
+	if err != nil {
+		t.Fatalf("LoadProvidersConfig: %v", err)
+	}
+	mgr := projector.NewManager(nil, nil, nil)
+	mgr.SetProviders(reg)
+	c := fakeclient.NewClientBuilder().WithScheme(testScheme(t)).Build()
+	srv = NewServer(c, mgr, nil, nil, nil)
+
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/providers", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var got providersDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if len(got.EmbeddingProviders) != 1 || got.EmbeddingProviders[0].Name != "openai-small" ||
+		got.EmbeddingProviders[0].Model != "text-embedding-3-small" {
+		t.Fatalf("unexpected embedding providers: %+v", got.EmbeddingProviders)
+	}
+	if len(got.ChatProviders) != 1 || got.ChatProviders[0].Name != "gpt4o" {
+		t.Fatalf("unexpected chat providers: %+v", got.ChatProviders)
 	}
 }

@@ -4,12 +4,99 @@ import {
   FileButton,
   Group,
   Image,
+  Loader,
   Modal,
+  Select,
   Slider,
   Stack,
   Text,
 } from "@mantine/core";
+import { useQuery } from "@tanstack/react-query";
+import { listProviders, type ProviderInfo } from "./api";
 import { LAYOUT_LIMITS, useSettings } from "./settings";
+
+// providerOptions turns providers into Select data, labelling each by its name
+// with the underlying model/provider as a hint.
+function providerOptions(providers: ProviderInfo[]) {
+  return providers.map((p) => ({
+    value: p.name,
+    label: p.model ? `${p.name} (${p.model})` : p.name,
+  }));
+}
+
+// ModelSettings lets the user pick an embedding model and a default chat model
+// from the providers configured on the controller (GET /api/providers).
+function ModelSettings() {
+  const { settings, update } = useSettings();
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["providers"],
+    queryFn: listProviders,
+  });
+
+  const embeddingProviders = data?.embeddingProviders ?? [];
+  const chatProviders = data?.chatProviders ?? [];
+
+  return (
+    <Stack gap="md">
+      <div>
+        <Text fw={600} size="sm">
+          Models
+        </Text>
+        <Text size="xs" c="dimmed">
+          Choose from the embedding and chat providers configured on the
+          controller. Manage the available options via the controller&apos;s
+          providers ConfigMap.
+        </Text>
+      </div>
+
+      {isLoading ? (
+        <Group gap="xs">
+          <Loader size="xs" />
+          <Text size="sm" c="dimmed">
+            Loading providers…
+          </Text>
+        </Group>
+      ) : error ? (
+        <Text size="sm" c="red">
+          {(error as Error).message}
+        </Text>
+      ) : (
+        <>
+          <Select
+            label="Embedding model"
+            description={
+              embeddingProviders.length === 0
+                ? "No embedding providers are configured on the controller."
+                : undefined
+            }
+            placeholder="Select an embedding model…"
+            data={providerOptions(embeddingProviders)}
+            value={settings.embeddingModel}
+            onChange={(v) => update({ embeddingModel: v })}
+            disabled={embeddingProviders.length === 0}
+            clearable
+            searchable
+          />
+          <Select
+            label="Default chat model"
+            description={
+              chatProviders.length === 0
+                ? "No chat providers are configured on the controller."
+                : undefined
+            }
+            placeholder="Select a default chat model…"
+            data={providerOptions(chatProviders)}
+            value={settings.defaultChatModel}
+            onChange={(v) => update({ defaultChatModel: v })}
+            disabled={chatProviders.length === 0}
+            clearable
+            searchable
+          />
+        </>
+      )}
+    </Stack>
+  );
+}
 
 // LayoutSlider is one labelled slider bound to a numeric layout setting.
 function LayoutSlider({
@@ -109,6 +196,10 @@ export function SettingsModal({ opened, onClose }: { opened: boolean; onClose: (
             )}
           </Group>
         </Stack>
+
+        <Divider />
+
+        <ModelSettings />
 
         <Divider />
 

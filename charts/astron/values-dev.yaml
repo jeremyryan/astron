@@ -35,3 +35,25 @@ httpRoute:
   parentRefs:
     - name: "traefik-gateway"
       namespace: "kube-system"
+
+providers:
+  embeddingProviders:
+    - name: openai
+      provider: openai
+      model: text-embedding-3-small
+      dimensions: 1536
+      apiKeySecret:
+        name: astron-embeddings
+        key: apiKey
+  chatProviders:
+    - name: openai
+      provider: openai
+      model: "gpt-5.6-sol"
+      apiKeySecret:
+        name: astron-embeddings
+        key: apiKey
+    - name: ollama
+      provider: ollama
+      baseURL: http://ollama-service.ollama-system.svc:11434/v1
+      model: "llama2:7b"
+

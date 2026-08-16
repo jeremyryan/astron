@@ -141,6 +141,28 @@ components:
         namespace:
           type: string
       type: object
+    ApiProviderDTO:
+      properties:
+        model:
+          type: string
+        name:
+          type: string
+        provider:
+          type: string
+      type: object
+    ApiProvidersDTO:
+      properties:
+        chatProviders:
+          items:
+            $ref: '#/components/schemas/ApiProviderDTO'
+          nullable: true
+          type: array
+        embeddingProviders:
+          items:
+            $ref: '#/components/schemas/ApiProviderDTO'
+          nullable: true
+          type: array
+      type: object
     ApiRagNeighborhoodReq:
       properties:
         apiVersion:
@@ -1298,6 +1320,19 @@ paths:
       summary: Create a user-defined edge between two snapshot nodes
       tags:
       - snapshots
+  /api/providers:
+    get:
+      operationId: listProviders
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiProvidersDTO'
+          description: OK
+      summary: List the controller-wide embedding and chat model providers
+      tags:
+      - providers
   /api/resource:
     get:
       operationId: getResourceYAML

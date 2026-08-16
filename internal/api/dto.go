@@ -266,6 +266,21 @@ func dtoToViewSpec(in viewDTO) astronv1alpha1.GraphViewSpec {
 	}
 }
 
+// providerDTO is the JSON shape of one controller-wide model provider (an
+// embedding or chat provider configured on the controller and shared by every
+// projection). Only non-sensitive descriptive fields are exposed.
+type providerDTO struct {
+	Name     string `json:"name"`
+	Provider string `json:"provider"`
+	Model    string `json:"model,omitempty"`
+}
+
+// providersDTO is the JSON shape of the controller-wide providers listing.
+type providersDTO struct {
+	EmbeddingProviders []providerDTO `json:"embeddingProviders"`
+	ChatProviders      []providerDTO `json:"chatProviders"`
+}
+
 // snapshotDTO is the JSON shape of a snapshot's metadata.
 type snapshotDTO struct {
 	ID                string `json:"id"`

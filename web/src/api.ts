@@ -69,6 +69,26 @@ export function listProjections(): Promise<Projection[]> {
   return getJSON<Projection[]>("/api/projections");
 }
 
+// ----- Controller-wide model providers -----
+
+// ProviderInfo describes one controller-wide model provider (an embedding or
+// chat provider configured on the controller and shared by every projection).
+export interface ProviderInfo {
+  name: string;
+  provider: string;
+  model?: string;
+}
+
+// Providers is the set of controller-wide embedding and chat providers.
+export interface Providers {
+  embeddingProviders: ProviderInfo[];
+  chatProviders: ProviderInfo[];
+}
+
+export function listProviders(): Promise<Providers> {
+  return getJSON<Providers>("/api/providers");
+}
+
 export function getGraph(namespace: string, name: string): Promise<Graph> {
   return getJSON<Graph>(`/api/projections/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/graph`);
 }
