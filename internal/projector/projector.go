@@ -86,6 +86,11 @@ type Options struct {
 	// the provider credentials used to enumerate available models and the
 	// AllowedModels policy for per-request model overrides.
 	ChatSettings rag.ChatConfig
+	// ProviderChats are the controller-wide chat providers (resolved Chats
+	// keyed by provider name) available to this projection. A chat request
+	// whose model names one of these routes to it directly, so chat works even
+	// without a per-projection Chat above.
+	ProviderChats map[string]rag.Chat
 	// QueryStore, when set, enables guarded read-only Cypher execution for
 	// text-to-Cypher. Typically the same backend as Store.
 	QueryStore graph.QueryStore

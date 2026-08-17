@@ -46,6 +46,8 @@ providers:
         name: astron-embeddings
         key: apiKey
   chatProviders:
+    - name: fake
+      provider: fake
     - name: openai
       provider: openai
       model: "gpt-5.6-sol"

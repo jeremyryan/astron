@@ -38,9 +38,18 @@ type projectionDTO struct {
 	ChatEnabled bool `json:"chatEnabled,omitempty"`
 }
 
-func projectionToDTO(p astronv1alpha1.GraphProjection) projectionDTO {
+// projectionToDTO converts a GraphProjection to its API summary. hasProviderChats
+// reports whether the controller has any controller-wide chat providers, which
+// enable chat for any GraphRAG-embedding projection even without a
+// per-projection chat model.
+func projectionToDTO(p astronv1alpha1.GraphProjection, hasProviderChats bool) projectionDTO {
 	rag := p.Spec.GraphRAG
-	chatEnabled := rag != nil && rag.Enabled && rag.Chat != nil && rag.Chat.Enabled
+	ragEnabled := rag != nil && rag.Enabled
+	perProjectionChat := ragEnabled && rag.Chat != nil && rag.Chat.Enabled
+	// Answering needs retrieval (embeddings), so chat requires GraphRAG to be
+	// enabled; the chat model may come from the projection or a controller-wide
+	// provider.
+	chatEnabled := ragEnabled && (perProjectionChat || hasProviderChats)
 	return projectionDTO{
 		UID:               string(p.UID),
 		Namespace:         p.Namespace,

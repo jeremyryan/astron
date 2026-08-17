@@ -143,9 +143,10 @@ func (s *Server) handleListProjections(w http.ResponseWriter, r *http.Request) {
 		}
 		return a.Name < b.Name
 	})
+	hasProviderChats := s.projectors.HasProviderChats()
 	out := make([]projectionDTO, 0, len(list.Items))
 	for _, p := range list.Items {
-		out = append(out, projectionToDTO(p))
+		out = append(out, projectionToDTO(p, hasProviderChats))
 	}
 	writeJSON(w, http.StatusOK, out)
 }

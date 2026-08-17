@@ -16,6 +16,7 @@ import {
 import { askQuestion, getChatModels, type AnswerCard, type Projection } from "./api";
 import { iconForKindOrGeneric } from "./kinds";
 import { IconSend2 } from "./icons";
+import { useSettings } from "./settings";
 
 // A single entry in the conversation. Assistant messages carry the resource
 // cards that grounded the answer so they can be listed as sources.
@@ -117,10 +118,23 @@ export function ChatPanel({
     retry: false,
   });
   const modelChoices = chatModels?.models ?? [];
-  // The user's explicit choice; null falls back to the projection default.
+  // The projection's own default chat model (empty when it configures none and
+  // chat is available only via controller-wide providers).
+  const projectionDefault = chatModels?.default ?? "";
+  // The user's settings-wide default chat model, honoured when the projection
+  // exposes it as a choice (i.e. it names a controller-wide chat provider).
+  const { settings } = useSettings();
+  const settingsDefault =
+    settings.defaultChatModel && modelChoices.includes(settings.defaultChatModel)
+      ? settings.defaultChatModel
+      : null;
+  // The effective default: the user's global preference, else the projection's
+  // own default, else the first available choice.
+  const effectiveDefault = settingsDefault ?? (projectionDefault || modelChoices[0] || null);
+  // The user's explicit per-conversation choice; null falls back to the
+  // effective default above.
   const [model, setModel] = useState<string | null>(null);
-  const selectedModel =
-    model && modelChoices.includes(model) ? model : (chatModels?.default ?? null);
+  const selectedModel = model && modelChoices.includes(model) ? model : effectiveDefault;
 
   // Keep the newest message in view as the conversation grows.
   useEffect(() => {
@@ -139,8 +153,11 @@ export function ChatPanel({
       { id: crypto.randomUUID(), role: "user", text: question },
     ]);
     setPending(true);
+    // Send the chosen model whenever it isn't the projection's own default —
+    // this is what routes a controller-wide provider (including the settings
+    // default) to the backend.
     const override =
-      selectedModel && selectedModel !== chatModels?.default ? selectedModel : undefined;
+      selectedModel && selectedModel !== projectionDefault ? selectedModel : undefined;
     askQuestion(projection.namespace, projection.name, question, override)
       .then((answer) => {
         setMessages((prev) => [

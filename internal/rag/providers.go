@@ -48,6 +48,15 @@ type SecretKeyRef struct {
 	Key string `json:"key,omitempty"`
 }
 
+// DataKey returns the Secret data key to read for this reference, defaulting to
+// DefaultProviderAPIKeyKey when unset.
+func (r *SecretKeyRef) DataKey() string {
+	if r == nil || r.Key == "" {
+		return DefaultProviderAPIKeyKey
+	}
+	return r.Key
+}
+
 // EmbeddingProviderConfig is one named embedding provider made available to
 // every projection by the controller-wide providers configuration.
 type EmbeddingProviderConfig struct {
@@ -90,6 +99,20 @@ type ChatProviderConfig struct {
 	// APIKeySecret references the Secret key holding this provider's API key.
 	// Optional for the fake and (typically) ollama providers.
 	APIKeySecret *SecretKeyRef `json:"apiKeySecret,omitempty"`
+}
+
+// ChatConfig builds the resolved chat configuration for this provider, given
+// the API key already read from its referenced Secret (empty when none is
+// referenced, e.g. the fake provider). It bridges a declared controller-wide
+// chat provider to a constructable Chat via NewChat.
+func (p ChatProviderConfig) ChatConfig(apiKey string) ChatConfig {
+	return ChatConfig{
+		Provider:      p.Provider,
+		Model:         p.Model,
+		APIKey:        apiKey,
+		BaseURL:       p.BaseURL,
+		AllowedModels: p.AllowedModels,
+	}
 }
 
 // ProvidersConfig is the controller-wide set of agentic model providers, shared

@@ -237,3 +237,105 @@ func TestQueryModelOverrideDenied(t *testing.T) {
 		t.Fatalf("expected ErrModelNotAllowed, got %v", err)
 	}
 }
+
+// Distinctive replies for asserting which chat a request routed to.
+const (
+	providerAnswer   = "PROVIDER-ANSWER"
+	projectionAnswer = "PROJECTION-ANSWER"
+)
+
+// newProviderChatProjector builds a projector with controller-wide chat
+// providers, optionally alongside a per-projection chat model.
+func newProviderChatProjector(store *retrievalStore, projChat rag.Chat, providerChats map[string]rag.Chat, embed bool) *Projector {
+	opts := Options{ID: "proj-pc", Store: store, QueryStore: store, ProviderChats: providerChats}
+	if projChat != nil {
+		opts.Chat = projChat
+		opts.ChatSettings = rag.ChatConfig{Provider: rag.ProviderFake, Model: projChat.Model()}
+	}
+	if embed {
+		opts.Embedder = rag.NewFakeEmbedder(8)
+		opts.VectorStore = store
+	}
+	return New(opts)
+}
+
+func TestChatEnabledViaProviderChatsOnly(t *testing.T) {
+	store := &retrievalStore{data: sampleGraph(), hits: []graph.VectorHit{hit("u-pod", 0.9)}}
+	provider := &rag.FakeChat{ReplyFunc: func([]rag.Message) string { return providerAnswer }, ModelName: "fake"}
+	p := newProviderChatProjector(store, nil, map[string]rag.Chat{"fake": provider}, true)
+
+	// A request naming the controller-wide provider routes to it, even with no
+	// per-projection chat model configured.
+	res, err := p.Answer(context.Background(), "why?", "fake", SearchOptions{TopK: 1})
+	if err != nil {
+		t.Fatalf("Answer via provider chat: %v", err)
+	}
+	if res.Answer != providerAnswer {
+		t.Fatalf("answer not from provider chat: %q", res.Answer)
+	}
+
+	// An empty model has no default to fall back on without a per-projection
+	// chat, so it reports chat-not-enabled.
+	if _, err := p.Answer(context.Background(), "why?", "", SearchOptions{TopK: 1}); !errors.Is(err, ErrChatNotEnabled) {
+		t.Fatalf("empty model without projection chat: expected ErrChatNotEnabled, got %v", err)
+	}
+}
+
+func TestChatForPrefersProviderOverProjection(t *testing.T) {
+	store := &retrievalStore{data: sampleGraph(), hits: []graph.VectorHit{hit("u-pod", 0.9)}}
+	projChat := &rag.FakeChat{ReplyFunc: func([]rag.Message) string { return projectionAnswer }, ModelName: "gpt-proj"}
+	provider := &rag.FakeChat{ReplyFunc: func([]rag.Message) string { return providerAnswer }, ModelName: "fake"}
+	p := newProviderChatProjector(store, projChat, map[string]rag.Chat{"fake": provider}, true)
+
+	// Naming the provider routes to it even though a projection chat exists.
+	res, err := p.Answer(context.Background(), "why?", "fake", SearchOptions{TopK: 1})
+	if err != nil {
+		t.Fatalf("Answer: %v", err)
+	}
+	if res.Answer != providerAnswer {
+		t.Fatalf("expected provider answer, got %q", res.Answer)
+	}
+	// Empty model falls back to the projection's own chat.
+	res, err = p.Answer(context.Background(), "why?", "", SearchOptions{TopK: 1})
+	if err != nil {
+		t.Fatalf("Answer (default): %v", err)
+	}
+	if res.Answer != projectionAnswer {
+		t.Fatalf("expected projection answer, got %q", res.Answer)
+	}
+}
+
+func TestChatModelsIncludesProviderChats(t *testing.T) {
+	store := &retrievalStore{data: sampleGraph()}
+	provider := &rag.FakeChat{ModelName: "fake"}
+
+	// With a per-projection chat: models = projection default + provider names.
+	p := newProviderChatProjector(store, &rag.FakeChat{ModelName: "gpt-proj"},
+		map[string]rag.Chat{"fake": provider, "openai": provider}, false)
+	got, err := p.ChatModels(context.Background())
+	if err != nil {
+		t.Fatalf("ChatModels: %v", err)
+	}
+	if got.Default != "gpt-proj" {
+		t.Fatalf("default = %q, want gpt-proj", got.Default)
+	}
+	want := []string{"fake", "gpt-proj", "openai"}
+	if len(got.Models) != len(want) {
+		t.Fatalf("models = %v, want %v", got.Models, want)
+	}
+	for i, w := range want {
+		if got.Models[i] != w {
+			t.Fatalf("models[%d] = %q, want %q (all: %v)", i, got.Models[i], w, got.Models)
+		}
+	}
+
+	// Provider-only: no per-projection default, just the provider names.
+	p = newProviderChatProjector(store, nil, map[string]rag.Chat{"fake": provider}, false)
+	got, err = p.ChatModels(context.Background())
+	if err != nil {
+		t.Fatalf("ChatModels (provider only): %v", err)
+	}
+	if got.Default != "" || len(got.Models) != 1 || got.Models[0] != "fake" {
+		t.Fatalf("unexpected provider-only models: %+v", got)
+	}
+}

@@ -78,6 +78,11 @@ type Manager struct {
 	// every projection (loaded once from the providers ConfigMap). It is set
 	// at startup and read-only thereafter; nil means none are configured.
 	providers *rag.ProviderRegistry
+	// providerChats holds the controller-wide chat providers resolved into
+	// ready Chats (credentials already read), keyed by provider name. Like
+	// providers it is set once at startup and read-only thereafter. Every
+	// projection can route a chat request to any of these by name.
+	providerChats map[string]rag.Chat
 
 	mu      sync.Mutex
 	running map[graph.ProjectionID]*entry
@@ -96,8 +101,27 @@ func NewManager(dynamicClient dynamic.Interface, mapper meta.RESTMapper, newStor
 		newStore:      newStore,
 		engine:        relationship.NewEngine(),
 		providers:     &rag.ProviderRegistry{},
+		providerChats: map[string]rag.Chat{},
 		running:       map[graph.ProjectionID]*entry{},
 	}
+}
+
+// SetProviderChats installs the resolved controller-wide chat providers
+// (keyed by name) shared by every projection. It is intended to be called once
+// during startup, before the manager begins reconciling. A nil map clears
+// them.
+func (m *Manager) SetProviderChats(chats map[string]rag.Chat) {
+	if chats == nil {
+		chats = map[string]rag.Chat{}
+	}
+	m.providerChats = chats
+}
+
+// HasProviderChats reports whether any controller-wide chat providers are
+// configured. Chat features become available to every projection with GraphRAG
+// embeddings enabled when this is true, even without a per-projection chat.
+func (m *Manager) HasProviderChats() bool {
+	return len(m.providerChats) > 0
 }
 
 // SetProviders installs the controller-wide providers registry shared by every
@@ -158,6 +182,15 @@ func (m *Manager) Ensure(ctx context.Context, id graph.ProjectionID, namespace s
 		Store:          store,
 		Engine:         m.engine,
 		ResyncInterval: resyncInterval(spec),
+		// Controller-wide chat providers are available to every projection,
+		// so a chat request can route to one by name (see chatFor).
+		ProviderChats: m.providerChats,
+	}
+	// Guarded read-only Cypher (text-to-Cypher) is available whenever the
+	// store supports it, independent of whether a chat model is configured on
+	// the projection itself — a controller-wide chat provider can drive it.
+	if qs, ok := store.(graph.QueryStore); ok {
+		opts.QueryStore = qs
 	}
 
 	// Enable GraphRAG embedding when configured and the store supports vectors.
@@ -179,7 +212,8 @@ func (m *Manager) Ensure(ctx context.Context, id graph.ProjectionID, namespace s
 		opts.EmbeddingBatchSize = emb.BatchSize
 	}
 
-	// Enable natural-language answering / text-to-Cypher when configured.
+	// Enable the projection's own chat model (for answering / text-to-Cypher)
+	// when configured. Controller-wide providers remain available regardless.
 	if emb.ChatEnabled {
 		chat, err := rag.NewChat(emb.Chat)
 		if err != nil {
@@ -188,9 +222,6 @@ func (m *Manager) Ensure(ctx context.Context, id graph.ProjectionID, namespace s
 		}
 		opts.Chat = chat
 		opts.ChatSettings = emb.Chat
-		if qs, ok := store.(graph.QueryStore); ok {
-			opts.QueryStore = qs
-		}
 	}
 
 	p := New(opts)

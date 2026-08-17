@@ -150,6 +150,44 @@ func TestListProjectionsChatEnabled(t *testing.T) {
 	}
 }
 
+func TestListProjectionsChatEnabledViaProviderChats(t *testing.T) {
+	// A controller-wide chat provider enables chat for any GraphRAG-embedding
+	// projection, even without a per-projection chat model. Projections without
+	// GraphRAG stay chat-disabled (answering still needs retrieval).
+	objs := []client.Object{
+		&astronv1alpha1.GraphProjection{
+			ObjectMeta: metav1.ObjectMeta{Name: "rag", Namespace: "default", UID: types.UID("u1")},
+			Spec: astronv1alpha1.GraphProjectionSpec{
+				GraphRAG: &astronv1alpha1.GraphRAGSpec{Enabled: true},
+			},
+		},
+		&astronv1alpha1.GraphProjection{
+			ObjectMeta: metav1.ObjectMeta{Name: "plain", Namespace: "default", UID: types.UID("u2")},
+			Spec:       astronv1alpha1.GraphProjectionSpec{},
+		},
+	}
+	c := fakeclient.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(objs...).Build()
+	mgr := projector.NewManager(nil, nil, nil)
+	mgr.SetProviderChats(map[string]rag.Chat{"fake": rag.NewFakeChat("")})
+	srv := NewServer(c, mgr, nil, nil, nil)
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/projections", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var got []projectionDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"rag": true, "plain": false}
+	for _, p := range got {
+		if p.ChatEnabled != want[p.Name] {
+			t.Errorf("projection %q chatEnabled = %v, want %v", p.Name, p.ChatEnabled, want[p.Name])
+		}
+	}
+}
+
 func TestListProjectionsSorted(t *testing.T) {
 	// Provide projections out of order; the API must return them sorted by
 	// (namespace, name) regardless of input order.

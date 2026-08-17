@@ -59,8 +59,12 @@ type AnswerResult struct {
 	Retrieval Retrieval `json:"-"`
 }
 
-// chatEnabled reports whether natural-language answering is configured.
-func (p *Projector) chatEnabled() bool { return p.opts.Chat != nil }
+// chatEnabled reports whether natural-language answering is available, either
+// through the projection's own configured chat model or a controller-wide
+// chat provider.
+func (p *Projector) chatEnabled() bool {
+	return p.opts.Chat != nil || len(p.opts.ProviderChats) > 0
+}
 
 // allowsAnyModel reports whether the policy opts into every provider model.
 func allowsAnyModel(allowed []string) bool { return slices.Contains(allowed, "*") }
@@ -73,24 +77,48 @@ func (p *Projector) ChatModels(ctx context.Context) (ChatModelList, error) {
 	if !p.chatEnabled() {
 		return ChatModelList{}, ErrChatNotEnabled
 	}
-	def := p.opts.Chat.Model()
-	allowed := p.opts.ChatSettings.AllowedModels
 
-	var models []string
-	switch {
-	case len(allowed) == 0:
-		models = []string{def}
-	case allowsAnyModel(allowed):
-		provided, err := p.providerModels(ctx)
-		if err != nil {
-			return ChatModelList{}, err
+	set := map[string]struct{}{}
+	add := func(m string) {
+		if m != "" {
+			set[m] = struct{}{}
 		}
-		models = provided
-	default:
-		models = slices.Clone(allowed)
 	}
-	if !slices.Contains(models, def) {
-		models = append(models, def)
+
+	// The projection's own chat model and its allowedModels policy, when it
+	// configures one.
+	var def string
+	if p.opts.Chat != nil {
+		def = p.opts.Chat.Model()
+		allowed := p.opts.ChatSettings.AllowedModels
+		switch {
+		case len(allowed) == 0:
+			add(def)
+		case allowsAnyModel(allowed):
+			provided, err := p.providerModels(ctx)
+			if err != nil {
+				return ChatModelList{}, err
+			}
+			for _, m := range provided {
+				add(m)
+			}
+		default:
+			for _, m := range allowed {
+				add(m)
+			}
+		}
+		add(def)
+	}
+
+	// Controller-wide chat providers are always selectable by name, on top of
+	// (or instead of) the projection's own model.
+	for name := range p.opts.ProviderChats {
+		add(name)
+	}
+
+	models := make([]string, 0, len(set))
+	for m := range set {
+		models = append(models, m)
 	}
 	sort.Strings(models)
 	return ChatModelList{Default: def, Models: models}, nil
@@ -118,7 +146,25 @@ func (p *Projector) providerModels(ctx context.Context) ([]string, error) {
 // and the backend supports model overrides. Under a "*" policy the model name
 // is passed through and validated by the provider itself.
 func (p *Projector) chatFor(model string) (rag.Chat, error) {
+	// A model naming a controller-wide chat provider routes to it directly,
+	// taking precedence over the projection's own model. This is how the
+	// user's selected default chat model reaches its provider.
+	if model != "" {
+		if c, ok := p.opts.ProviderChats[model]; ok {
+			return c, nil
+		}
+	}
+
 	chat := p.opts.Chat
+	if chat == nil {
+		// No per-projection chat: the request must name a controller-wide
+		// provider (handled above). An empty model has no default to fall back
+		// on here.
+		if model == "" {
+			return nil, ErrChatNotEnabled
+		}
+		return nil, fmt.Errorf("%w: %q", ErrModelNotAllowed, model)
+	}
 	if model == "" || model == chat.Model() {
 		return chat, nil
 	}

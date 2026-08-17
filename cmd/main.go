@@ -21,19 +21,24 @@ import (
 	"crypto/tls"
 	"errors"
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/dynamic"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -253,6 +258,37 @@ func main() {
 	// Make the controller-wide providers available to every projection.
 	projectors.SetProviders(providers)
 
+	// Resolve the controller-wide chat providers into ready Chats (reading each
+	// provider's API key Secret) so any projection can route a chat request to
+	// one by name. Uses a direct (uncached) client since the manager's cache is
+	// not running yet. A provider whose Secret is missing is skipped with a
+	// warning, so a token-free "fake" provider still loads alongside a
+	// misconfigured one.
+	if !providers.Empty() {
+		directClient, err := client.New(mgr.GetConfig(), client.Options{Scheme: mgr.GetScheme()})
+		if err != nil {
+			setupLog.Error(err, "Failed to create client for provider Secret resolution")
+			os.Exit(1)
+		}
+		read := func(ctx context.Context, ns, name, key string) (string, error) {
+			var secret corev1.Secret
+			if err := directClient.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &secret); err != nil {
+				return "", err
+			}
+			val, ok := secret.Data[key]
+			if !ok {
+				return "", fmt.Errorf("secret %s/%s missing key %q", ns, name, key)
+			}
+			return string(val), nil
+		}
+		chats, warnings := projector.BuildProviderChats(context.Background(), providers, controllerNamespace(), read)
+		for _, w := range warnings {
+			setupLog.Info("Skipping controller-wide chat provider", "reason", w)
+		}
+		projectors.SetProviderChats(chats)
+		setupLog.Info("Resolved controller-wide chat providers", "count", len(chats))
+	}
+
 	if err := (&controller.GraphProjectionReconciler{
 		Client:     mgr.GetClient(),
 		Scheme:     mgr.GetScheme(),
@@ -286,6 +322,22 @@ func main() {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
 	}
+}
+
+// controllerNamespace returns the namespace the controller runs in, used as the
+// default for provider Secret references that omit one. It reads the in-cluster
+// service-account namespace file, falling back to POD_NAMESPACE and then
+// "default".
+func controllerNamespace() string {
+	if ns, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
+		if s := strings.TrimSpace(string(ns)); s != "" {
+			return s
+		}
+	}
+	if ns := strings.TrimSpace(os.Getenv("POD_NAMESPACE")); ns != "" {
+		return ns
+	}
+	return "default"
 }
 
 // newAPIRunnable wraps the read API/UI HTTP server as a controller-runtime
