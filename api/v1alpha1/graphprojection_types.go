@@ -84,7 +84,7 @@ type GraphRAGSpec struct {
 
 	// chat optionally configures a chat model used for natural-language question
 	// answering (the /rag/answer endpoint) and text-to-Cypher (the /rag/query
-	// endpoint and query_cluster MCP tool). When omitted, those features are
+	// endpoint and query_graph MCP tool). When omitted, those features are
 	// disabled while semantic search remains available.
 	// +optional
 	Chat *ChatModelConfig `json:"chat,omitempty"`

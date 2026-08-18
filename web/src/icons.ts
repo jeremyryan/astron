@@ -45,4 +45,5 @@ export {
   IconListTree,
   IconSend2,
   IconMarquee2,
+  IconTool,
 } from "@tabler/icons-react";

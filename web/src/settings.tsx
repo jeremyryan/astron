@@ -32,6 +32,11 @@ export interface Settings {
   // Name of the controller-configured chat provider to use by default, or null
   // for none/unset.
   defaultChatModel: string | null;
+  // Whether chat questions are answered by a tool-using agent (which can call
+  // the projection's search/neighborhood/query/schema/resource-read
+  // capabilities as it works out the answer) instead of the fixed
+  // single-retrieval pipeline.
+  agenticChat: boolean;
 }
 
 // Bounds for the layout tuning controls (also used to clamp stored values).
@@ -53,6 +58,7 @@ const DEFAULT_PREFS: Prefs = {
   layoutGravity: 0.2,
   embeddingModel: null,
   defaultChatModel: null,
+  agenticChat: false,
 };
 
 const STORAGE_KEY = "astron.settings";
@@ -83,6 +89,8 @@ function loadPrefs(): { prefs: Prefs; legacyWallpaper: string | null } {
           typeof parsed.embeddingModel === "string" ? parsed.embeddingModel : null,
         defaultChatModel:
           typeof parsed.defaultChatModel === "string" ? parsed.defaultChatModel : null,
+        agenticChat:
+          typeof parsed.agenticChat === "boolean" ? parsed.agenticChat : DEFAULT_PREFS.agenticChat,
       },
       legacyWallpaper: parsed.wallpaper ?? null,
     };
@@ -186,6 +194,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         layoutGravity: settings.layoutGravity,
         embeddingModel: settings.embeddingModel,
         defaultChatModel: settings.defaultChatModel,
+        agenticChat: settings.agenticChat,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
     } catch {
@@ -199,6 +208,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     settings.layoutGravity,
     settings.embeddingModel,
     settings.defaultChatModel,
+    settings.agenticChat,
   ]);
 
   // Persist the wallpaper to IndexedDB whenever it changes (once hydrated).

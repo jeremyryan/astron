@@ -192,7 +192,7 @@ To make the graph directly usable by LLM agents, expose the retrieval API as
 
 - `search_cluster_graph(query, topK)` — hybrid vector+graph retrieval.
 - `get_resource_neighborhood(kind, namespace, name, hops)` — structural context.
-- `query_cluster(cypher)` — read-only, allow-listed (see below).
+- `query_graph(cypher)` — read-only, allow-listed (see below).
 - `list_projections()` — discovery.
 
 The MCP server is a thin client of the read API, so it inherits projection
@@ -206,7 +206,7 @@ the global `--server` flag and then `$ASTRON_API_URL` (default
 `http://localhost:8082`), and logs to stderr to keep stdout clean for the
 protocol. Tools shipped:
 `list_projections`, `search_cluster_graph`, `get_resource_neighborhood`,
-`get_resource_yaml`. (`query_cluster` / read-only Cypher is deferred to Phase 8;
+`get_resource_yaml`. (`query_graph` / read-only Cypher is deferred to Phase 8;
 an SSE/HTTP transport can be added later.)
 
 ## Text-to-Cypher (precise / aggregate questions)
@@ -232,7 +232,7 @@ text-to-Cypher path:
   `internal/rag/qa.go`).
 - Projector `Query` (text-to-Cypher) and `Answer` (RAG) methods
   (`internal/projector/qa.go`), exposed via the `Manager`, the
-  `POST /rag/query` and `POST /rag/answer` endpoints, and the `query_cluster`
+  `POST /rag/query` and `POST /rag/answer` endpoints, and the `query_graph`
   and `answer_question` MCP tools.
 - A `graphRAG.chat` CRD block resolved by the controller (its own API-key
   Secret) and threaded through `Manager.Ensure`.
@@ -309,7 +309,7 @@ with no CRD changes, and 6–8 productionize and make it agent-native.
 | 5 | `/rag/search` + `/rag/neighborhood` endpoints + DTOs | **Done.** Retrieval orchestration in `internal/projector/retrieval.go` (vector seed → bounded BFS expansion → assembled `Retrieval`); exposed via `Manager`; `POST` endpoints in `internal/api`. Not-running → empty 200, GraphRAG-disabled → 503. |
 | 6 | CRD `graphRAG` config + status + controller wiring + Helm values | **Done.** `GraphRAGSpec` on the CRD; controller resolves the embedding config + API-key Secret and passes it to `Manager.Ensure`; `RAGReady` condition + `embeddedNodeCount`/`lastEmbeddingTime` status; sample + Helm values/CRD synced. Opt-in (`enabled: false` by default). |
 | 7 | `astron mcp-server` subcommand | **Done.** Stdio MCP server (`internal/mcp`, stdlib-only) exposing `list_projections`, `search_cluster_graph`, `get_resource_neighborhood`, `get_resource_yaml` as a thin client of the read API. |
-| 8 | text-to-Cypher + `/rag/answer` | **Done.** Guarded read-only `QueryStore`, `Chat` interface (+ fake/OpenAI), schema + prompts, projector `Query`/`Answer`, `/rag/query` + `/rag/answer` endpoints, `query_cluster` + `answer_question` MCP tools, `graphRAG.chat` CRD config. |
+| 8 | text-to-Cypher + `/rag/answer` | **Done.** Guarded read-only `QueryStore`, `Chat` interface (+ fake/OpenAI), schema + prompts, projector `Query`/`Answer`, `/rag/query` + `/rag/answer` endpoints, `query_graph` + `answer_question` MCP tools, `graphRAG.chat` CRD config. |
 
 ## Open questions
 

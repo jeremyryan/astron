@@ -89,7 +89,39 @@ func (c *OpenAIChat) WithModel(model string) Chat {
 
 type chatMessage struct {
 	Role    string `json:"role"`
-	Content string `json:"content"`
+	Content string `json:"content,omitempty"`
+	// ToolCalls is set on an assistant message that requested tool calls (a
+	// response we parse) or that we're replaying back to the API as history.
+	ToolCalls []wireToolCall `json:"tool_calls,omitempty"`
+	// ToolCallID identifies which tool call a role:"tool" message answers.
+	ToolCallID string `json:"tool_call_id,omitempty"`
+}
+
+// wireToolCall and wireFunctionCall mirror the OpenAI chat-completions
+// "tool_calls" shape: a call is typed "function" and names the function plus
+// its JSON-encoded (string, not object) arguments.
+type wireToolCall struct {
+	ID       string           `json:"id"`
+	Type     string           `json:"type"`
+	Function wireFunctionCall `json:"function"`
+}
+
+type wireFunctionCall struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// wireTool advertises one callable tool to the model, mirroring the OpenAI
+// chat-completions "tools" request shape.
+type wireTool struct {
+	Type     string       `json:"type"`
+	Function wireFunction `json:"function"`
+}
+
+type wireFunction struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters,omitempty"`
 }
 
 type chatRequest struct {
@@ -97,7 +129,8 @@ type chatRequest struct {
 	Messages []chatMessage `json:"messages"`
 	// Temperature is a pointer so it can be omitted entirely for models that
 	// only accept the default value.
-	Temperature *float64 `json:"temperature,omitempty"`
+	Temperature *float64   `json:"temperature,omitempty"`
+	Tools       []wireTool `json:"tools,omitempty"`
 }
 
 // chatError is the error object returned by the chat-completions API.
@@ -123,10 +156,7 @@ type chatResponse struct {
 // happens, Complete transparently retries once without the temperature field
 // and remembers the model's preference for future calls.
 func (c *OpenAIChat) Complete(ctx context.Context, messages []Message) (string, error) {
-	msgs := make([]chatMessage, len(messages))
-	for i, m := range messages {
-		msgs[i] = chatMessage{Role: string(m.Role), Content: m.Content}
-	}
+	msgs := toWireMessages(messages)
 
 	content, tempRejected, err := c.complete(ctx, msgs, !c.omitTemperature.Load())
 	if err != nil && tempRejected {
@@ -138,54 +168,135 @@ func (c *OpenAIChat) Complete(ctx context.Context, messages []Message) (string, 
 	return content, err
 }
 
-// complete performs a single chat-completions request. includeTemperature
-// controls whether the configured temperature is sent. The returned bool
-// reports whether the request failed specifically because the model rejected
-// the temperature value, so the caller can retry without it.
+// complete performs a single, tool-less chat-completions request.
+// includeTemperature controls whether the configured temperature is sent. The
+// returned bool reports whether the request failed specifically because the
+// model rejected the temperature value, so the caller can retry without it.
 func (c *OpenAIChat) complete(ctx context.Context, msgs []chatMessage, includeTemperature bool) (string, bool, error) {
 	reqBody := chatRequest{Model: c.cfg.Model, Messages: msgs}
 	if includeTemperature {
 		temp := c.cfg.Temperature
 		reqBody.Temperature = &temp
 	}
+	parsed, tempRejected, err := c.doRequest(ctx, reqBody)
+	if err != nil {
+		return "", tempRejected, err
+	}
+	return parsed.Choices[0].Message.Content, false, nil
+}
+
+// compile-time assertion that OpenAIChat supports tool calling.
+var _ ToolCaller = (*OpenAIChat)(nil)
+
+// CompleteWithTools calls the chat-completions endpoint with the given tools
+// advertised, returning either the model's final answer (Reply.Content) or
+// the tool calls it wants executed (Reply.ToolCalls). Like Complete, it
+// transparently retries once without an explicit temperature if the model
+// rejects it.
+func (c *OpenAIChat) CompleteWithTools(ctx context.Context, messages []Message, tools []ToolSpec) (Reply, error) {
+	msgs := toWireMessages(messages)
+	wireTools := make([]wireTool, len(tools))
+	for i, t := range tools {
+		wireTools[i] = wireTool{Type: "function", Function: wireFunction(t)}
+	}
+
+	reply, tempRejected, err := c.completeWithTools(ctx, msgs, wireTools, !c.omitTemperature.Load())
+	if err != nil && tempRejected {
+		c.omitTemperature.Store(true)
+		reply, _, err = c.completeWithTools(ctx, msgs, wireTools, false)
+	}
+	return reply, err
+}
+
+// completeWithTools performs a single tool-advertising chat-completions
+// request, mirroring complete's temperature-retry contract.
+func (c *OpenAIChat) completeWithTools(ctx context.Context, msgs []chatMessage, tools []wireTool, includeTemperature bool) (Reply, bool, error) {
+	reqBody := chatRequest{Model: c.cfg.Model, Messages: msgs, Tools: tools}
+	if includeTemperature {
+		temp := c.cfg.Temperature
+		reqBody.Temperature = &temp
+	}
+	parsed, tempRejected, err := c.doRequest(ctx, reqBody)
+	if err != nil {
+		return Reply{}, tempRejected, err
+	}
+	msg := parsed.Choices[0].Message
+	reply := Reply{Content: msg.Content}
+	for _, tc := range msg.ToolCalls {
+		reply.ToolCalls = append(reply.ToolCalls, ToolCall{
+			ID:        tc.ID,
+			Name:      tc.Function.Name,
+			Arguments: json.RawMessage(tc.Function.Arguments),
+		})
+	}
+	return reply, false, nil
+}
+
+// doRequest sends a chat-completions request and returns the parsed response.
+// The returned bool reports whether the request failed specifically because
+// the model rejected an explicit temperature value (only meaningful when
+// reqBody.Temperature was set), so callers can retry without it.
+func (c *OpenAIChat) doRequest(ctx context.Context, reqBody chatRequest) (chatResponse, bool, error) {
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", false, fmt.Errorf("openai chat: marshaling request: %w", err)
+		return chatResponse{}, false, fmt.Errorf("openai chat: marshaling request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.BaseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return "", false, fmt.Errorf("openai chat: building request: %w", err)
+		return chatResponse{}, false, fmt.Errorf("openai chat: building request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return "", false, fmt.Errorf("openai chat: request failed: %w", err)
+		return chatResponse{}, false, fmt.Errorf("openai chat: request failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	if err != nil {
-		return "", false, fmt.Errorf("openai chat: reading response: %w", err)
+		return chatResponse{}, false, fmt.Errorf("openai chat: reading response: %w", err)
 	}
 
 	var parsed chatResponse
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return "", false, fmt.Errorf("openai chat: decoding response (status %d): %w", resp.StatusCode, err)
+		return chatResponse{}, false, fmt.Errorf("openai chat: decoding response (status %d): %w", resp.StatusCode, err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		if parsed.Error != nil && parsed.Error.Message != "" {
-			return "", isTemperatureError(includeTemperature, parsed.Error),
+			return chatResponse{}, isTemperatureError(reqBody.Temperature != nil, parsed.Error),
 				fmt.Errorf("openai chat: api error (status %d): %s", resp.StatusCode, parsed.Error.Message)
 		}
-		return "", false, fmt.Errorf("openai chat: unexpected status %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+		return chatResponse{}, false, fmt.Errorf("openai chat: unexpected status %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
 	if len(parsed.Choices) == 0 {
-		return "", false, fmt.Errorf("openai chat: response contained no choices")
+		return chatResponse{}, false, fmt.Errorf("openai chat: response contained no choices")
 	}
-	return parsed.Choices[0].Message.Content, false, nil
+	return parsed, false, nil
+}
+
+// toWireMessages converts Messages to the wire chatMessage shape, carrying
+// over tool-calling fields (ToolCalls, ToolCallID) used on the tool-calling
+// path; Complete's callers simply leave those fields zero.
+func toWireMessages(messages []Message) []chatMessage {
+	msgs := make([]chatMessage, len(messages))
+	for i, m := range messages {
+		wm := chatMessage{Role: string(m.Role), Content: m.Content, ToolCallID: m.ToolCallID}
+		for _, tc := range m.ToolCalls {
+			wm.ToolCalls = append(wm.ToolCalls, wireToolCall{
+				ID:   tc.ID,
+				Type: "function",
+				Function: wireFunctionCall{
+					Name:      tc.Name,
+					Arguments: string(tc.Arguments),
+				},
+			})
+		}
+		msgs[i] = wm
+	}
+	return msgs
 }
 
 // isTemperatureError reports whether an API error is a rejection of the

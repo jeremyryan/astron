@@ -116,6 +116,8 @@ It is opt-in per `GraphProjection`.
 - **[GraphRAG Design](./docs/graphrag.md)** — architecture and rationale.
 - **[Controller-wide model providers](./docs/providers.md)** — declare named
   embedding/chat providers once on the controller, shared by every projection.
+- **[Chat Agent Tools Design](./docs/agent-design.md)** — proposed tool-using
+  chat agent that calls read-only, projection-scoped tools to answer questions.
 
 ## Getting Started
 

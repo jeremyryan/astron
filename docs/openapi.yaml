@@ -1,5 +1,29 @@
 components:
   schemas:
+    ApiAgentAnswerDTO:
+      properties:
+        agentic:
+          type: boolean
+        answer:
+          type: string
+        question:
+          type: string
+        stepBudgetExhausted:
+          type: boolean
+        steps:
+          items:
+            $ref: '#/components/schemas/ApiAgentStepDTO'
+          nullable: true
+          type: array
+      type: object
+    ApiAgentStepDTO:
+      properties:
+        args: {}
+        summary:
+          type: string
+        tool:
+          type: string
+      type: object
     ApiAnswerDTO:
       properties:
         answer:
@@ -163,6 +187,24 @@ components:
           nullable: true
           type: array
       type: object
+    ApiRagAgentMessage:
+      properties:
+        content:
+          type: string
+        role:
+          type: string
+      type: object
+    ApiRagAgentReq:
+      properties:
+        history:
+          items:
+            $ref: '#/components/schemas/ApiRagAgentMessage'
+          type: array
+        model:
+          type: string
+        question:
+          type: string
+      type: object
     ApiRagNeighborhoodReq:
       properties:
         apiVersion:
@@ -245,6 +287,11 @@ components:
           type: array
         subgraph:
           $ref: '#/components/schemas/ApiGraphDTO'
+      type: object
+    ApiSchemaDTO:
+      properties:
+        schema:
+          type: string
       type: object
     ApiSeedDTO:
       properties:
@@ -618,6 +665,63 @@ paths:
       summary: Create a user-defined edge between two nodes
       tags:
       - links
+  /api/projections/{namespace}/{name}/rag/agent:
+    post:
+      operationId: ragAgent
+      parameters:
+      - description: Projection namespace
+        in: path
+        name: namespace
+        required: true
+        schema:
+          description: Projection namespace
+          type: string
+      - description: Projection name
+        in: path
+        name: name
+        required: true
+        schema:
+          description: Projection name
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiRagAgentReq'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiAgentAnswerDTO'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Internal Server Error
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+      summary: Answer a question with a bounded, tool-using chat agent
+      tags:
+      - graphrag
   /api/projections/{namespace}/{name}/rag/answer:
     post:
       operationId: ragAnswer
@@ -833,6 +937,53 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
           description: Service Unavailable
       summary: 'Text-to-Cypher: answer a question with a guarded read-only query'
+      tags:
+      - graphrag
+  /api/projections/{namespace}/{name}/rag/schema:
+    get:
+      operationId: ragSchema
+      parameters:
+      - description: Projection namespace
+        in: path
+        name: namespace
+        required: true
+        schema:
+          description: Projection namespace
+          type: string
+      - description: Projection name
+        in: path
+        name: name
+        required: true
+        schema:
+          description: Projection name
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSchemaDTO'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Internal Server Error
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+      summary: Summarize a projection's current graph schema (kinds and relationship
+        types)
       tags:
       - graphrag
   /api/projections/{namespace}/{name}/rag/search:

@@ -17,9 +17,11 @@ limitations under the License.
 package api
 
 import (
+	"encoding/json"
 	"time"
 
 	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
+	"github.com/project-astron/astron/internal/agent"
 	"github.com/project-astron/astron/internal/graph"
 	"github.com/project-astron/astron/internal/projector"
 )
@@ -114,6 +116,11 @@ type retrievalDTO struct {
 	Subgraph graphDTO  `json:"subgraph"`
 }
 
+// schemaDTO is the API representation of a projection's graph schema summary.
+type schemaDTO struct {
+	Schema string `json:"schema"`
+}
+
 // answerDTO is the API representation of a RAG answer: the generated answer
 // plus the retrieval context that grounded it.
 type answerDTO struct {
@@ -127,6 +134,44 @@ func answerToDTO(a projector.AnswerResult) answerDTO {
 		Question:  a.Question,
 		Answer:    a.Answer,
 		Retrieval: retrievalToDTO(a.Retrieval),
+	}
+}
+
+// agentStepDTO is one tool call the chat agent made while answering a
+// question, for transparency: which tool, with what arguments, and a short
+// rendering of its result.
+type agentStepDTO struct {
+	Tool    string          `json:"tool"`
+	Args    json.RawMessage `json:"args,omitempty"`
+	Summary string          `json:"summary"`
+}
+
+// agentAnswerDTO is the API representation of a tool-using chat agent's
+// answer (see agent.Result).
+type agentAnswerDTO struct {
+	Question string         `json:"question"`
+	Answer   string         `json:"answer"`
+	Steps    []agentStepDTO `json:"steps"`
+	// Agentic reports whether the tool-using loop actually ran; false means the
+	// resolved chat backend didn't support tool calling and the fixed Answer
+	// pipeline was used instead (see Projector.AnswerWithTools).
+	Agentic bool `json:"agentic"`
+	// StepBudgetExhausted reports whether the run hit its tool-call budget
+	// before the model volunteered a final answer.
+	StepBudgetExhausted bool `json:"stepBudgetExhausted,omitempty"`
+}
+
+func agentResultToDTO(question string, res agent.Result) agentAnswerDTO {
+	steps := make([]agentStepDTO, 0, len(res.Steps))
+	for _, step := range res.Steps {
+		steps = append(steps, agentStepDTO{Tool: step.Tool, Args: step.Args, Summary: step.Summary})
+	}
+	return agentAnswerDTO{
+		Question:            question,
+		Answer:              res.Answer,
+		Steps:               steps,
+		Agentic:             res.Agentic,
+		StepBudgetExhausted: res.StepBudgetExhausted,
 	}
 }
 

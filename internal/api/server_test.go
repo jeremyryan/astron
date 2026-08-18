@@ -498,6 +498,92 @@ func TestGraphNotRunningReturnsEmpty(t *testing.T) {
 	}
 }
 
+func TestHandleRAGSchema(t *testing.T) {
+	proj := &astronv1alpha1.GraphProjection{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default", UID: types.UID("uid-1")},
+	}
+	srv := newTestServer(t, proj)
+
+	// Unknown projection -> 404.
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/projections/default/missing/rag/schema", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing projection: status = %d, want 404", rec.Code)
+	}
+
+	// Known projection but no running projector -> 503 (it requires a
+	// materialized graph, like the snapshot endpoints).
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/projections/default/demo/rag/schema", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("not running: status = %d, want 503", rec.Code)
+	}
+}
+
+func TestHandleRAGAgent(t *testing.T) {
+	proj := &astronv1alpha1.GraphProjection{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default", UID: types.UID("uid-1")},
+	}
+	srv := newTestServer(t, proj)
+
+	do := func(path, body string) int {
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, strings.NewReader(body)))
+		return rec.Code
+	}
+
+	// Invalid JSON body -> 400.
+	if code := do("/api/projections/default/demo/rag/agent", `not json`); code != http.StatusBadRequest {
+		t.Fatalf("invalid JSON: status = %d, want 400", code)
+	}
+	// Empty question -> 400, before the projection is even resolved.
+	if code := do("/api/projections/default/demo/rag/agent", `{"question":"  "}`); code != http.StatusBadRequest {
+		t.Fatalf("empty question: status = %d, want 400", code)
+	}
+	// Unsupported history role -> 400.
+	badHistory := `{"question":"why?","history":[{"role":"system","content":"x"}]}`
+	if code := do("/api/projections/default/demo/rag/agent", badHistory); code != http.StatusBadRequest {
+		t.Fatalf("unsupported history role: status = %d, want 400", code)
+	}
+	// Unknown projection -> 404.
+	if code := do("/api/projections/default/missing/rag/agent", `{"question":"why?"}`); code != http.StatusNotFound {
+		t.Fatalf("missing projection: status = %d, want 404", code)
+	}
+	// Known projection but no running projector -> 503.
+	if code := do("/api/projections/default/demo/rag/agent", `{"question":"why?"}`); code != http.StatusServiceUnavailable {
+		t.Fatalf("not running: status = %d, want 503", code)
+	}
+	// A valid history entry (user/assistant) is accepted at the validation
+	// stage — it still 503s for the same not-running reason above.
+	goodHistory := `{"question":"why?","history":[{"role":"user","content":"hi"},{"role":"assistant","content":"hello"}]}`
+	if code := do("/api/projections/default/demo/rag/agent", goodHistory); code != http.StatusServiceUnavailable {
+		t.Fatalf("valid history, not running: status = %d, want 503", code)
+	}
+}
+
+func TestToRAGMessages(t *testing.T) {
+	msgs, err := toRAGMessages([]ragAgentMessage{
+		{Role: "user", Content: "hi"},
+		{Role: "assistant", Content: "hello"},
+	})
+	if err != nil {
+		t.Fatalf("toRAGMessages: %v", err)
+	}
+	if len(msgs) != 2 || msgs[0].Role != rag.RoleUser || msgs[1].Role != rag.RoleAssistant {
+		t.Fatalf("unexpected messages: %+v", msgs)
+	}
+
+	if _, err := toRAGMessages([]ragAgentMessage{{Role: "tool", Content: "x"}}); err == nil {
+		t.Fatal("expected an error for an unsupported role")
+	}
+
+	// Empty history is fine and yields an empty (non-nil) slice.
+	msgs, err = toRAGMessages(nil)
+	if err != nil || len(msgs) != 0 {
+		t.Fatalf("toRAGMessages(nil) = %+v, %v", msgs, err)
+	}
+}
+
 func TestSnapshotEndpoints(t *testing.T) {
 	proj := &astronv1alpha1.GraphProjection{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "default", UID: types.UID("uid-1")},

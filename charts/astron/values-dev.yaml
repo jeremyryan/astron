@@ -58,4 +58,6 @@ providers:
       provider: ollama
       baseURL: http://ollama-service.ollama-system.svc:11434/v1
       model: "llama2:7b"
-
+      apiKeySecret:
+        name: astron-embeddings
+        key: apiKey

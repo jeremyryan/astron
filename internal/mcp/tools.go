@@ -21,9 +21,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+
+	"github.com/project-astron/astron/internal/agent"
 )
 
 // registerTools wires up the Astron retrieval tools exposed over MCP.
+//
+// search_cluster_graph, get_resource_neighborhood, query_graph and
+// get_graph_schema come from agent.Catalog() — the same tool definitions the
+// in-process chat agent offers — wrapped with the
+// projectionNamespace/projectionName parameters this multi-projection,
+// external-client transport needs (see agent.ForMultiProjection). This keeps
+// their names, descriptions and schemas defined in exactly one place.
+// get_resource_yaml is used as-is from the catalog: it already addresses a
+// resource directly, with no projection to route to. list_projections and
+// answer_question are MCP-specific: the former has no per-projection scope to
+// wrap, and the latter is the fixed answer pipeline the chat agent
+// deliberately does not expose as a tool to itself.
 func (s *Server) registerTools() {
 	s.register(tool{
 		Name: "list_projections",
@@ -34,42 +48,10 @@ func (s *Server) registerTools() {
 		handler:     s.toolListProjections,
 	})
 
-	s.register(tool{
-		Name: "search_cluster_graph",
-		Description: "Semantically search a projection's Kubernetes resource graph " +
-			"for a natural-language query and return the most relevant resources " +
-			"together with the connecting subgraph (owners, mounts, selectors, etc.) " +
-			"and natural-language descriptions of each. Best for open-ended questions " +
-			"like 'why is the web deployment unhealthy?'.",
-		InputSchema: objectSchema(map[string]any{
-			"projectionNamespace": stringProp("Namespace of the GraphProjection to search."),
-			"projectionName":      stringProp("Name of the GraphProjection to search."),
-			"query":               stringProp("The natural-language search query."),
-			"topK":                intProp("Maximum number of seed resources to return (default 5)."),
-			"hops":                intProp("How far to expand the graph around each seed (default 1)."),
-			"edgeTypes":           stringArrayProp("Restrict expansion to these relationship types (e.g. OWNS, SELECTS, MOUNTS)."),
-		}, []string{"projectionNamespace", "projectionName", "query"}),
-		handler: s.toolSearch,
-	})
-
-	s.register(tool{
-		Name: "get_resource_neighborhood",
-		Description: "Return the subgraph within a number of hops of a specific " +
-			"Kubernetes resource in a projection (its 'blast radius': owners, owned " +
-			"objects, mounted config, selecting services, etc.). Does not require " +
-			"embeddings. Best when you already know the exact resource.",
-		InputSchema: objectSchema(map[string]any{
-			"projectionNamespace": stringProp("Namespace of the GraphProjection."),
-			"projectionName":      stringProp("Name of the GraphProjection."),
-			"kind":                stringProp("Kind of the resource, e.g. 'Pod' or 'Deployment'."),
-			"name":                stringProp("Name of the resource."),
-			"namespace":           stringProp("Namespace of the resource (omit for cluster-scoped)."),
-			"apiVersion":          stringProp("API version of the resource, e.g. 'apps/v1' (optional)."),
-			"hops":                intProp("How far to expand around the resource (default 1)."),
-			"edgeTypes":           stringArrayProp("Restrict expansion to these relationship types."),
-		}, []string{"projectionNamespace", "projectionName", "kind", "name"}),
-		handler: s.toolNeighborhood,
-	})
+	s.registerCatalogTool(agent.ToolSearchClusterGraph, s.toolSearch)
+	s.registerCatalogTool(agent.ToolGetResourceNeighborhood, s.toolNeighborhood)
+	s.registerCatalogTool(agent.ToolQueryGraph, s.toolQuery)
+	s.registerCatalogTool(agent.ToolGetGraphSchema, s.toolSchema)
 
 	s.register(tool{
 		Name: "answer_question",
@@ -86,33 +68,30 @@ func (s *Server) registerTools() {
 		handler: s.toolAnswer,
 	})
 
-	s.register(tool{
-		Name: "query_cluster",
-		Description: "Answer a precise or aggregate question (counts, filters, joins) " +
-			"by generating and running a guarded, read-only Cypher query over a " +
-			"projection's graph. Returns the generated Cypher and the result rows. " +
-			"Requires a configured chat model.",
-		InputSchema: objectSchema(map[string]any{
-			"projectionNamespace": stringProp("Namespace of the GraphProjection."),
-			"projectionName":      stringProp("Name of the GraphProjection."),
-			"question":            stringProp("The natural-language question to translate to Cypher."),
-		}, []string{"projectionNamespace", "projectionName", "question"}),
-		handler: s.toolQuery,
-	})
+	s.registerCatalogToolAsIs(agent.ToolGetResourceYAML, s.toolResourceYAML)
+}
 
-	s.register(tool{
-		Name: "get_resource_yaml",
-		Description: "Fetch the live YAML manifest of a single Kubernetes resource " +
-			"from the cluster (server-managed noise stripped). Use to inspect a " +
-			"resource surfaced by the other tools in full detail.",
-		InputSchema: objectSchema(map[string]any{
-			"apiVersion": stringProp("API version, e.g. 'v1' or 'apps/v1'."),
-			"kind":       stringProp("Kind, e.g. 'ConfigMap'."),
-			"name":       stringProp("Resource name."),
-			"namespace":  stringProp("Namespace (omit for cluster-scoped resources)."),
-		}, []string{"apiVersion", "kind", "name"}),
-		handler: s.toolResourceYAML,
-	})
+// registerCatalogTool registers name from agent.Catalog(), wrapped with
+// agent.ForMultiProjection so external MCP clients can name the projection to
+// operate on.
+func (s *Server) registerCatalogTool(name string, handler toolHandler) {
+	spec, ok := agent.CatalogByName(name)
+	if !ok {
+		panic("mcp: catalog tool not found: " + name)
+	}
+	scoped := agent.ForMultiProjection(spec)
+	s.register(tool{Name: scoped.Name, Description: scoped.Description, InputSchema: scoped.Parameters, handler: handler})
+}
+
+// registerCatalogToolAsIs registers name from agent.Catalog() unmodified, for
+// tools that don't need projection-routing parameters (get_resource_yaml
+// already addresses a specific live resource).
+func (s *Server) registerCatalogToolAsIs(name string, handler toolHandler) {
+	spec, ok := agent.CatalogByName(name)
+	if !ok {
+		panic("mcp: catalog tool not found: " + name)
+	}
+	s.register(tool{Name: spec.Name, Description: spec.Description, InputSchema: spec.Parameters, handler: handler})
 }
 
 // --- handlers ---
@@ -236,6 +215,26 @@ func parseQuestionArgs(raw json.RawMessage) (questionArgs, error) {
 	return a, nil
 }
 
+type schemaArgs struct {
+	ProjectionNamespace string `json:"projectionNamespace"`
+	ProjectionName      string `json:"projectionName"`
+}
+
+func (s *Server) toolSchema(ctx context.Context, raw json.RawMessage) (string, error) {
+	var a schemaArgs
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if a.ProjectionNamespace == "" || a.ProjectionName == "" {
+		return "", fmt.Errorf("projectionNamespace and projectionName are required")
+	}
+	out, err := s.api.Schema(ctx, a.ProjectionNamespace, a.ProjectionName)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
 type resourceYAMLArgs struct {
 	APIVersion string `json:"apiVersion"`
 	Kind       string `json:"kind"`
@@ -266,6 +265,11 @@ func (s *Server) toolResourceYAML(ctx context.Context, raw json.RawMessage) (str
 }
 
 // --- JSON Schema helpers ---
+//
+// These duplicate internal/agent's identical helpers rather than importing
+// them, since agent.Catalog() (built with the ones there) is the shared
+// source of truth for the four wrapped tools above; these remain for the two
+// MCP-specific tool definitions (list_projections, answer_question).
 
 func objectSchema(properties map[string]any, required []string) map[string]any {
 	if properties == nil {
@@ -287,12 +291,4 @@ func stringProp(desc string) map[string]any {
 
 func intProp(desc string) map[string]any {
 	return map[string]any{"type": "integer", "description": desc}
-}
-
-func stringArrayProp(desc string) map[string]any {
-	return map[string]any{
-		"type":        "array",
-		"items":       map[string]any{"type": "string"},
-		"description": desc,
-	}
 }

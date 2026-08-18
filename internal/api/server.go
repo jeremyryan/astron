@@ -21,6 +21,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"path"
@@ -39,6 +40,7 @@ import (
 	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
 	"github.com/project-astron/astron/internal/graph"
 	"github.com/project-astron/astron/internal/projector"
+	"github.com/project-astron/astron/internal/rag"
 )
 
 // defaultRAGHops is the graph-expansion radius used for retrieval requests that
@@ -78,7 +80,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/projections/{namespace}/{name}/rag/neighborhood", s.handleRAGNeighborhood)
 	mux.HandleFunc("POST /api/projections/{namespace}/{name}/rag/query", s.handleRAGQuery)
 	mux.HandleFunc("POST /api/projections/{namespace}/{name}/rag/answer", s.handleRAGAnswer)
+	mux.HandleFunc("POST /api/projections/{namespace}/{name}/rag/agent", s.handleRAGAgent)
 	mux.HandleFunc("GET /api/projections/{namespace}/{name}/rag/models", s.handleRAGModels)
+	mux.HandleFunc("GET /api/projections/{namespace}/{name}/rag/schema", s.handleRAGSchema)
 	mux.HandleFunc("POST /api/projections/{namespace}/{name}/snapshots", s.handleCreateSnapshot)
 	mux.HandleFunc("GET /api/projections/{namespace}/{name}/snapshots", s.handleListSnapshots)
 	mux.HandleFunc("GET /api/projections/{namespace}/{name}/snapshots/{id}/graph", s.handleSnapshotGraph)
@@ -341,6 +345,82 @@ func (s *Server) handleRAGAnswer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, answerToDTO(result))
 }
 
+// ragAgentMessage is one turn of a prior conversation, carried in
+// ragAgentRequest.History for follow-up questions. Only the user/assistant
+// exchange is round-tripped across requests — not the tool-call transcript
+// internal to a single agent run, which is discarded once that run answers.
+type ragAgentMessage struct {
+	// Role is "user" or "assistant".
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+// ragAgentRequest is the body of a tool-using chat agent request.
+type ragAgentRequest struct {
+	Question string            `json:"question"`
+	History  []ragAgentMessage `json:"history,omitempty"`
+	// Model optionally overrides the projection's configured chat model, or
+	// names a controller-wide chat provider. It must be permitted by the
+	// projection's allowedModels policy.
+	Model string `json:"model,omitempty"`
+}
+
+// toRAGMessages converts the request's history to rag.Messages, rejecting any
+// role other than "user"/"assistant" (the agent loop's own system and tool
+// messages are not caller-supplied).
+func toRAGMessages(history []ragAgentMessage) ([]rag.Message, error) {
+	msgs := make([]rag.Message, 0, len(history))
+	for _, m := range history {
+		var role rag.Role
+		switch m.Role {
+		case "user":
+			role = rag.RoleUser
+		case "assistant":
+			role = rag.RoleAssistant
+		default:
+			return nil, fmt.Errorf("history: unsupported role %q (want \"user\" or \"assistant\")", m.Role)
+		}
+		msgs = append(msgs, rag.Message{Role: role, Content: m.Content})
+	}
+	return msgs, nil
+}
+
+// handleRAGAgent answers a question using a bounded, tool-using chat agent
+// that can call the projection's own retrieval capabilities (search,
+// neighborhood, guarded Cypher, schema, live resource reads) as it works out
+// the answer. When the resolved chat backend doesn't support tool calling, it
+// falls back to the fixed retrieval-augmented pipeline (see
+// Projector.AnswerWithTools); the response's "agentic" field reports which
+// path was taken.
+func (s *Server) handleRAGAgent(w http.ResponseWriter, r *http.Request) {
+	var req ragAgentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if strings.TrimSpace(req.Question) == "" {
+		writeError(w, http.StatusBadRequest, errors.New("question must not be empty"))
+		return
+	}
+	history, err := toRAGMessages(req.History)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	id, ok := s.projectionID(w, r)
+	if !ok {
+		return
+	}
+
+	result, err := s.projectors.AnswerWithTools(r.Context(), id, req.Question, strings.TrimSpace(req.Model), history, projector.SearchOptions{})
+	if err != nil {
+		s.writeQAError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, agentResultToDTO(req.Question, result))
+}
+
 // handleRAGModels returns the chat models a user may select for a projection
 // (per its allowedModels policy), along with the configured default.
 func (s *Server) handleRAGModels(w http.ResponseWriter, r *http.Request) {
@@ -354,6 +434,23 @@ func (s *Server) handleRAGModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// handleRAGSchema returns a summary of a projection's current graph schema:
+// the resource kinds present and the relationship types between them — the
+// same grounding text-to-Cypher generation uses. It requires no chat model or
+// embeddings, only a running projector.
+func (s *Server) handleRAGSchema(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.projectionID(w, r)
+	if !ok {
+		return
+	}
+	data, err := s.projectors.ReadGraph(r.Context(), id)
+	if err != nil {
+		s.writeQAError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, schemaDTO{Schema: rag.SchemaSummary(data)})
 }
 
 // writeQAError maps answering/text-to-Cypher errors to responses. A not-running

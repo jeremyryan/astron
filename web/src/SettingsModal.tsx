@@ -9,6 +9,7 @@ import {
   Select,
   Slider,
   Stack,
+  Switch,
   Text,
 } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
@@ -94,6 +95,16 @@ function ModelSettings() {
           />
         </>
       )}
+
+      <Switch
+        label="Agentic chat"
+        description="Let the chat model call tools (search, neighborhood, guarded
+          Cypher, schema, live resource reads) to work out an answer, instead
+          of grounding on a single retrieval. Falls back automatically when
+          the selected model doesn't support tool calling."
+        checked={settings.agenticChat}
+        onChange={(e) => update({ agenticChat: e.currentTarget.checked })}
+      />
     </Stack>
   );
 }

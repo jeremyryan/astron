@@ -295,6 +295,62 @@ export function getChatModels(namespace: string, name: string): Promise<ChatMode
   );
 }
 
+// ChatHistoryMessage is one prior turn of a conversation, sent to the agent
+// endpoint so follow-up questions have context. Only "user"/"assistant" turns
+// round-trip; a run's internal tool-call transcript is not carried across
+// requests.
+export interface ChatHistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+// AgentStep is one tool call the chat agent made while answering a question:
+// which tool, with what arguments, and a short rendering of its result.
+export interface AgentStep {
+  tool: string;
+  args?: unknown;
+  summary: string;
+}
+
+// AgentAnswer is the response of the tool-using chat agent endpoint.
+export interface AgentAnswer {
+  question: string;
+  answer: string;
+  steps: AgentStep[];
+  // Whether the tool-using loop actually ran; false means the resolved chat
+  // backend didn't support tool calling and the fixed answer pipeline (the
+  // same one askQuestion uses) was used instead.
+  agentic: boolean;
+  // Whether the run hit its tool-call budget before volunteering a final
+  // answer (the answer may be less complete than an unbounded run's).
+  stepBudgetExhausted?: boolean;
+}
+
+// askAgent sends a natural-language question to a bounded, tool-using chat
+// agent that can call the projection's own retrieval capabilities (search,
+// neighborhood, guarded Cypher, schema, live resource reads) as it works out
+// the answer, rather than grounding on a single pre-baked retrieval like
+// askQuestion. history carries the prior conversation's user/assistant turns.
+// model, when set, overrides the projection's default chat model (it must be
+// permitted by the projection's allowedModels policy).
+export function askAgent(
+  namespace: string,
+  name: string,
+  question: string,
+  history?: ChatHistoryMessage[],
+  model?: string,
+): Promise<AgentAnswer> {
+  return sendJSON<AgentAnswer>(
+    "POST",
+    `/api/projections/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/rag/agent`,
+    {
+      question,
+      ...(history && history.length > 0 ? { history } : {}),
+      ...(model ? { model } : {}),
+    },
+  ) as Promise<AgentAnswer>;
+}
+
 // ----- Links (user-created edges) -----
 
 // createLink adds a user-defined edge between two nodes (by their graph node

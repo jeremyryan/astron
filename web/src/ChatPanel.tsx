@@ -13,18 +13,29 @@ import {
   Tooltip,
   UnstyledButton,
 } from "@mantine/core";
-import { askQuestion, getChatModels, type AnswerCard, type Projection } from "./api";
+import {
+  askAgent,
+  askQuestion,
+  getChatModels,
+  type AgentStep,
+  type AnswerCard,
+  type ChatHistoryMessage,
+  type Projection,
+} from "./api";
 import { iconForKindOrGeneric } from "./kinds";
-import { IconSend2 } from "./icons";
+import { IconSend2, IconTool } from "./icons";
 import { useSettings } from "./settings";
 
 // A single entry in the conversation. Assistant messages carry the resource
-// cards that grounded the answer so they can be listed as sources.
+// cards that grounded the answer so they can be listed as sources, or (for
+// agentic answers) the tool calls the agent made while working it out.
 interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "error";
   text: string;
   sources?: AnswerCard[];
+  steps?: AgentStep[];
+  stepBudgetExhausted?: boolean;
 }
 
 // SourceList renders the resources that grounded an answer as a compact list.
@@ -64,6 +75,35 @@ function SourceList({
   );
 }
 
+// StepList renders the tool calls a chat agent made while working out an
+// answer, for transparency into what it did (and with what arguments).
+function StepList({ steps, stepBudgetExhausted }: { steps: AgentStep[]; stepBudgetExhausted?: boolean }) {
+  if (steps.length === 0) return null;
+  return (
+    <Stack gap={2} mt={6}>
+      <Text size="xs" c="dimmed" tt="uppercase" style={{ letterSpacing: "0.05em" }}>
+        Tool activity
+      </Text>
+      {steps.map((s, i) => (
+        <Group key={i} gap={6} wrap="nowrap" align="flex-start">
+          <IconTool size={12} color="var(--muted)" style={{ marginTop: 2, flexShrink: 0 }} />
+          {/* s.summary is already prefixed with the tool name (see the
+              backend's agent.summarize), so it's shown as-is rather than
+              repeating s.tool. */}
+          <Text size="xs" c="dimmed" style={{ wordBreak: "break-word" }}>
+            {s.summary || s.tool}
+          </Text>
+        </Group>
+      ))}
+      {stepBudgetExhausted && (
+        <Text size="xs" c="orange">
+          Reached the tool-call limit — this answer may be incomplete.
+        </Text>
+      )}
+    </Stack>
+  );
+}
+
 function MessageBubble({
   message,
   onSelectSource,
@@ -87,6 +127,9 @@ function MessageBubble({
       </Text>
       {message.sources && (
         <SourceList cards={message.sources} onSelectSource={onSelectSource} />
+      )}
+      {message.steps && (
+        <StepList steps={message.steps} stepBudgetExhausted={message.stepBudgetExhausted} />
       )}
     </Box>
   );
@@ -148,6 +191,11 @@ export function ChatPanel({
     const question = input.trim();
     if (!question || pending) return;
     setInput("");
+    // The prior conversation's user/assistant turns, for the agent's history
+    // parameter (built before the new question is appended below).
+    const history: ChatHistoryMessage[] = messages
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .map((m) => ({ role: m.role as "user" | "assistant", content: m.text }));
     setMessages((prev) => [
       ...prev,
       { id: crypto.randomUUID(), role: "user", text: question },
@@ -158,15 +206,34 @@ export function ChatPanel({
     // default) to the backend.
     const override =
       selectedModel && selectedModel !== projectionDefault ? selectedModel : undefined;
-    askQuestion(projection.namespace, projection.name, question, override)
-      .then((answer) => {
+    const request = settings.agenticChat
+      ? askAgent(projection.namespace, projection.name, question, history, override).then(
+          (answer) => ({
+            text: answer.answer,
+            sources: undefined,
+            steps: answer.steps,
+            stepBudgetExhausted: answer.stepBudgetExhausted,
+          }),
+        )
+      : askQuestion(projection.namespace, projection.name, question, override).then(
+          (answer) => ({
+            text: answer.answer,
+            sources: answer.retrieval.cards,
+            steps: undefined,
+            stepBudgetExhausted: undefined,
+          }),
+        );
+    request
+      .then((result) => {
         setMessages((prev) => [
           ...prev,
           {
             id: crypto.randomUUID(),
             role: "assistant",
-            text: answer.answer,
-            sources: answer.retrieval.cards,
+            text: result.text,
+            sources: result.sources,
+            steps: result.steps,
+            stepBudgetExhausted: result.stepBudgetExhausted,
           },
         ]);
       })

@@ -40,7 +40,7 @@ modes on top of the existing graph:
 | **Semantic search** — find resources relevant to a question, plus their connecting subgraph | `POST …/rag/search` | `search_cluster_graph` | ✅ | — |
 | **Neighborhood** — the "blast radius" around a specific resource | `POST …/rag/neighborhood` | `get_resource_neighborhood` | — | — |
 | **Answer** — a grounded natural-language answer with citations | `POST …/rag/answer` | `answer_question` | ✅ | ✅ |
-| **Text-to-Cypher** — translate a question into a guarded read-only query and run it | `POST …/rag/query` | `query_cluster` | — | ✅ |
+| **Text-to-Cypher** — translate a question into a guarded read-only query and run it | `POST …/rag/query` | `query_graph` | — | ✅ |
 
 Neighborhood retrieval needs neither embeddings nor a chat model — it works on
 the graph alone.
@@ -322,7 +322,8 @@ stream — don't mix anything else into stdout.
 | `search_cluster_graph` | Semantic search → relevant resources + subgraph. |
 | `get_resource_neighborhood` | Structural context around a specific resource. |
 | `answer_question` | Grounded natural-language answer with citations *(needs chat)*. |
-| `query_cluster` | Text-to-Cypher: generate + run a read-only query *(needs chat)*. |
+| `query_graph` | Text-to-Cypher: generate + run a read-only query *(needs chat)*. |
+| `get_graph_schema` | Summarize a projection's resource kinds and relationship types. |
 | `get_resource_yaml` | Fetch a single resource's live YAML. |
 
 ### Wire it into an MCP client

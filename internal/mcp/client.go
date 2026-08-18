@@ -124,3 +124,10 @@ func (c *APIClient) Answer(ctx context.Context, namespace, name string, body any
 func (c *APIClient) ResourceYAML(ctx context.Context, query url.Values) ([]byte, error) {
 	return c.get(ctx, "/api/resource", query)
 }
+
+// Schema returns a summary of a projection's current graph schema (resource
+// kinds and relationship types) as JSON.
+func (c *APIClient) Schema(ctx context.Context, namespace, name string) ([]byte, error) {
+	path := fmt.Sprintf("/api/projections/%s/%s/rag/schema", url.PathEscape(namespace), url.PathEscape(name))
+	return c.get(ctx, path, nil)
+}

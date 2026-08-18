@@ -29,6 +29,7 @@ import (
 	"k8s.io/client-go/dynamic"
 
 	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
+	"github.com/project-astron/astron/internal/agent"
 	"github.com/project-astron/astron/internal/graph"
 	"github.com/project-astron/astron/internal/rag"
 	"github.com/project-astron/astron/internal/relationship"
@@ -441,6 +442,20 @@ func (m *Manager) Answer(ctx context.Context, id graph.ProjectionID, question, m
 		return AnswerResult{}, ErrNotRunning
 	}
 	return p.Answer(ctx, question, model, opts)
+}
+
+// AnswerWithTools runs the tool-using chat agent against a running
+// projection (see Projector.AnswerWithTools). It returns ErrNotRunning when no
+// projector is serving the projection, or ErrChatNotEnabled when no chat
+// model is configured.
+func (m *Manager) AnswerWithTools(
+	ctx context.Context, id graph.ProjectionID, question, model string, history []rag.Message, opts SearchOptions,
+) (agent.Result, error) {
+	p, ok := m.Get(id)
+	if !ok {
+		return agent.Result{}, ErrNotRunning
+	}
+	return p.AnswerWithTools(ctx, question, model, history, opts)
 }
 
 // ChatModels returns the chat models selectable for a running projection. It

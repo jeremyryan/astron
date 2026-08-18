@@ -77,6 +77,11 @@ type ragQuestionReq struct {
 	ragQuestionRequest
 }
 
+type ragAgentReq struct {
+	projectionPath
+	ragAgentRequest
+}
+
 type createLinkReq struct {
 	projectionPath
 	linkRequest
@@ -207,9 +212,21 @@ func apiEndpoints() []endpoint {
 			errors: []int{http.StatusBadRequest, http.StatusNotFound, http.StatusServiceUnavailable, http.StatusInternalServerError},
 		},
 		{
+			method: http.MethodPost, path: "/api/projections/{namespace}/{name}/rag/agent", id: "ragAgent",
+			tag: "graphrag", summary: "Answer a question with a bounded, tool-using chat agent",
+			req: new(ragAgentReq), resp: new(agentAnswerDTO), status: http.StatusOK,
+			errors: []int{http.StatusBadRequest, http.StatusNotFound, http.StatusServiceUnavailable, http.StatusInternalServerError},
+		},
+		{
 			method: http.MethodGet, path: "/api/projections/{namespace}/{name}/rag/models", id: "ragModels",
 			tag: "graphrag", summary: "List the chat models selectable for a projection",
 			req: new(projectionPath), resp: new(projector.ChatModelList), status: http.StatusOK,
+			errors: []int{http.StatusNotFound, http.StatusServiceUnavailable, http.StatusInternalServerError},
+		},
+		{
+			method: http.MethodGet, path: "/api/projections/{namespace}/{name}/rag/schema", id: "ragSchema",
+			tag: "graphrag", summary: "Summarize a projection's current graph schema (kinds and relationship types)",
+			req: new(projectionPath), resp: new(schemaDTO), status: http.StatusOK,
 			errors: []int{http.StatusNotFound, http.StatusServiceUnavailable, http.StatusInternalServerError},
 		},
 		{

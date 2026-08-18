@@ -49,6 +49,8 @@ func newTestServer(t *testing.T) (*Server, *[]string) {
 			_, _ = w.Write([]byte(`{"question":"how many pods?","cypher":"MATCH (p:Pod) RETURN count(p)","rows":[{"count(p)":3}]}`))
 		case strings.HasSuffix(r.URL.Path, "/rag/answer"):
 			_, _ = w.Write([]byte(`{"question":"why?","answer":"Because the ConfigMap is missing.","retrieval":{"seeds":[]}}`))
+		case strings.HasSuffix(r.URL.Path, "/rag/schema"):
+			_, _ = w.Write([]byte(`{"schema":"Node kinds and their properties:\n  :Pod\n"}`))
 		default:
 			http.Error(w, "not found", http.StatusNotFound)
 		}
@@ -160,7 +162,10 @@ func TestToolsListAdvertisesAllTools(t *testing.T) {
 	s, _ := newTestServer(t)
 	resps := run(t, s, `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
 	b, _ := json.Marshal(resps[0].Result)
-	for _, name := range []string{"list_projections", "search_cluster_graph", "get_resource_neighborhood", "get_resource_yaml", "answer_question", "query_cluster"} {
+	for _, name := range []string{
+		"list_projections", "search_cluster_graph", "get_resource_neighborhood",
+		"get_resource_yaml", "answer_question", "query_graph", "get_graph_schema",
+	} {
 		if !strings.Contains(string(b), `"`+name+`"`) {
 			t.Errorf("tools/list missing %q:\n%s", name, b)
 		}
@@ -170,7 +175,7 @@ func TestToolsListAdvertisesAllTools(t *testing.T) {
 func TestToolCallQueryAndAnswer(t *testing.T) {
 	s, seen := newTestServer(t)
 
-	qReq := `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"query_cluster","arguments":{"projectionNamespace":"astron","projectionName":"default","question":"how many pods?"}}}`
+	qReq := `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"query_graph","arguments":{"projectionNamespace":"astron","projectionName":"default","question":"how many pods?"}}}`
 	aReq := `{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"answer_question","arguments":{"projectionNamespace":"astron","projectionName":"default","question":"why?"}}}`
 	resps := run(t, s, qReq, aReq)
 	if len(resps) != 2 {
@@ -179,7 +184,7 @@ func TestToolCallQueryAndAnswer(t *testing.T) {
 
 	qText, qErr := resultText(t, resps[0])
 	if qErr || !strings.Contains(qText, `"cypher"`) {
-		t.Errorf("unexpected query_cluster result: %s", qText)
+		t.Errorf("unexpected query_graph result: %s", qText)
 	}
 	aText, aErr := resultText(t, resps[1])
 	if aErr || !strings.Contains(aText, "ConfigMap is missing") {
@@ -222,6 +227,44 @@ func TestToolCallSearch(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected the API search endpoint to be called, saw: %v", *seen)
+	}
+}
+
+func TestToolCallSchema(t *testing.T) {
+	s, seen := newTestServer(t)
+	req := `{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"get_graph_schema","arguments":{"projectionNamespace":"astron","projectionName":"default"}}}`
+	resps := run(t, s, req)
+	if len(resps) != 1 || resps[0].Error != nil {
+		t.Fatalf("unexpected response: %+v", resps)
+	}
+	text, isErr := resultText(t, resps[0])
+	if isErr {
+		t.Fatalf("tool reported error: %s", text)
+	}
+	if !strings.Contains(text, "Pod") {
+		t.Errorf("expected schema summary JSON, got: %s", text)
+	}
+	found := false
+	for _, p := range *seen {
+		if strings.HasSuffix(p, "/rag/schema") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected the API schema endpoint to be called, saw: %v", *seen)
+	}
+}
+
+// TestToolCallSchemaMissingProjectionIsToolError verifies get_graph_schema
+// requires both projection-routing arguments, since (unlike the in-process
+// agent) MCP addresses more than one projection.
+func TestToolCallSchemaMissingProjectionIsToolError(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := `{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"get_graph_schema","arguments":{"projectionNamespace":"astron"}}}`
+	resps := run(t, s, req)
+	text, isErr := resultText(t, resps[0])
+	if !isErr || !strings.Contains(text, "required") {
+		t.Errorf("expected isError with a 'required' message, got isError=%v text=%q", isErr, text)
 	}
 }
 
