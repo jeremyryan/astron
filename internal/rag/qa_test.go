@@ -100,6 +100,9 @@ func TestAnswerMessagesIncludeContextAndCitationsInstruction(t *testing.T) {
 	if !strings.Contains(msgs[1].Content, "why is it down?") {
 		t.Error("user prompt should contain the question")
 	}
+	if !strings.Contains(msgs[0].Content, "Markdown") {
+		t.Error("system prompt should instruct the model to answer in Markdown")
+	}
 }
 
 func TestFakeChat(t *testing.T) {

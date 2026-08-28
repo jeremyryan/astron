@@ -56,6 +56,15 @@ func TestNewRunnerHonoursOverrides(t *testing.T) {
 	}
 }
 
+// TestDefaultSystemPromptInstructsMarkdown verifies the agent is told to
+// format its final answer as Markdown, so the UI's Markdown rendering (see
+// web/src/Markdown.tsx) has something to render.
+func TestDefaultSystemPromptInstructsMarkdown(t *testing.T) {
+	if !strings.Contains(defaultSystemPrompt, "Markdown") {
+		t.Error("default system prompt should instruct the model to answer in Markdown")
+	}
+}
+
 // TestRunnerFinalAnswerWithoutTools verifies a model that answers immediately
 // (no tool calls) short-circuits the loop with no steps.
 func TestRunnerFinalAnswerWithoutTools(t *testing.T) {

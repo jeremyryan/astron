@@ -23,13 +23,17 @@ import {
   type Projection,
 } from "./api";
 import { iconForKindOrGeneric } from "./kinds";
+import { Markdown } from "./Markdown";
 import { IconSend2, IconTool } from "./icons";
 import { useSettings } from "./settings";
 
 // A single entry in the conversation. Assistant messages carry the resource
 // cards that grounded the answer so they can be listed as sources, or (for
 // agentic answers) the tool calls the agent made while working it out.
-interface ChatMessage {
+//
+// Exported so other conversation UIs (e.g. AskAgentModal) can reuse the same
+// message shape and rendering.
+export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "error";
   text: string;
@@ -104,7 +108,10 @@ function StepList({ steps, stepBudgetExhausted }: { steps: AgentStep[]; stepBudg
   );
 }
 
-function MessageBubble({
+// MessageBubble renders one conversation entry (question, answer, or error),
+// including its sources/tool-activity when present. Exported for reuse by
+// other conversation UIs (e.g. AskAgentModal).
+export function MessageBubble({
   message,
   onSelectSource,
 }: {
@@ -112,6 +119,10 @@ function MessageBubble({
   onSelectSource?: (card: AnswerCard) => void;
 }) {
   const isUser = message.role === "user";
+  // Only assistant answers are instructed to use (and rendered as) Markdown;
+  // the user's own question and error text are shown as plain, preformatted
+  // text.
+  const isAssistant = !isUser && message.role !== "error";
   return (
     <Box
       className={
@@ -122,9 +133,13 @@ function MessageBubble({
             : "chat-bubble chat-bubble-assistant"
       }
     >
-      <Text size="sm" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-        {message.text}
-      </Text>
+      {isAssistant ? (
+        <Markdown text={message.text} />
+      ) : (
+        <Text size="sm" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+          {message.text}
+        </Text>
+      )}
       {message.sources && (
         <SourceList cards={message.sources} onSelectSource={onSelectSource} />
       )}

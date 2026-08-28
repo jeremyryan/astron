@@ -397,10 +397,115 @@ body {
   background: var(--mantine-color-dark-5);
 }
 
+/* Chip listing one targeted resource in AskAgentModal's multi-resource
+   header. */
+.ask-agent-chip {
+  background: var(--mantine-color-dark-6);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
 .chat-bubble-error {
   align-self: flex-start;
   background: color-mix(in srgb, var(--mantine-color-red-9) 25%, transparent);
   border: 1px solid var(--mantine-color-red-9);
+}
+
+/* Rendered Markdown inside an assistant chat bubble (see Markdown.tsx).
+   Compact spacing to fit a narrow column; matches .yaml-highlight's palette
+   for code so the two feel consistent. */
+.md-content {
+  font-size: var(--mantine-font-size-sm);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.md-content > *:first-child {
+  margin-top: 0;
+}
+.md-content > *:last-child {
+  margin-bottom: 0;
+}
+
+.md-content p,
+.md-content ul,
+.md-content ol,
+.md-content blockquote,
+.md-content pre,
+.md-content table {
+  margin: 0 0 8px;
+}
+
+.md-content h1,
+.md-content h2,
+.md-content h3,
+.md-content h4,
+.md-content h5,
+.md-content h6 {
+  margin: 12px 0 6px;
+  font-size: 1em;
+  font-weight: 700;
+}
+
+.md-content ul,
+.md-content ol {
+  padding-left: 20px;
+}
+
+.md-content li + li {
+  margin-top: 2px;
+}
+
+.md-content a {
+  color: var(--accent);
+}
+
+.md-content code {
+  background: var(--mantine-color-dark-6);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 0.9em;
+}
+
+.md-content pre {
+  background: var(--mantine-color-dark-6);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  overflow-x: auto;
+}
+
+.md-content pre code {
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.md-content blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 10px;
+  color: var(--muted);
+}
+
+.md-content table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+
+.md-content th,
+.md-content td {
+  border: 1px solid var(--border);
+  padding: 3px 8px;
+  text-align: left;
+}
+
+.md-content hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 10px 0;
 }
 
 /* Clickable resource name in the inspector's resource browser (shown when no

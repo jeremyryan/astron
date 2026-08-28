@@ -91,7 +91,12 @@ func AnswerMessages(question string, cards []Card, relationships []string) []Mes
 	system := `You are a Kubernetes cluster assistant. Answer the user's question
 using ONLY the provided context about cluster resources and their
 relationships. If the context is insufficient, say so. Cite the specific
-resources (kind and name) you used in your answer. Be concise.`
+resources (kind and name) you used in your answer. Be concise.
+
+Format your answer as Markdown: use backticks for resource names, fields and
+other identifiers; fenced code blocks for YAML/commands/output; and lists or
+tables where they make a multi-part answer clearer. Do not wrap the whole
+answer in a code block.`
 
 	user := fmt.Sprintf("Context:\n%s\nQuestion: %s", ctx.String(), strings.TrimSpace(question))
 	return []Message{

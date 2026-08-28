@@ -42,7 +42,11 @@ const defaultSystemPrompt = "You are a Kubernetes cluster assistant with tools t
 	"get_resource_neighborhood when you already know the exact resource, query_graph for " +
 	"precise counts and filters, get_graph_schema to check what resource kinds and " +
 	"relationships exist, and get_resource_yaml for full manifest detail. Cite the specific " +
-	"resources (kind, namespace, name) that ground your answer."
+	"resources (kind, namespace, name) that ground your answer.\n\n" +
+	"Format your final answer as Markdown: use backticks for resource names, fields and other " +
+	"identifiers; fenced code blocks for YAML/commands/output; and lists or tables where they " +
+	"make a multi-part answer clearer. Do not wrap the whole answer in a code block. This only " +
+	"applies to your final answer text, not to tool call arguments."
 
 // budgetExhaustedPrompt is appended when the step budget runs out, asking the
 // model to answer from whatever it has already gathered instead of failing
