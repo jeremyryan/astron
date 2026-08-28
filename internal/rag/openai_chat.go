@@ -46,6 +46,15 @@ type OpenAIChat struct {
 	// temperature (some newer OpenAI models only allow the default), so
 	// subsequent requests skip the field instead of retrying every time.
 	omitTemperature atomic.Bool
+	// forceNoReasoningEffort is set once a tool-calling request has been
+	// rejected because the model's default (non-"none") reasoning effort can't
+	// be combined with tools on this endpoint (some reasoning models require
+	// /v1/responses for that combination unless reasoning is turned off).
+	// Once set, subsequent CompleteWithTools calls send
+	// reasoning_effort:"none" up front instead of retrying every time.
+	// Complete (no tools) is unaffected, since the error only occurs when
+	// tools are present.
+	forceNoReasoningEffort atomic.Bool
 }
 
 // compile-time assertion that OpenAIChat satisfies Chat.
@@ -79,8 +88,9 @@ func (c *OpenAIChat) Model() string { return c.cfg.Model }
 var _ ModelSelector = (*OpenAIChat)(nil)
 
 // WithModel returns a copy of the chat targeting a different model with the
-// same credentials, endpoint and settings. The temperature-support decision is
-// not carried over, since it is model-specific.
+// same credentials, endpoint and settings. The temperature-support and
+// reasoning-effort decisions are not carried over, since both are
+// model-specific.
 func (c *OpenAIChat) WithModel(model string) Chat {
 	cfg := c.cfg
 	cfg.Model = model
@@ -131,6 +141,10 @@ type chatRequest struct {
 	// only accept the default value.
 	Temperature *float64   `json:"temperature,omitempty"`
 	Tools       []wireTool `json:"tools,omitempty"`
+	// ReasoningEffort, when set, is sent as "none" to let a reasoning model's
+	// tool calls work on this (classic chat-completions) endpoint; omitted
+	// otherwise, leaving the model/gateway's own default in effect.
+	ReasoningEffort *string `json:"reasoning_effort,omitempty"`
 }
 
 // chatError is the error object returned by the chat-completions API.
@@ -149,6 +163,18 @@ type chatResponse struct {
 	Error *chatError `json:"error"`
 }
 
+// requestIssue reports which specific request field, if any, a
+// chat-completions request was rejected for, so retry logic can adjust
+// exactly that field rather than guessing.
+type requestIssue struct {
+	// TemperatureRejected reports whether the model rejected an explicit
+	// temperature value.
+	TemperatureRejected bool
+	// ReasoningRejected reports whether the model rejected combining tools
+	// with its default (non-"none") reasoning effort.
+	ReasoningRejected bool
+}
+
 // Complete calls the chat-completions endpoint and returns the assistant reply.
 //
 // Some newer OpenAI models reject any explicit temperature other than the
@@ -158,8 +184,8 @@ type chatResponse struct {
 func (c *OpenAIChat) Complete(ctx context.Context, messages []Message) (string, error) {
 	msgs := toWireMessages(messages)
 
-	content, tempRejected, err := c.complete(ctx, msgs, !c.omitTemperature.Load())
-	if err != nil && tempRejected {
+	content, issue, err := c.complete(ctx, msgs, !c.omitTemperature.Load())
+	if err != nil && issue.TemperatureRejected {
 		// The model only supports the default temperature; drop the field,
 		// remember that for next time, and retry once.
 		c.omitTemperature.Store(true)
@@ -169,20 +195,18 @@ func (c *OpenAIChat) Complete(ctx context.Context, messages []Message) (string, 
 }
 
 // complete performs a single, tool-less chat-completions request.
-// includeTemperature controls whether the configured temperature is sent. The
-// returned bool reports whether the request failed specifically because the
-// model rejected the temperature value, so the caller can retry without it.
-func (c *OpenAIChat) complete(ctx context.Context, msgs []chatMessage, includeTemperature bool) (string, bool, error) {
+// includeTemperature controls whether the configured temperature is sent.
+func (c *OpenAIChat) complete(ctx context.Context, msgs []chatMessage, includeTemperature bool) (string, requestIssue, error) {
 	reqBody := chatRequest{Model: c.cfg.Model, Messages: msgs}
 	if includeTemperature {
 		temp := c.cfg.Temperature
 		reqBody.Temperature = &temp
 	}
-	parsed, tempRejected, err := c.doRequest(ctx, reqBody)
+	parsed, issue, err := c.doRequest(ctx, reqBody)
 	if err != nil {
-		return "", tempRejected, err
+		return "", issue, err
 	}
-	return parsed.Choices[0].Message.Content, false, nil
+	return parsed.Choices[0].Message.Content, requestIssue{}, nil
 }
 
 // compile-time assertion that OpenAIChat supports tool calling.
@@ -193,6 +217,15 @@ var _ ToolCaller = (*OpenAIChat)(nil)
 // the tool calls it wants executed (Reply.ToolCalls). Like Complete, it
 // transparently retries once without an explicit temperature if the model
 // rejects it.
+//
+// Some reasoning models (e.g. gpt-5-style ones) reject combining tools with
+// their default reasoning effort on this endpoint ("Function tools with
+// reasoning_effort are not supported ... set reasoning_effort to 'none'" —
+// full reasoning+tools support requires OpenAI's newer /v1/responses API,
+// which isn't implemented by every OpenAI-compatible provider Astron
+// targets, e.g. Ollama). When that happens, CompleteWithTools transparently
+// retries once with reasoning_effort:"none" and remembers the model's
+// preference for future calls, the same way it already handles temperature.
 func (c *OpenAIChat) CompleteWithTools(ctx context.Context, messages []Message, tools []ToolSpec) (Reply, error) {
 	msgs := toWireMessages(messages)
 	wireTools := make([]wireTool, len(tools))
@@ -200,25 +233,41 @@ func (c *OpenAIChat) CompleteWithTools(ctx context.Context, messages []Message, 
 		wireTools[i] = wireTool{Type: "function", Function: wireFunction(t)}
 	}
 
-	reply, tempRejected, err := c.completeWithTools(ctx, msgs, wireTools, !c.omitTemperature.Load())
-	if err != nil && tempRejected {
-		c.omitTemperature.Store(true)
-		reply, _, err = c.completeWithTools(ctx, msgs, wireTools, false)
+	includeTemperature := !c.omitTemperature.Load()
+	forceNoReasoning := c.forceNoReasoningEffort.Load()
+	reply, issue, err := c.completeWithTools(ctx, msgs, wireTools, includeTemperature, forceNoReasoning)
+	if err != nil && (issue.TemperatureRejected || issue.ReasoningRejected) {
+		if issue.TemperatureRejected {
+			c.omitTemperature.Store(true)
+			includeTemperature = false
+		}
+		if issue.ReasoningRejected {
+			c.forceNoReasoningEffort.Store(true)
+			forceNoReasoning = true
+		}
+		reply, _, err = c.completeWithTools(ctx, msgs, wireTools, includeTemperature, forceNoReasoning)
 	}
 	return reply, err
 }
 
 // completeWithTools performs a single tool-advertising chat-completions
-// request, mirroring complete's temperature-retry contract.
-func (c *OpenAIChat) completeWithTools(ctx context.Context, msgs []chatMessage, tools []wireTool, includeTemperature bool) (Reply, bool, error) {
+// request, mirroring complete's temperature-retry contract and additionally
+// forcing reasoning_effort:"none" when forceNoReasoning is set.
+func (c *OpenAIChat) completeWithTools(
+	ctx context.Context, msgs []chatMessage, tools []wireTool, includeTemperature, forceNoReasoning bool,
+) (Reply, requestIssue, error) {
 	reqBody := chatRequest{Model: c.cfg.Model, Messages: msgs, Tools: tools}
 	if includeTemperature {
 		temp := c.cfg.Temperature
 		reqBody.Temperature = &temp
 	}
-	parsed, tempRejected, err := c.doRequest(ctx, reqBody)
+	if forceNoReasoning {
+		none := "none"
+		reqBody.ReasoningEffort = &none
+	}
+	parsed, issue, err := c.doRequest(ctx, reqBody)
 	if err != nil {
-		return Reply{}, tempRejected, err
+		return Reply{}, issue, err
 	}
 	msg := parsed.Choices[0].Message
 	reply := Reply{Content: msg.Content}
@@ -229,52 +278,54 @@ func (c *OpenAIChat) completeWithTools(ctx context.Context, msgs []chatMessage, 
 			Arguments: json.RawMessage(tc.Function.Arguments),
 		})
 	}
-	return reply, false, nil
+	return reply, requestIssue{}, nil
 }
 
 // doRequest sends a chat-completions request and returns the parsed response.
-// The returned bool reports whether the request failed specifically because
-// the model rejected an explicit temperature value (only meaningful when
-// reqBody.Temperature was set), so callers can retry without it.
-func (c *OpenAIChat) doRequest(ctx context.Context, reqBody chatRequest) (chatResponse, bool, error) {
+// The returned requestIssue reports which specific field, if any, the request
+// was rejected for, so callers can retry with just that field adjusted.
+func (c *OpenAIChat) doRequest(ctx context.Context, reqBody chatRequest) (chatResponse, requestIssue, error) {
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		return chatResponse{}, false, fmt.Errorf("openai chat: marshaling request: %w", err)
+		return chatResponse{}, requestIssue{}, fmt.Errorf("openai chat: marshaling request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.BaseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return chatResponse{}, false, fmt.Errorf("openai chat: building request: %w", err)
+		return chatResponse{}, requestIssue{}, fmt.Errorf("openai chat: building request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return chatResponse{}, false, fmt.Errorf("openai chat: request failed: %w", err)
+		return chatResponse{}, requestIssue{}, fmt.Errorf("openai chat: request failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	if err != nil {
-		return chatResponse{}, false, fmt.Errorf("openai chat: reading response: %w", err)
+		return chatResponse{}, requestIssue{}, fmt.Errorf("openai chat: reading response: %w", err)
 	}
 
 	var parsed chatResponse
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return chatResponse{}, false, fmt.Errorf("openai chat: decoding response (status %d): %w", resp.StatusCode, err)
+		return chatResponse{}, requestIssue{}, fmt.Errorf("openai chat: decoding response (status %d): %w", resp.StatusCode, err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		if parsed.Error != nil && parsed.Error.Message != "" {
-			return chatResponse{}, isTemperatureError(reqBody.Temperature != nil, parsed.Error),
-				fmt.Errorf("openai chat: api error (status %d): %s", resp.StatusCode, parsed.Error.Message)
+			issue := requestIssue{
+				TemperatureRejected: isTemperatureError(reqBody.Temperature != nil, parsed.Error),
+				ReasoningRejected:   isReasoningEffortToolsError(len(reqBody.Tools) > 0, parsed.Error),
+			}
+			return chatResponse{}, issue, fmt.Errorf("openai chat: api error (status %d): %s", resp.StatusCode, parsed.Error.Message)
 		}
-		return chatResponse{}, false, fmt.Errorf("openai chat: unexpected status %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+		return chatResponse{}, requestIssue{}, fmt.Errorf("openai chat: unexpected status %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
 	if len(parsed.Choices) == 0 {
-		return chatResponse{}, false, fmt.Errorf("openai chat: response contained no choices")
+		return chatResponse{}, requestIssue{}, fmt.Errorf("openai chat: response contained no choices")
 	}
-	return parsed, false, nil
+	return parsed, requestIssue{}, nil
 }
 
 // toWireMessages converts Messages to the wire chatMessage shape, carrying
@@ -311,4 +362,19 @@ func isTemperatureError(temperatureSent bool, apiErr *chatError) bool {
 		return true
 	}
 	return strings.Contains(strings.ToLower(apiErr.Message), "temperature")
+}
+
+// isReasoningEffortToolsError reports whether an API error is a rejection of
+// combining tools with the model's default reasoning effort (only meaningful
+// when tools were actually sent), e.g. "Function tools with reasoning_effort
+// are not supported for gpt-5.6-sol in /v1/chat/completions. To use function
+// tools, use /v1/responses or set reasoning_effort to 'none'."
+func isReasoningEffortToolsError(toolsSent bool, apiErr *chatError) bool {
+	if !toolsSent || apiErr == nil {
+		return false
+	}
+	if apiErr.Param == "reasoning_effort" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(apiErr.Message), "reasoning_effort")
 }

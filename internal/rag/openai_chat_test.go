@@ -340,3 +340,101 @@ func TestOpenAIChatCompleteWithToolsRetriesWithoutTemperature(t *testing.T) {
 		t.Fatalf("expected [with-temp, without-temp] requests, got %v", sentTemperature)
 	}
 }
+
+// reasoningEffortSent reads a chat-completions request body, returning the
+// reasoning_effort value if present (empty string when absent).
+func reasoningEffortSent(t *testing.T, r *http.Request) string {
+	t.Helper()
+	var body struct {
+		ReasoningEffort *string `json:"reasoning_effort"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		t.Fatalf("decoding request body: %v", err)
+	}
+	if body.ReasoningEffort == nil {
+		return ""
+	}
+	return *body.ReasoningEffort
+}
+
+// TestOpenAIChatCompleteWithToolsRetriesWithoutReasoningEffort verifies that
+// when a reasoning model rejects combining tools with its default reasoning
+// effort, CompleteWithTools transparently retries once with
+// reasoning_effort:"none" and returns the successful reply.
+// reasoningEffortNone is the value CompleteWithTools sends once it learns a
+// model requires reasoning to be turned off to use tools.
+const reasoningEffortNone = "none"
+
+func TestOpenAIChatCompleteWithToolsRetriesWithoutReasoningEffort(t *testing.T) {
+	var sentReasoningEffort []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		effort := reasoningEffortSent(t, r)
+		sentReasoningEffort = append(sentReasoningEffort, effort)
+		if effort == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error": map[string]any{
+					"message": "Function tools with reasoning_effort are not supported for gpt-5.6-sol " +
+						"in /v1/chat/completions. To use function tools, use /v1/responses or set " +
+						"reasoning_effort to 'none'.",
+					"type": "invalid_request_error",
+				},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"message": map[string]any{"role": "assistant", "content": "ok"}}},
+		})
+	}))
+	defer ts.Close()
+
+	chat, err := NewOpenAIChat(OpenAIChatConfig{APIKey: "k", Model: "gpt-5.6-sol", BaseURL: ts.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools := []ToolSpec{{Name: toolNameSearchGraph}}
+
+	reply, err := chat.CompleteWithTools(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, tools)
+	if err != nil {
+		t.Fatalf("CompleteWithTools: %v", err)
+	}
+	if reply.Content != "ok" {
+		t.Fatalf("Content = %q, want ok", reply.Content)
+	}
+	if len(sentReasoningEffort) != 2 || sentReasoningEffort[0] != "" || sentReasoningEffort[1] != reasoningEffortNone {
+		t.Fatalf("expected [absent, \"none\"] reasoning_effort requests, got %v", sentReasoningEffort)
+	}
+
+	// A subsequent call must send reasoning_effort:"none" outright (no wasted
+	// retry), having remembered the model's requirement.
+	sentReasoningEffort = nil
+	if _, err := chat.CompleteWithTools(context.Background(), []Message{{Role: RoleUser, Content: "again"}}, tools); err != nil {
+		t.Fatalf("second CompleteWithTools: %v", err)
+	}
+	if len(sentReasoningEffort) != 1 || sentReasoningEffort[0] != reasoningEffortNone {
+		t.Fatalf("expected a single reasoning_effort:none request, got %v", sentReasoningEffort)
+	}
+}
+
+// TestOpenAIChatCompleteDoesNotSendReasoningEffort verifies the tool-less
+// Complete path never sends reasoning_effort (the field only exists to work
+// around a tools-specific incompatibility).
+func TestOpenAIChatCompleteDoesNotSendReasoningEffort(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if effort := reasoningEffortSent(t, r); effort != "" {
+			t.Errorf("expected no reasoning_effort, got %q", effort)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"message": map[string]string{"role": "assistant", "content": "hi"}}},
+		})
+	}))
+	defer ts.Close()
+
+	chat, err := NewOpenAIChat(OpenAIChatConfig{APIKey: "k", Model: "gpt-4o-mini", BaseURL: ts.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := chat.Complete(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+}
