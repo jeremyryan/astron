@@ -131,7 +131,7 @@ external one is named, or inline embedding/chat providers are configured.
 {{- define "astron.providersEnabled" -}}
 {{- if .Values.providers.existingConfigMap -}}
 true
-{{- else if or .Values.providers.embeddingProviders .Values.providers.chatProviders -}}
+{{- else if or .Values.providers.embeddingProviders .Values.providers.chatProviders .Values.providers.crdSchemas -}}
 true
 {{- end -}}
 {{- end }}

@@ -5,7 +5,7 @@ The controller reads this file (mounted from the ConfigMap) via
 no external ConfigMap is supplied (providers.existingConfigMap takes over then).
 Credentials are never placed here: each provider references a Secret key.
 */ -}}
-{{- if and (not .Values.providers.existingConfigMap) (or .Values.providers.embeddingProviders .Values.providers.chatProviders) }}
+{{- if and (not .Values.providers.existingConfigMap) (or .Values.providers.embeddingProviders .Values.providers.chatProviders .Values.providers.crdSchemas) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -21,6 +21,9 @@ data:
     {{- end }}
     {{- with .Values.providers.chatProviders }}
     {{- $_ := set $providers "chatProviders" . }}
+    {{- end }}
+    {{- with .Values.providers.crdSchemas }}
+    {{- $_ := set $providers "crdSchemas" . }}
     {{- end }}
     {{- toYaml $providers | nindent 4 }}
 {{- end }}

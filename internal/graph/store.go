@@ -199,3 +199,94 @@ type VectorStore interface {
 	// embeddings are most similar to query, optionally constrained by filter.
 	VectorSearch(ctx context.Context, projection ProjectionID, query []float32, topK int, filter VectorFilter) ([]VectorHit, error)
 }
+
+// ResourceSchema is one CRD version's rendered documentation (typically
+// produced by rag.RenderCRDSchemas), as written and read via SchemaStore.
+// Unlike every other type in this file, it is cluster-wide, not scoped to any
+// projection: a CRD's schema is a cluster fact, not projection-owned state.
+// See docs/crd-schema-design.md.
+type ResourceSchema struct {
+	// Group, Version and Kind identify this CRD version, e.g.
+	// ("example.com", "v1", "Widget"). Together they form the node's key (see
+	// ResourceSchemaKey).
+	Group, Version, Kind string
+	// Scope is "Namespaced" or "Cluster".
+	Scope string
+	// CRDName is the owning CustomResourceDefinition object's name (e.g.
+	// "widgets.example.com").
+	CRDName string
+	// Storage reports whether Version is the CRD's storage version. Only the
+	// storage version is intended to carry an embedding (see Embedding below);
+	// every version's FullDoc is stored regardless.
+	Storage bool
+
+	// Overview is the compact, embeddable summary (rag.CRDSchema.Overview).
+	Overview string
+	// OverviewHash is a content hash of Overview. ExistingResourceSchemaHashes
+	// lets a caller compare against this before re-embedding unchanged schemas.
+	OverviewHash string
+	// FullDoc is the complete rendered schema for this version
+	// (rag.CRDSchema.Full).
+	FullDoc string
+
+	// Embedding and EmbeddingModel carry a (new) embedding to write for this
+	// entry. Leave Embedding nil to upsert/update the documents only, without
+	// touching any previously stored embedding — the normal case for a
+	// non-storage version, or a storage version whose Overview is unchanged.
+	Embedding      []float32
+	EmbeddingModel string
+}
+
+// ResourceSchemaKey returns the stable identity key for one CRD version, used
+// as the node's merge key and as the key type for
+// ExistingResourceSchemaHashes/DeleteResourceSchemas.
+func ResourceSchemaKey(group, version, kind string) string {
+	return group + "/" + version + "/" + kind
+}
+
+// ResourceSchemaHit is a CRD overview returned by SearchResourceSchemas, with
+// its similarity score. It intentionally omits FullDoc (fetch it separately
+// via ReadResourceSchema once a specific kind is of interest) so a batch of
+// search hits stays small.
+type ResourceSchemaHit struct {
+	Group, Version, Kind string
+	Scope                string
+	Overview             string
+	Score                float64
+}
+
+// SchemaStore is an optional capability for stores that support CRD schema
+// documentation for RAG (see docs/crd-schema-design.md). Unlike every other
+// capability in this file, schema data is not scoped to a projection — one
+// CRD's schema is a cluster fact, not projection-owned state — so no method
+// here takes a ProjectionID. It is kept separate from Store so the feature
+// stays additive.
+type SchemaStore interface {
+	// EnsureResourceSchemaVectorIndex creates (if absent) the vector index over
+	// CRD overview embeddings. dimensions is the embedding length; similarity is
+	// the metric, either "cosine" or "euclidean". It is idempotent.
+	EnsureResourceSchemaVectorIndex(ctx context.Context, dimensions int, similarity string) error
+
+	// ExistingResourceSchemaHashes returns the currently stored OverviewHash for
+	// each of the given keys (ResourceSchemaKey); keys with no stored node are
+	// simply absent from the result. Callers use this to compute candidate
+	// overviews first and only embed and write the ones that actually changed.
+	ExistingResourceSchemaHashes(ctx context.Context, keys []string) (map[string]string, error)
+
+	// UpsertResourceSchemas creates or updates schema nodes. It is safe (if
+	// wasteful) to pass unchanged entries; ExistingResourceSchemaHashes lets a
+	// caller avoid that.
+	UpsertResourceSchemas(ctx context.Context, schemas []ResourceSchema) error
+
+	// DeleteResourceSchemas removes schema nodes by key. Deleting a key that
+	// does not exist is not an error.
+	DeleteResourceSchemas(ctx context.Context, keys []string) error
+
+	// ReadResourceSchema returns one CRD's full rendered document for the given
+	// kind. version selects a specific served version; empty selects the CRD's
+	// storage version. ok is false when no matching schema is captured.
+	ReadResourceSchema(ctx context.Context, kind, version string) (doc string, ok bool, err error)
+
+	// SearchResourceSchemas performs vector search over CRD overview cards.
+	SearchResourceSchemas(ctx context.Context, query []float32, topK int) ([]ResourceSchemaHit, error)
+}

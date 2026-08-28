@@ -38,6 +38,20 @@ chatProviders:
     allowedModels: ["*"]          # optional; per-request model selection policy
     apiKeySecret:
       name: astron-chat
+
+# Controller-wide CRD schema capture for RAG (see docs/crd-schema-design.md):
+# renders each selected CustomResourceDefinition's schema into searchable
+# documentation for the chat agent, kept invisible to the live resource graph.
+# This is a separate concern from a GraphProjection's own scope.crds, which
+# only controls whether CRDs are captured as ordinary, visible nodes in that
+# projection's graph; crdSchemas applies cluster-wide regardless.
+crdSchemas:
+  enabled: true
+  embeddingProvider: openai-small  # required when enabled; must name an entry
+                                    # in embeddingProviders above
+  names: []                        # optional allow-list of full CRD names
+                                    # (e.g. widgets.example.com); empty
+                                    # captures every CRD in the cluster
 ```
 
 Validation performed at load time:
@@ -46,7 +60,12 @@ Validation performed at load time:
 - `provider` must be one of `openai`, `azure`, `ollama`, `litellm`, `fake`
   (empty defaults to `openai`);
 - `model` is required for every non-`fake` provider;
-- `baseURL` is required for `azure`, `ollama`, and `litellm`.
+- `baseURL` is required for `azure`, `ollama`, and `litellm`;
+- when `crdSchemas.enabled` is true, `embeddingProvider` must be set and must
+  name a provider actually declared in `embeddingProviders`, and any
+  `crdSchemas.names` entry must be non-blank. `crdSchemas` is otherwise
+  unvalidated while `enabled` is left `false` (the default), so it can be
+  declared ahead of actually turning it on.
 
 Credentials are **never** placed in this file (it is mounted from a ConfigMap
 and therefore not secret). Each provider references a Secret key via
@@ -74,6 +93,9 @@ providers:
       model: gpt-4o-mini
       apiKeySecret:
         name: astron-chat
+  crdSchemas:
+    enabled: true
+    embeddingProvider: openai-small
 ```
 
 To manage the ConfigMap yourself, point the chart at it instead (the inline

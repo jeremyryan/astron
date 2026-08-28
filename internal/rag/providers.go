@@ -78,6 +78,21 @@ type EmbeddingProviderConfig struct {
 	APIKeySecret *SecretKeyRef `json:"apiKeySecret,omitempty"`
 }
 
+// EmbedderConfig builds the resolved embedding configuration for this
+// provider, given the API key already read from its referenced Secret (empty
+// when none is referenced, e.g. the fake provider). It bridges a declared
+// controller-wide embedding provider to a constructable Embedder via
+// NewEmbedder.
+func (p EmbeddingProviderConfig) EmbedderConfig(apiKey string) EmbedderConfig {
+	return EmbedderConfig{
+		Provider:   p.Provider,
+		Model:      p.Model,
+		APIKey:     apiKey,
+		BaseURL:    p.BaseURL,
+		Dimensions: p.Dimensions,
+	}
+}
+
 // ChatProviderConfig is one named chat provider made available to every
 // projection by the controller-wide providers configuration.
 type ChatProviderConfig struct {
@@ -115,6 +130,28 @@ func (p ChatProviderConfig) ChatConfig(apiKey string) ChatConfig {
 	}
 }
 
+// CRDSchemaConfig controls controller-wide CRD schema capture for RAG (see
+// docs/crd-schema-design.md): rendering each selected CustomResourceDefinition's
+// schema into searchable documentation for the chat agent, kept invisible to
+// the live resource graph. This is a separate concern from a GraphProjection's
+// own spec.scope.crds, which controls whether CRDs are captured as ordinary,
+// visible nodes in that projection's own graph; the two are independent, and
+// this one applies cluster-wide regardless of which (if any) projections
+// capture CRDs as nodes.
+type CRDSchemaConfig struct {
+	// Enabled turns CRD schema capture on. Defaults to false (off): capturing
+	// nothing is the safe, zero-cost default, same as the rest of this file.
+	Enabled bool `json:"enabled,omitempty"`
+	// Names optionally restricts capture to these CRDs, by full name (e.g.
+	// "widgets.example.com", i.e. spec.names.plural + "." + spec.group).
+	// Empty captures every CRD in the cluster.
+	Names []string `json:"names,omitempty"`
+	// EmbeddingProvider names the embedding provider (from EmbeddingProviders
+	// above) used to embed CRD overviews for search. Required when Enabled is
+	// true; must name a provider actually declared in EmbeddingProviders.
+	EmbeddingProvider string `json:"embeddingProvider,omitempty"`
+}
+
 // ProvidersConfig is the controller-wide set of agentic model providers, shared
 // by every projection. It is loaded from a YAML file typically mounted from a
 // ConfigMap.
@@ -123,6 +160,8 @@ type ProvidersConfig struct {
 	EmbeddingProviders []EmbeddingProviderConfig `json:"embeddingProviders,omitempty"`
 	// ChatProviders are the named chat backends available cluster-wide.
 	ChatProviders []ChatProviderConfig `json:"chatProviders,omitempty"`
+	// CRDSchemas controls controller-wide CRD schema capture for RAG.
+	CRDSchemas CRDSchemaConfig `json:"crdSchemas,omitempty"`
 }
 
 // knownProviders is the set of provider backends accepted in the providers
@@ -151,6 +190,7 @@ type ProviderRegistry struct {
 	chat           map[string]ChatProviderConfig
 	embeddingOrder []string
 	chatOrder      []string
+	crdSchemas     CRDSchemaConfig
 }
 
 // LoadProvidersConfig reads and validates the controller-wide providers
@@ -209,7 +249,33 @@ func LoadProvidersConfig(configFile string) (*ProviderRegistry, error) {
 		reg.chatOrder = append(reg.chatOrder, p.Name)
 	}
 
+	if err := validateCRDSchemas(cfg.CRDSchemas, reg.embedding); err != nil {
+		return nil, err
+	}
+	reg.crdSchemas = cfg.CRDSchemas
+
 	return reg, nil
+}
+
+// validateCRDSchemas checks the crdSchemas section. It is a no-op when not
+// enabled, so a config can declare (or leave default) a crdSchemas block
+// without it being validated until actually turned on.
+func validateCRDSchemas(cfg CRDSchemaConfig, embeddingProviders map[string]EmbeddingProviderConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	if strings.TrimSpace(cfg.EmbeddingProvider) == "" {
+		return fmt.Errorf("crdSchemas is enabled but embeddingProvider is not set")
+	}
+	if _, ok := embeddingProviders[cfg.EmbeddingProvider]; !ok {
+		return fmt.Errorf("crdSchemas.embeddingProvider %q is not a declared embedding provider", cfg.EmbeddingProvider)
+	}
+	for _, n := range cfg.Names {
+		if strings.TrimSpace(n) == "" {
+			return fmt.Errorf("crdSchemas.names contains a blank entry")
+		}
+	}
+	return nil
 }
 
 // validateProvider checks the shared fields of an embedding or chat provider
@@ -256,4 +322,11 @@ func (r *ProviderRegistry) ChatProviderNames() []string {
 // Empty reports whether no providers are configured.
 func (r *ProviderRegistry) Empty() bool {
 	return len(r.embedding) == 0 && len(r.chat) == 0
+}
+
+// CRDSchemas returns the controller-wide CRD schema capture configuration
+// (disabled by default when the providers config declares no crdSchemas
+// section).
+func (r *ProviderRegistry) CRDSchemas() CRDSchemaConfig {
+	return r.crdSchemas
 }

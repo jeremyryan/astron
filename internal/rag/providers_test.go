@@ -190,6 +190,42 @@ embeddingProviders:
     nope: true
 `,
 		},
+		{
+			name: "crdSchemas enabled without embeddingProvider",
+			content: `
+embeddingProviders:
+  - name: openai
+    provider: openai
+    model: text-embedding-3-small
+crdSchemas:
+  enabled: true
+`,
+		},
+		{
+			name: "crdSchemas embeddingProvider not declared",
+			content: `
+embeddingProviders:
+  - name: openai
+    provider: openai
+    model: text-embedding-3-small
+crdSchemas:
+  enabled: true
+  embeddingProvider: missing
+`,
+		},
+		{
+			name: "crdSchemas blank name entry",
+			content: `
+embeddingProviders:
+  - name: openai
+    provider: openai
+    model: text-embedding-3-small
+crdSchemas:
+  enabled: true
+  embeddingProvider: openai
+  names: [""]
+`,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -212,6 +248,63 @@ embeddingProviders:
 	}
 	if _, ok := reg.EmbeddingProvider("test"); !ok {
 		t.Fatal("fake embedding provider not registered")
+	}
+}
+
+func TestLoadProvidersConfigCRDSchemasDisabledByDefault(t *testing.T) {
+	reg, err := LoadProvidersConfig(writeProviders(t, `
+embeddingProviders:
+  - name: openai
+    provider: openai
+    model: text-embedding-3-small
+`))
+	if err != nil {
+		t.Fatalf("LoadProvidersConfig: %v", err)
+	}
+	if got := reg.CRDSchemas(); got.Enabled {
+		t.Fatalf("CRDSchemas() = %+v, want disabled by default", got)
+	}
+}
+
+func TestLoadProvidersConfigCRDSchemasParses(t *testing.T) {
+	reg, err := LoadProvidersConfig(writeProviders(t, `
+embeddingProviders:
+  - name: openai
+    provider: openai
+    model: text-embedding-3-small
+crdSchemas:
+  enabled: true
+  embeddingProvider: openai
+  names:
+    - widgets.example.com
+    - gadgets.example.com
+`))
+	if err != nil {
+		t.Fatalf("LoadProvidersConfig: %v", err)
+	}
+	got := reg.CRDSchemas()
+	if !got.Enabled {
+		t.Fatal("expected crdSchemas to be enabled")
+	}
+	if got.EmbeddingProvider != "openai" {
+		t.Errorf("EmbeddingProvider = %q", got.EmbeddingProvider)
+	}
+	if want := []string{"widgets.example.com", "gadgets.example.com"}; !reflect.DeepEqual(got.Names, want) {
+		t.Errorf("Names = %v, want %v", got.Names, want)
+	}
+}
+
+// TestLoadProvidersConfigCRDSchemasDisabledSkipsValidation verifies an
+// embeddingProvider that doesn't (yet) resolve to a declared provider is not
+// an error while crdSchemas is left disabled, so a config can declare the
+// block ahead of actually turning it on.
+func TestLoadProvidersConfigCRDSchemasDisabledSkipsValidation(t *testing.T) {
+	_, err := LoadProvidersConfig(writeProviders(t, `
+crdSchemas:
+  embeddingProvider: not-declared-anywhere
+`))
+	if err != nil {
+		t.Fatalf("LoadProvidersConfig: %v", err)
 	}
 }
 

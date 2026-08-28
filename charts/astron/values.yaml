@@ -193,6 +193,17 @@ providers:
   # baseURL (required for azure/ollama/litellm), allowedModels, and
   # apiKeySecret {name, namespace, key}.
   chatProviders: []
+  # -- Controller-wide CRD schema capture for RAG: renders each selected
+  # CustomResourceDefinition's schema into searchable documentation for the
+  # chat agent (invisible to the live resource graph/UI). This is separate
+  # from a GraphProjection's own scope.crds, which only controls whether CRDs
+  # are captured as ordinary, visible nodes in that projection's graph.
+  # Fields: enabled (default false), names (optional allow-list of full CRD
+  # names, e.g. widgets.example.com; empty captures every CRD in the
+  # cluster), embeddingProvider (required when enabled; must name an entry in
+  # embeddingProviders above). Example:
+  #   crdSchemas: { enabled: true, embeddingProvider: openai }
+  crdSchemas: {}
 
 # Optionally create a default GraphProjection on install.
 defaultProjection:

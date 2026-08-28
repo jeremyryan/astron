@@ -50,7 +50,7 @@ providers:
       provider: fake
     - name: openai
       provider: openai
-      model: "gpt-5.6-sol"
+      model: "gpt-5.6-luna"
       apiKeySecret:
         name: astron-embeddings
         key: apiKey

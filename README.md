@@ -118,6 +118,8 @@ It is opt-in per `GraphProjection`.
   embedding/chat providers once on the controller, shared by every projection.
 - **[Chat Agent Tools Design](./docs/agent-design.md)** — proposed tool-using
   chat agent that calls read-only, projection-scoped tools to answer questions.
+- **[CRD Schema Knowledge Design](./docs/crd-schema-design.md)** — proposed
+  invisible schema nodes and agent tools for explaining CRD fields/discovery.
 
 ## Getting Started
 

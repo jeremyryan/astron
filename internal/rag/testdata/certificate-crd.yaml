@@ -1,0 +1,150 @@
+# A trimmed, representative excerpt of cert-manager's Certificate CRD,
+# used as a real-world-shaped fixture for TestRenderCRDSchemasRealWorldFixture.
+# Not a faithful byte-for-byte copy: reduced to the constructs that exercise
+# rendering (nested objects, arrays of objects, arrays of scalars, enums,
+# defaults, maps via additionalProperties, x-kubernetes-preserve-unknown-fields,
+# and an added x-kubernetes-int-or-string field for coverage cert-manager
+# itself doesn't happen to need).
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: certificates.cert-manager.io
+spec:
+  group: cert-manager.io
+  names:
+    kind: Certificate
+    plural: certificates
+    singular: certificate
+  scope: Namespaced
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          description: A Certificate resource should be created to ensure an up to date and signed X.509 certificate is stored in the Kubernetes Secret resource.
+          type: object
+          properties:
+            spec:
+              description: Specification of the desired state of the Certificate resource.
+              type: object
+              required:
+                - secretName
+                - issuerRef
+              properties:
+                secretName:
+                  description: Name of the Secret resource that will be automatically created and managed by this Certificate resource.
+                  type: string
+                duration:
+                  description: Requested 'duration' (i.e. lifetime) of the Certificate.
+                  type: string
+                renewBefore:
+                  description: How long before the currently issued certificate's expiry cert-manager should renew the certificate.
+                  type: string
+                dnsNames:
+                  description: A list of DNS subjectAltNames to be set on the Certificate.
+                  type: array
+                  items:
+                    type: string
+                ipAddresses:
+                  description: A list of IP address subjectAltNames to be set on the Certificate.
+                  type: array
+                  items:
+                    type: string
+                usages:
+                  description: Requested key usages that will be added to the certificate.
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - "signing"
+                      - "digital signature"
+                      - "server auth"
+                      - "client auth"
+                issuerRef:
+                  description: Reference to the issuer responsible for issuing the certificate.
+                  type: object
+                  required:
+                    - name
+                  properties:
+                    name:
+                      description: Name of the resource being referred to.
+                      type: string
+                    kind:
+                      description: Kind of the resource being referred to.
+                      type: string
+                    group:
+                      description: Group of the resource being referred to.
+                      type: string
+                privateKey:
+                  description: Options to control private keys used for the Certificate.
+                  type: object
+                  properties:
+                    algorithm:
+                      description: Algorithm is the private key algorithm of the corresponding private key for this certificate.
+                      type: string
+                      default: "RSA"
+                      enum:
+                        - "RSA"
+                        - "ECDSA"
+                        - "Ed25519"
+                    size:
+                      description: Size is the key bit size of the corresponding private key for this certificate.
+                      type: integer
+                secretTemplate:
+                  description: Additional annotations and labels to include in the Secret.
+                  type: object
+                  properties:
+                    annotations:
+                      description: Annotations is a key value map to be copied to the target Secret.
+                      type: object
+                      additionalProperties:
+                        type: string
+                port:
+                  description: Synthetic field (not real cert-manager) exercising x-kubernetes-int-or-string.
+                  x-kubernetes-int-or-string: true
+            status:
+              description: Status of the Certificate.
+              type: object
+              properties:
+                conditions:
+                  description: List of status conditions to indicate the status of certificates.
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                    properties:
+                      type:
+                        description: Type of the condition.
+                        type: string
+                      status:
+                        description: Status of the condition.
+                        type: string
+                        enum:
+                          - "True"
+                          - "False"
+                          - "Unknown"
+                      message:
+                        type: string
+                notAfter:
+                  description: The expiry time of the certificate.
+                  type: string
+                notBefore:
+                  description: The time after which the certificate is valid.
+                  type: string
+    - name: v1alpha2
+      served: true
+      storage: false
+      deprecated: true
+      schema:
+        openAPIV3Schema:
+          description: Deprecated version of Certificate, kept for compatibility.
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                secretName:
+                  type: string
