@@ -62,6 +62,7 @@ import {
   type LabelMatchMode,
 } from "./Filters";
 import { YamlModal } from "./YamlModal";
+import { AskAgentModal } from "./AskAgentModal";
 import { ChatPanel } from "./ChatPanel";
 import { SettingsModal } from "./SettingsModal";
 import { ShortcutsModal } from "./ShortcutsModal";
@@ -1311,6 +1312,8 @@ function GraphPanel({
   }, []);
   // Node whose YAML manifest is shown in the modal (null = closed).
   const [yamlNode, setYamlNode] = useState<GraphNode | null>(null);
+  // Node(s) the "Ask Agent" modal is open for (empty = closed).
+  const [askAgentNodes, setAskAgentNodes] = useState<GraphNode[]>([]);
 
   // Resource-kind filter mode: "hide" (hide-list, the default) hides the kinds
   // in hiddenKinds; "show" (allow-list) shows only the kinds in visibleKinds and
@@ -1752,6 +1755,7 @@ function GraphPanel({
             selectedId={selectedNode?.id ?? null}
             maxDistance={maxDistance}
             onShowYaml={setYamlNode}
+            onAskAgent={setAskAgentNodes}
             groupByNamespace={groupByNamespace}
             showEdgeLabels={showEdgeLabels}
             onAddLink={(from, to) => {
@@ -1793,6 +1797,11 @@ function GraphPanel({
         )}
       </div>
       <YamlModal node={yamlNode} onClose={() => setYamlNode(null)} />
+      <AskAgentModal
+        nodes={askAgentNodes}
+        projection={projection}
+        onClose={() => setAskAgentNodes([])}
+      />
       <LinkNoteModal
         edge={editLink}
         onClose={() => setEditLink(null)}

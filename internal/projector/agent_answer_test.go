@@ -73,6 +73,49 @@ func TestAnswerWithToolsFallsBackWithoutToolCaller(t *testing.T) {
 // AnswerWithTools' fallback path.
 type chatOnly struct{ rag.Chat }
 
+// TestAnswerWithToolsFallbackWithHistoryUsesCompleteNotAnswer verifies that
+// when the resolved chat can't call tools but history is non-empty (e.g. a
+// resource's YAML manifest seeded as an initial turn), AnswerWithTools
+// answers directly from history+question via Complete rather than silently
+// discarding history through the retrieval-grounded Answer pipeline (which
+// takes no history at all).
+func TestAnswerWithToolsFallbackWithHistoryUsesCompleteNotAnswer(t *testing.T) {
+	var captured []rag.Message
+	chat := &chatOnly{&rag.FakeChat{ReplyFunc: func(msgs []rag.Message) string {
+		captured = msgs
+		return "answer grounded in the manifest"
+	}}}
+	store := &retrievalStore{data: sampleGraph()}
+	// No embedder/vector store configured: if AnswerWithTools mistakenly fell
+	// through to the retrieval-grounded Answer pipeline, this would fail with
+	// ErrRAGNotEnabled instead of returning an answer.
+	p := New(Options{ID: "proj-fallback-hist", Store: store, QueryStore: store, Chat: chat})
+
+	history := []rag.Message{{
+		Role:    rag.RoleUser,
+		Content: "Manifest for Pod shop/web-1:\n```yaml\nkind: Pod\nmetadata:\n  name: web-1\n```",
+	}}
+	res, err := p.AnswerWithTools(context.Background(), "is this healthy?", "", history, SearchOptions{})
+	if err != nil {
+		t.Fatalf("AnswerWithTools: %v", err)
+	}
+	if res.Agentic {
+		t.Fatal("expected the non-agentic fallback path")
+	}
+	if res.Answer != "answer grounded in the manifest" {
+		t.Fatalf("Answer = %q", res.Answer)
+	}
+	if len(captured) != 2 {
+		t.Fatalf("expected history+question sent to the chat, got %d messages: %+v", len(captured), captured)
+	}
+	if !strings.Contains(captured[0].Content, "Manifest for Pod") {
+		t.Errorf("history not preserved: %+v", captured[0])
+	}
+	if captured[1].Role != rag.RoleUser || captured[1].Content != "is this healthy?" {
+		t.Errorf("question not appended correctly: %+v", captured[1])
+	}
+}
+
 // TestAnswerWithToolsRunsAgentLoop verifies a rag.ToolCaller-capable chat
 // drives the tool-using loop: a tool call is executed against this
 // projection's real Search, and the final answer comes from the model.

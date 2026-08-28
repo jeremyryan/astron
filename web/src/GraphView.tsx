@@ -7,6 +7,7 @@ import {
   IconEyeOff,
   IconGrid3x3,
   IconLink,
+  IconMessageChatbot,
   IconTrash,
   IconLayoutAlignCenter,
   IconLayoutAlignMiddle,
@@ -228,6 +229,9 @@ interface Props {
   maxDistance: number | null;
   // Called when the user picks "YAML" from a node's right-click menu.
   onShowYaml: (node: GraphNode) => void;
+  // Called when the user picks "Ask Agent" from a node's right-click menu,
+  // with the target node (or, for a multi-selection, every selected node).
+  onAskAgent: (nodes: GraphNode[]) => void;
   // Called when the user completes an "Add Link" gesture from one node to
   // another, with the source and target node ids.
   onAddLink: (sourceId: string, targetId: string) => void;
@@ -322,6 +326,7 @@ export function GraphView({
   selectedId,
   maxDistance,
   onShowYaml,
+  onAskAgent,
   onAddLink,
   onDeleteLink,
   onEditLink,
@@ -2438,6 +2443,11 @@ export function GraphView({
           const targetIds =
             selIds.length > 0 && selIds.includes(menu.node.id) ? selIds : [menu.node.id];
           const multi = targetIds.length > 1;
+          // Resolves target node ids back to full GraphNodes (for actions like
+          // Ask Agent that need more than just the id, e.g. to fetch YAML).
+          const nodesById = new Map(graph.nodes.map((n) => [n.id, n]));
+          const nodeById = (id: string) => nodesById.get(id);
+          const isDefined = <T,>(v: T | undefined): v is T => v !== undefined;
           // Whether the right-clicked node is itself a collapsed group (from an
           // earlier Group action), which hides the single-real-node-only items
           // (YAML, Add Link, Arrange Neighbors) and offers Ungroup instead.
@@ -2502,6 +2512,17 @@ export function GraphView({
                       Arrange Neighbors
                     </Menu.Item>
                   </>
+                )}
+                {/* Available for a single real node or a real multi-selection
+                    (not a collapsed group, which has no manifest of its own):
+                    asks about just this node, or all selected nodes together. */}
+                {!clickedIsGroup && (
+                  <Menu.Item
+                    leftSection={<IconMessageChatbot size={16} stroke={1.5} />}
+                    onClick={run(() => onAskAgent(targetIds.map(nodeById).filter(isDefined)))}
+                  >
+                    {multi ? `Ask Agent (${targetIds.length})` : "Ask Agent"}
+                  </Menu.Item>
                 )}
                 {!multi && clickedIsGroup && (
                   <Menu.Item
