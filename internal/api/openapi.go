@@ -134,6 +134,16 @@ type resourceReq struct {
 	Namespace  string `query:"namespace" description:"Resource namespace (namespaced kinds only)"`
 }
 
+type schemaDocsReq struct {
+	Query string `query:"q" required:"true" description:"Natural-language search query"`
+	TopK  int    `query:"topK" description:"Maximum number of CRDs to return (default 5)"`
+}
+
+type resourceSchemaReq struct {
+	Kind    string `path:"kind" description:"Resource Kind, e.g. Certificate"`
+	Version string `query:"version" description:"A specific served API version (optional; defaults to the CRD's storage version)"`
+}
+
 type listViewsReq struct {
 	ProjectionNamespace string `query:"projectionNamespace" description:"Filter to views referencing this projection namespace"`
 	ProjectionName      string `query:"projectionName" description:"Filter to views referencing this projection name"`
@@ -176,6 +186,20 @@ func apiEndpoints() []endpoint {
 			method: http.MethodGet, path: "/api/providers", id: "listProviders", tag: "providers",
 			summary: "List the controller-wide embedding and chat model providers",
 			resp:    new(providersDTO), status: http.StatusOK,
+		},
+		{
+			method: http.MethodGet, path: "/api/schema-docs", id: "searchSchemaDocs", tag: "schema",
+			summary: "Semantically search captured CustomResourceDefinitions' schema overviews " +
+				"(controller-wide, not scoped to a projection)",
+			req: new(schemaDocsReq), resp: new(schemaDocsDTO), status: http.StatusOK,
+			errors: []int{http.StatusBadRequest, http.StatusServiceUnavailable, http.StatusInternalServerError},
+		},
+		{
+			method: http.MethodGet, path: "/api/schema/{kind}", id: "getResourceSchema", tag: "schema",
+			summary: "Get a captured CustomResourceDefinition kind's full field-level schema " +
+				"(controller-wide, not scoped to a projection)",
+			req: new(resourceSchemaReq), resp: new(resourceSchemaDocDTO), status: http.StatusOK,
+			errors: []int{http.StatusBadRequest, http.StatusNotFound, http.StatusServiceUnavailable, http.StatusInternalServerError},
 		},
 		{
 			method: http.MethodGet, path: "/api/projections", id: "listProjections", tag: "projections",

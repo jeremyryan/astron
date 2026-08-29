@@ -121,6 +121,32 @@ type schemaDTO struct {
 	Schema string `json:"schema"`
 }
 
+// schemaDocHitDTO is one CustomResourceDefinition schema overview hit
+// returned by /api/schema-docs.
+type schemaDocHitDTO struct {
+	Group    string  `json:"group"`
+	Version  string  `json:"version"`
+	Kind     string  `json:"kind"`
+	Scope    string  `json:"scope"`
+	Overview string  `json:"overview"`
+	Score    float64 `json:"score"`
+}
+
+// schemaDocsDTO is the API representation of a /api/schema-docs search: the
+// query and the CRD overviews it matched, most similar first.
+type schemaDocsDTO struct {
+	Query string            `json:"query"`
+	Hits  []schemaDocHitDTO `json:"hits"`
+}
+
+// resourceSchemaDocDTO is the API representation of a single CRD's full
+// rendered schema document, returned by /api/schema/{kind}.
+type resourceSchemaDocDTO struct {
+	Kind    string `json:"kind"`
+	Version string `json:"version,omitempty"`
+	Doc     string `json:"doc"`
+}
+
 // answerDTO is the API representation of a RAG answer: the generated answer
 // plus the retrieval context that grounded it.
 type answerDTO struct {

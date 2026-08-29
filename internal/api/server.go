@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -74,6 +75,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/docs", s.handleDocs)
 	mux.HandleFunc("GET /api/redoc.standalone.js", s.handleRedocBundle)
 	mux.HandleFunc("GET /api/providers", s.handleListProviders)
+	mux.HandleFunc("GET /api/schema-docs", s.handleSchemaDocs)
+	mux.HandleFunc("GET /api/schema/{kind}", s.handleResourceSchema)
 	mux.HandleFunc("GET /api/projections", s.handleListProjections)
 	mux.HandleFunc("GET /api/projections/{namespace}/{name}/graph", s.handleGraph)
 	mux.HandleFunc("POST /api/projections/{namespace}/{name}/rag/search", s.handleRAGSearch)
@@ -130,6 +133,90 @@ func (s *Server) handleListProviders(w http.ResponseWriter, _ *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// defaultSchemaSearchTopK bounds how many CRD overviews /api/schema-docs
+// returns when the caller doesn't specify topK, mirroring
+// internal/projector's identical constant for the in-process agent tool.
+const defaultSchemaSearchTopK = 5
+
+// handleSchemaDocs searches the shared, controller-wide CRD schema store's
+// overview embeddings (see docs/crd-schema-design.md). Unlike every other RAG
+// route, it is not nested under /api/projections/{namespace}/{name}: CRD
+// schema knowledge is a cluster-wide fact, not owned by any one projection.
+func (s *Server) handleSchemaDocs(w http.ResponseWriter, r *http.Request) {
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if query == "" {
+		writeError(w, http.StatusBadRequest, errors.New("q query parameter is required"))
+		return
+	}
+	topK := defaultSchemaSearchTopK
+	if raw := r.URL.Query().Get("topK"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 {
+			writeError(w, http.StatusBadRequest, errors.New("topK must be a positive integer"))
+			return
+		}
+		topK = n
+	}
+
+	store, embedder := s.projectors.SchemaStore(), s.projectors.SchemaEmbedder()
+	if store == nil || embedder == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("CRD schema capture is not configured for this cluster"))
+		return
+	}
+
+	vectors, err := embedder.Embed(r.Context(), []string{query})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if len(vectors) == 0 {
+		writeError(w, http.StatusInternalServerError, errors.New("embedding search query: no vector returned"))
+		return
+	}
+	hits, err := store.SearchResourceSchemas(r.Context(), vectors[0], topK)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	out := schemaDocsDTO{Query: query, Hits: make([]schemaDocHitDTO, 0, len(hits))}
+	for _, h := range hits {
+		out.Hits = append(out.Hits, schemaDocHitDTO{
+			Group: h.Group, Version: h.Version, Kind: h.Kind, Scope: h.Scope,
+			Overview: h.Overview, Score: h.Score,
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// handleResourceSchema returns one CustomResourceDefinition kind's full
+// rendered schema document from the shared, controller-wide CRD schema store.
+// Like handleSchemaDocs, it is controller-wide, not projection-scoped.
+func (s *Server) handleResourceSchema(w http.ResponseWriter, r *http.Request) {
+	kind := r.PathValue("kind")
+	if kind == "" {
+		writeError(w, http.StatusBadRequest, errors.New("kind path parameter is required"))
+		return
+	}
+	version := r.URL.Query().Get("version")
+
+	store := s.projectors.SchemaStore()
+	if store == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("CRD schema capture is not configured for this cluster"))
+		return
+	}
+	doc, ok, err := store.ReadResourceSchema(r.Context(), kind, version)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusNotFound, fmt.Errorf("no schema captured for kind %q", kind))
+		return
+	}
+	writeJSON(w, http.StatusOK, resourceSchemaDocDTO{Kind: kind, Version: version, Doc: doc})
 }
 
 func (s *Server) handleListProjections(w http.ResponseWriter, r *http.Request) {

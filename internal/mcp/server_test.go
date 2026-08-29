@@ -51,6 +51,10 @@ func newTestServer(t *testing.T) (*Server, *[]string) {
 			_, _ = w.Write([]byte(`{"question":"why?","answer":"Because the ConfigMap is missing.","retrieval":{"seeds":[]}}`))
 		case strings.HasSuffix(r.URL.Path, "/rag/schema"):
 			_, _ = w.Write([]byte(`{"schema":"Node kinds and their properties:\n  :Pod\n"}`))
+		case r.URL.Path == "/api/schema-docs":
+			_, _ = w.Write([]byte(`{"query":"certificates","hits":[{"kind":"Certificate","score":0.9}]}`))
+		case strings.HasPrefix(r.URL.Path, "/api/schema/"):
+			_, _ = w.Write([]byte(`{"kind":"Certificate","doc":"Certificate\n..."}`))
 		default:
 			http.Error(w, "not found", http.StatusNotFound)
 		}
@@ -165,6 +169,7 @@ func TestToolsListAdvertisesAllTools(t *testing.T) {
 	for _, name := range []string{
 		"list_projections", "search_cluster_graph", "get_resource_neighborhood",
 		"get_resource_yaml", "answer_question", "query_graph", "get_graph_schema",
+		"search_resource_docs", "get_resource_schema",
 	} {
 		if !strings.Contains(string(b), `"`+name+`"`) {
 			t.Errorf("tools/list missing %q:\n%s", name, b)
@@ -252,6 +257,81 @@ func TestToolCallSchema(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected the API schema endpoint to be called, saw: %v", *seen)
+	}
+}
+
+// TestToolCallSearchResourceDocs verifies search_resource_docs is registered
+// unwrapped (no projectionNamespace/projectionName arguments needed) and
+// reaches the controller-wide /api/schema-docs route.
+func TestToolCallSearchResourceDocs(t *testing.T) {
+	s, seen := newTestServer(t)
+	req := `{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"search_resource_docs","arguments":{"query":"certificate rotation"}}}`
+	resps := run(t, s, req)
+	if len(resps) != 1 || resps[0].Error != nil {
+		t.Fatalf("unexpected response: %+v", resps)
+	}
+	text, isErr := resultText(t, resps[0])
+	if isErr {
+		t.Fatalf("tool reported error: %s", text)
+	}
+	if !strings.Contains(text, "Certificate") {
+		t.Errorf("expected schema-docs JSON, got: %s", text)
+	}
+	found := false
+	for _, p := range *seen {
+		if p == "GET /api/schema-docs" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected the API schema-docs endpoint to be called, saw: %v", *seen)
+	}
+}
+
+func TestToolCallSearchResourceDocsRequiresQuery(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := `{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"search_resource_docs","arguments":{}}}`
+	resps := run(t, s, req)
+	_, isErr := resultText(t, resps[0])
+	if !isErr {
+		t.Fatal("expected a tool error for a missing query")
+	}
+}
+
+// TestToolCallGetResourceSchema verifies get_resource_schema is registered
+// unwrapped and reaches the controller-wide /api/schema/{kind} route.
+func TestToolCallGetResourceSchema(t *testing.T) {
+	s, seen := newTestServer(t)
+	req := `{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"get_resource_schema","arguments":{"kind":"Certificate"}}}`
+	resps := run(t, s, req)
+	if len(resps) != 1 || resps[0].Error != nil {
+		t.Fatalf("unexpected response: %+v", resps)
+	}
+	text, isErr := resultText(t, resps[0])
+	if isErr {
+		t.Fatalf("tool reported error: %s", text)
+	}
+	if !strings.Contains(text, "Certificate") {
+		t.Errorf("expected the rendered schema doc, got: %s", text)
+	}
+	found := false
+	for _, p := range *seen {
+		if p == "GET /api/schema/Certificate" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected the API resource-schema endpoint to be called, saw: %v", *seen)
+	}
+}
+
+func TestToolCallGetResourceSchemaRequiresKind(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := `{"jsonrpc":"2.0","id":23,"method":"tools/call","params":{"name":"get_resource_schema","arguments":{}}}`
+	resps := run(t, s, req)
+	_, isErr := resultText(t, resps[0])
+	if !isErr {
+		t.Fatal("expected a tool error for a missing kind")
 	}
 }
 

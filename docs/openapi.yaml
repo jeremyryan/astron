@@ -271,6 +271,15 @@ components:
         name:
           type: string
       type: object
+    ApiResourceSchemaDocDTO:
+      properties:
+        doc:
+          type: string
+        kind:
+          type: string
+        version:
+          type: string
+      type: object
     ApiRetrievalDTO:
       properties:
         cards:
@@ -291,6 +300,32 @@ components:
     ApiSchemaDTO:
       properties:
         schema:
+          type: string
+      type: object
+    ApiSchemaDocHitDTO:
+      properties:
+        group:
+          type: string
+        kind:
+          type: string
+        overview:
+          type: string
+        scope:
+          type: string
+        score:
+          format: double
+          type: number
+        version:
+          type: string
+      type: object
+    ApiSchemaDocsDTO:
+      properties:
+        hits:
+          items:
+            $ref: '#/components/schemas/ApiSchemaDocHitDTO'
+          nullable: true
+          type: array
+        query:
           type: string
       type: object
     ApiSeedDTO:
@@ -1549,6 +1584,106 @@ paths:
       summary: Fetch a live cluster resource as YAML
       tags:
       - resources
+  /api/schema-docs:
+    get:
+      operationId: searchSchemaDocs
+      parameters:
+      - description: Natural-language search query
+        in: query
+        name: q
+        required: true
+        schema:
+          description: Natural-language search query
+          type: string
+      - description: Maximum number of CRDs to return (default 5)
+        in: query
+        name: topK
+        schema:
+          description: Maximum number of CRDs to return (default 5)
+          type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSchemaDocsDTO'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Internal Server Error
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+      summary: Semantically search captured CustomResourceDefinitions' schema overviews
+        (controller-wide, not scoped to a projection)
+      tags:
+      - schema
+  /api/schema/{kind}:
+    get:
+      operationId: getResourceSchema
+      parameters:
+      - description: A specific served API version (optional; defaults to the CRD's
+          storage version)
+        in: query
+        name: version
+        schema:
+          description: A specific served API version (optional; defaults to the CRD's
+            storage version)
+          type: string
+      - description: Resource Kind, e.g. Certificate
+        in: path
+        name: kind
+        required: true
+        schema:
+          description: Resource Kind, e.g. Certificate
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResourceSchemaDocDTO'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Internal Server Error
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+          description: Service Unavailable
+      summary: Get a captured CustomResourceDefinition kind's full field-level schema
+        (controller-wide, not scoped to a projection)
+      tags:
+      - schema
   /api/views:
     get:
       operationId: listViews

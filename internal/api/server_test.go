@@ -17,6 +17,7 @@ limitations under the License.
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -39,6 +40,7 @@ import (
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
+	"github.com/project-astron/astron/internal/graph"
 	"github.com/project-astron/astron/internal/projector"
 	"github.com/project-astron/astron/internal/rag"
 )
@@ -682,5 +684,141 @@ chatProviders:
 	}
 	if len(got.ChatProviders) != 1 || got.ChatProviders[0].Name != "gpt4o" {
 		t.Fatalf("unexpected chat providers: %+v", got.ChatProviders)
+	}
+}
+
+// fakeSchemaStore is a minimal graph.SchemaStore for handler tests: it only
+// implements the two read paths /api/schema-docs and /api/schema/{kind}
+// exercise.
+type fakeSchemaStore struct {
+	hits               []graph.ResourceSchemaHit
+	doc                string
+	docOK              bool
+	lastKind, lastVer  string
+	searchErr, readErr error
+}
+
+func (f *fakeSchemaStore) EnsureResourceSchemaVectorIndex(context.Context, int, string) error {
+	return nil
+}
+func (f *fakeSchemaStore) ExistingResourceSchemaHashes(context.Context, []string) (map[string]string, error) {
+	return nil, nil
+}
+func (f *fakeSchemaStore) UpsertResourceSchemas(context.Context, []graph.ResourceSchema) error {
+	return nil
+}
+func (f *fakeSchemaStore) DeleteResourceSchemas(context.Context, []string) error { return nil }
+func (f *fakeSchemaStore) ReadResourceSchema(_ context.Context, kind, version string) (string, bool, error) {
+	f.lastKind, f.lastVer = kind, version
+	if f.readErr != nil {
+		return "", false, f.readErr
+	}
+	return f.doc, f.docOK, nil
+}
+func (f *fakeSchemaStore) SearchResourceSchemas(context.Context, []float32, int) ([]graph.ResourceSchemaHit, error) {
+	if f.searchErr != nil {
+		return nil, f.searchErr
+	}
+	return f.hits, nil
+}
+
+func newSchemaTestServer(t *testing.T, store *fakeSchemaStore) *Server {
+	t.Helper()
+	c := fakeclient.NewClientBuilder().WithScheme(testScheme(t)).Build()
+	mgr := projector.NewManager(nil, nil, nil)
+	if store != nil {
+		mgr.SetSchemaStore(store, rag.NewFakeEmbedder(8))
+	}
+	return NewServer(c, mgr, nil, nil, nil)
+}
+
+func TestHandleSchemaDocsNotConfigured(t *testing.T) {
+	srv := newSchemaTestServer(t, nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/schema-docs?q=certificates", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+}
+
+func TestHandleSchemaDocsRequiresQuery(t *testing.T) {
+	srv := newSchemaTestServer(t, &fakeSchemaStore{})
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/schema-docs", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestHandleSchemaDocsInvalidTopK(t *testing.T) {
+	srv := newSchemaTestServer(t, &fakeSchemaStore{})
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/schema-docs?q=x&topK=nope", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+// testSchemaWidgetKind is the CRD Kind used across the /api/schema-docs and
+// /api/schema/{kind} handler tests below.
+const testSchemaWidgetKind = "Widget"
+
+func TestHandleSchemaDocs(t *testing.T) {
+	store := &fakeSchemaStore{hits: []graph.ResourceSchemaHit{
+		{Group: "example.com", Version: "v1", Kind: testSchemaWidgetKind, Scope: "Namespaced", Overview: "Kind: Widget", Score: 0.9},
+	}}
+	srv := newSchemaTestServer(t, store)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/schema-docs?q=widgets&topK=3", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var got schemaDocsDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if got.Query != "widgets" {
+		t.Errorf("Query = %q", got.Query)
+	}
+	if len(got.Hits) != 1 || got.Hits[0].Kind != testSchemaWidgetKind {
+		t.Fatalf("unexpected hits: %+v", got.Hits)
+	}
+}
+
+func TestHandleResourceSchemaNotConfigured(t *testing.T) {
+	srv := newSchemaTestServer(t, nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/schema/Widget", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+}
+
+func TestHandleResourceSchemaNotFound(t *testing.T) {
+	srv := newSchemaTestServer(t, &fakeSchemaStore{docOK: false})
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/schema/Nope", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestHandleResourceSchema(t *testing.T) {
+	store := &fakeSchemaStore{doc: "Widget\n...", docOK: true}
+	srv := newSchemaTestServer(t, store)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/schema/"+testSchemaWidgetKind+"?version=v1", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var got resourceSchemaDocDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if got.Kind != testSchemaWidgetKind || got.Version != "v1" || got.Doc != "Widget\n..." {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+	if store.lastKind != testSchemaWidgetKind || store.lastVer != "v1" {
+		t.Errorf("ReadResourceSchema called with (%q, %q)", store.lastKind, store.lastVer)
 	}
 }

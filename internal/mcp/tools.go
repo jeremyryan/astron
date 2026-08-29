@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 
 	"github.com/project-astron/astron/internal/agent"
 )
@@ -33,8 +34,11 @@ import (
 // projectionNamespace/projectionName parameters this multi-projection,
 // external-client transport needs (see agent.ForMultiProjection). This keeps
 // their names, descriptions and schemas defined in exactly one place.
-// get_resource_yaml is used as-is from the catalog: it already addresses a
-// resource directly, with no projection to route to. list_projections and
+// get_resource_yaml, search_resource_docs and get_resource_schema are used
+// as-is from the catalog: none of the three addresses a specific projection
+// (get_resource_yaml addresses a live resource directly; the other two read
+// the shared, controller-wide CRD schema store, which isn't projection-scoped
+// at all -- see docs/crd-schema-design.md). list_projections and
 // answer_question are MCP-specific: the former has no per-projection scope to
 // wrap, and the latter is the fixed answer pipeline the chat agent
 // deliberately does not expose as a tool to itself.
@@ -69,6 +73,8 @@ func (s *Server) registerTools() {
 	})
 
 	s.registerCatalogToolAsIs(agent.ToolGetResourceYAML, s.toolResourceYAML)
+	s.registerCatalogToolAsIs(agent.ToolSearchResourceDocs, s.toolSearchResourceDocs)
+	s.registerCatalogToolAsIs(agent.ToolGetResourceSchema, s.toolGetResourceSchema)
 }
 
 // registerCatalogTool registers name from agent.Catalog(), wrapped with
@@ -258,6 +264,55 @@ func (s *Server) toolResourceYAML(ctx context.Context, raw json.RawMessage) (str
 		q.Set("namespace", a.Namespace)
 	}
 	out, err := s.api.ResourceYAML(ctx, q)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+type searchResourceDocsArgs struct {
+	Query string `json:"query"`
+	TopK  int    `json:"topK"`
+}
+
+func (s *Server) toolSearchResourceDocs(ctx context.Context, raw json.RawMessage) (string, error) {
+	var a searchResourceDocsArgs
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if a.Query == "" {
+		return "", fmt.Errorf("query is required")
+	}
+	q := url.Values{}
+	q.Set("q", a.Query)
+	if a.TopK > 0 {
+		q.Set("topK", strconv.Itoa(a.TopK))
+	}
+	out, err := s.api.SchemaDocs(ctx, q)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+type resourceSchemaArgs struct {
+	Kind    string `json:"kind"`
+	Version string `json:"version"`
+}
+
+func (s *Server) toolGetResourceSchema(ctx context.Context, raw json.RawMessage) (string, error) {
+	var a resourceSchemaArgs
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if a.Kind == "" {
+		return "", fmt.Errorf("kind is required")
+	}
+	q := url.Values{}
+	if a.Version != "" {
+		q.Set("version", a.Version)
+	}
+	out, err := s.api.ResourceSchema(ctx, a.Kind, q)
 	if err != nil {
 		return "", err
 	}

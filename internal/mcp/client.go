@@ -131,3 +131,17 @@ func (c *APIClient) Schema(ctx context.Context, namespace, name string) ([]byte,
 	path := fmt.Sprintf("/api/projections/%s/%s/rag/schema", url.PathEscape(namespace), url.PathEscape(name))
 	return c.get(ctx, path, nil)
 }
+
+// SchemaDocs searches the shared, controller-wide CustomResourceDefinition
+// schema store's overview embeddings and returns the result JSON. Unlike
+// Schema (a projection's live graph schema), this is not projection-scoped:
+// CRD schema knowledge is a cluster-wide fact (see docs/crd-schema-design.md).
+func (c *APIClient) SchemaDocs(ctx context.Context, query url.Values) ([]byte, error) {
+	return c.get(ctx, "/api/schema-docs", query)
+}
+
+// ResourceSchema returns the full rendered schema document for a captured
+// CustomResourceDefinition kind, optionally at a specific served version.
+func (c *APIClient) ResourceSchema(ctx context.Context, kind string, query url.Values) ([]byte, error) {
+	return c.get(ctx, "/api/schema/"+url.PathEscape(kind), query)
+}
