@@ -45,6 +45,11 @@ providers:
       apiKeySecret:
         name: astron-embeddings
         key: apiKey
+    - name: fake
+      provider: fake
+  crdSchemas:
+    enabled: true
+    embeddingProvider: fake
   chatProviders:
     - name: fake
       provider: fake

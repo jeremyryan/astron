@@ -49,6 +49,7 @@ import (
 	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
 	"github.com/project-astron/astron/internal/api"
 	"github.com/project-astron/astron/internal/controller"
+	"github.com/project-astron/astron/internal/crdschema"
 	"github.com/project-astron/astron/internal/graph"
 	"github.com/project-astron/astron/internal/projector"
 	"github.com/project-astron/astron/internal/rag"
@@ -287,6 +288,17 @@ func main() {
 		}
 		projectors.SetProviderChats(chats)
 		setupLog.Info("Resolved controller-wide chat providers", "count", len(chats))
+
+		// Start the standalone CRD schema syncer, when configured. It is
+		// entirely independent of any GraphProjection (see
+		// docs/crd-schema-design.md), so it is started once here rather than
+		// per-projection.
+		if cfg := providers.CRDSchemas(); cfg.Enabled {
+			if err := startCRDSchemaSyncer(mgr, projectors, dynClient, neo4jCfg, providers, cfg, read); err != nil {
+				setupLog.Error(err, "Failed to start the CRD schema syncer")
+				os.Exit(1)
+			}
+		}
 	}
 
 	if err := (&controller.GraphProjectionReconciler{
@@ -322,6 +334,57 @@ func main() {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
 	}
+}
+
+// startCRDSchemaSyncer resolves the configured CRD schema embedding provider,
+// opens a dedicated Neo4J connection (the syncer is its own writer,
+// independent of any projection's own store instance), makes the store and
+// embedder available to every projection's search_resource_docs/
+// get_resource_schema agent tools (Manager.SetSchemaStore), and registers the
+// syncer as a manager Runnable so it starts and stops with the controller.
+func startCRDSchemaSyncer(
+	mgr manager.Manager, projectors *projector.Manager, dynClient dynamic.Interface, neo4jCfg graph.Neo4jConfig,
+	providers *rag.ProviderRegistry, cfg rag.CRDSchemaConfig, read rag.SecretReader,
+) error {
+	emb, err := rag.BuildProviderEmbedder(
+		context.Background(), providers, controllerNamespace(), cfg.EmbeddingProvider, read)
+	if err != nil {
+		return fmt.Errorf("resolving the CRD schema embedding provider: %w", err)
+	}
+	store, err := graph.NewNeo4jStore(neo4jCfg)
+	if err != nil {
+		return fmt.Errorf("connecting to Neo4J for CRD schema capture: %w", err)
+	}
+	schemaStore, ok := graph.Store(store).(graph.SchemaStore)
+	if !ok {
+		return fmt.Errorf("the configured graph store does not support CRD schema capture")
+	}
+	projectors.SetSchemaStore(schemaStore, emb)
+
+	syncer := crdschema.NewSyncer(crdschema.Options{
+		Dynamic:  dynClient,
+		Store:    schemaStore,
+		Embedder: emb,
+		Names:    cfg.Names,
+	})
+	if err := mgr.Add(newCRDSchemaSyncerRunnable(syncer)); err != nil {
+		return fmt.Errorf("registering the CRD schema syncer: %w", err)
+	}
+	setupLog.Info("Starting the CRD schema syncer", "embeddingProvider", cfg.EmbeddingProvider, "names", cfg.Names)
+	return nil
+}
+
+// newCRDSchemaSyncerRunnable wraps a crdschema.Syncer as a controller-runtime
+// Runnable so it shares the manager's lifecycle, mirroring newAPIRunnable.
+func newCRDSchemaSyncerRunnable(s *crdschema.Syncer) manager.Runnable {
+	return manager.RunnableFunc(func(ctx context.Context) error {
+		if err := s.Start(ctx); err != nil {
+			return err
+		}
+		<-ctx.Done()
+		s.Stop()
+		return nil
+	})
 }
 
 // controllerNamespace returns the namespace the controller runs in, used as the
