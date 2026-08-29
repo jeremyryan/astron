@@ -45,6 +45,15 @@ modes on top of the existing graph:
 Neighborhood retrieval needs neither embeddings nor a chat model — it works on
 the graph alone.
 
+Separately, a controller-wide **CRD schema knowledge** capability (`crdSchemas`
+in the providers config, see [`providers.md`](./providers.md)) gives the chat
+agent and MCP clients two more tools — `search_resource_docs` and
+`get_resource_schema` — that answer from a CustomResourceDefinition's actual
+*schema* (field names, types, descriptions, enums) rather than only what's
+observed on live instances. Unlike everything else in this guide it applies
+cluster-wide, not per projection; see
+[`crd-schema-design.md`](./crd-schema-design.md) for the full design.
+
 ---
 
 ## How it works (in one minute)
@@ -325,6 +334,8 @@ stream — don't mix anything else into stdout.
 | `query_graph` | Text-to-Cypher: generate + run a read-only query *(needs chat)*. |
 | `get_graph_schema` | Summarize a projection's resource kinds and relationship types. |
 | `get_resource_yaml` | Fetch a single resource's live YAML. |
+| `search_resource_docs` | Semantically search captured CustomResourceDefinitions' schemas for a natural-language query (e.g. "what handles certificate rotation?"). Cluster-wide, not scoped to a projection; requires `crdSchemas` (see [`providers.md`](./providers.md)). |
+| `get_resource_schema` | Full field-level schema (types, required fields, descriptions, enums, defaults) for a captured CRD kind. Cluster-wide, not scoped to a projection; requires `crdSchemas`. |
 
 ### Wire it into an MCP client
 

@@ -1,6 +1,6 @@
 # Chat Agent Tools — Design
 
-Status: proposed
+Status: implemented (phase 1)
 
 Today the chat panel answers questions through a **fixed pipeline**:
 `Projector.Answer` runs one hybrid retrieval (vector + graph) and makes one
@@ -162,6 +162,14 @@ directly. All are read-only and scoped to the route's projection:
 | `query_graph` | `Projector.Query` | Precise/aggregate answers via guarded, read-only Cypher. |
 | `get_graph_schema` | `rag.SchemaSummary(ReadGraph)` | Cheap orientation (labels, relationship types) to help form queries. |
 | `get_resource_yaml` | live k8s read (API server client) | Full manifest of one resource, server-managed noise stripped. |
+
+> Since phase 1: two more tools, `search_resource_docs` and
+> `get_resource_schema`, were added by the CRD Schema Knowledge design (see
+> [`crd-schema-design.md`](./crd-schema-design.md)). Unlike the five above,
+> they read a *shared, controller-wide* store rather than anything scoped to
+> this route's projection — a CRD's schema is a cluster fact, not
+> projection-owned state — so `Projector.toolSet` wires them to that shared
+> store regardless of which projection is answering.
 
 The fixed `answer_question` pipeline is deliberately **not** a tool — it *is*
 what the agent replaces. `list_projections` is omitted in phase 1 because the

@@ -5,10 +5,12 @@ Rather than configuring a model provider on every `GraphProjection`, you can
 declare a set of **named providers once on the controller**. They are loaded at
 startup and made available across every projection.
 
-> Status: this first step wires the configuration into the controller (it is
-> parsed, validated, and held in a registry shared by all projections). How
-> projections and agents *select* among these providers is layered on in
-> follow-up work; today's per-projection `graphRAG` block is unchanged.
+> Status: configuration is parsed, validated, and held in a registry shared
+> by all projections. Chat requests route to a named controller-wide provider
+> automatically when the requested model matches one (see "Using
+> controller-wide providers" below); a per-projection `graphRAG` block, when
+> configured, continues to work unchanged alongside these. `crdSchemas`
+> (below) is the first controller-wide *embedding* provider consumer.
 
 ## The configuration
 
@@ -69,10 +71,31 @@ Validation performed at load time:
 
 Credentials are **never** placed in this file (it is mounted from a ConfigMap
 and therefore not secret). Each provider references a Secret key via
-`apiKeySecret`; the reference is recorded now and resolved from the Secret by
-later functionality.
+`apiKeySecret`, resolved from the Secret at controller startup (chat
+providers and the `crdSchemas.embeddingProvider`) or lazily as needed.
 
 An empty/absent file simply means no controller-wide providers are configured.
+
+## Using controller-wide providers
+
+- **Chat.** A chat request (`/rag/answer`, `/rag/query`, `/rag/agent`) whose
+  `model` names a controller-wide chat provider routes to it directly — this
+  takes precedence over the projection's own `graphRAG.chat`, so a user's
+  chosen provider always wins regardless of what that projection configured.
+  A projection with no `graphRAG.chat` of its own still gets chat features
+  when at least one controller-wide chat provider is configured.
+- **CRD schema embeddings.** When `crdSchemas.enabled` is true, the named
+  `embeddingProvider` is resolved once at startup and used by a standalone,
+  controller-wide syncer (`internal/crdschema`, unrelated to any single
+  projection) to embed captured CRDs' schema overviews for search. This
+  powers two agent/MCP tools, `search_resource_docs` and
+  `get_resource_schema`, and the `GET /api/schema-docs`/`GET /api/schema/{kind}`
+  API routes — see [`crd-schema-design.md`](./crd-schema-design.md) and
+  [`graphrag-guide.md`](./graphrag-guide.md).
+- **Embedding providers** other than `crdSchemas.embeddingProvider` are
+  currently only surfaced for UI model selection; a projection's own
+  `graphRAG.embedding` still configures its own embedder directly (it does
+  not yet route through this registry by name).
 
 ## Configuring it with the Helm chart
 

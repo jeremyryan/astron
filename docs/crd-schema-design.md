@@ -1,6 +1,6 @@
 # CRD Schema Knowledge — Design
 
-Status: proposed
+Status: implemented
 
 Today the chat agent only knows what it can observe: the flat properties
 `nodeFor` (`internal/projector/node.go`) extracts from live resources, and —
