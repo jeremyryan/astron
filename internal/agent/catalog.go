@@ -30,6 +30,8 @@ const (
 	ToolQueryGraph              = "query_graph"
 	ToolGetGraphSchema          = "get_graph_schema"
 	ToolGetResourceYAML         = "get_resource_yaml"
+	ToolSearchResourceDocs      = "search_resource_docs"
+	ToolGetResourceSchema       = "get_resource_schema"
 )
 
 // Catalog returns the canonical rag.ToolSpecs for the phase-1 chat agent.
@@ -100,6 +102,35 @@ func Catalog() []rag.ToolSpec {
 				"name":       stringProp("Resource name."),
 				"namespace":  stringProp("Namespace (omit for cluster-scoped resources)."),
 			}, []string{"apiVersion", "kind", "name"}),
+		},
+		{
+			Name: ToolSearchResourceDocs,
+			Description: "Semantically search the schema overviews of CustomResourceDefinitions " +
+				"captured in this cluster (kind, group/version, scope, top-level spec/status field " +
+				"names) for a natural-language query. Best for discovery questions like 'does this " +
+				"cluster have anything for certificate rotation?' or 'what handles ingress routing " +
+				"here?'. This is cluster-wide, not scoped to this projection: a CRD's schema is a " +
+				"cluster fact, not something this projection owns. Returns overviews only — follow up " +
+				"with get_resource_schema for the full field-level schema of a specific kind.",
+			Parameters: objectSchema(map[string]any{
+				"query": stringProp("The natural-language search query."),
+				"topK":  intProp("Maximum number of CRDs to return (default 5)."),
+			}, []string{"query"}),
+		},
+		{
+			Name: ToolGetResourceSchema,
+			Description: "Return the complete field-by-field schema (types, required fields, " +
+				"descriptions, enums, defaults) for a Kubernetes kind backed by a captured " +
+				"CustomResourceDefinition. Use to explain what a field means or what values it " +
+				"accepts — get_graph_schema and search_cluster_graph never carry this detail, since " +
+				"they only reflect properties observed on live instances. This is cluster-wide, not " +
+				"scoped to this projection. Built-in Kubernetes kinds (Pod, Deployment, ...) are not " +
+				"covered, only cluster-specific CRDs.",
+			Parameters: objectSchema(map[string]any{
+				"kind": stringProp("The resource Kind, e.g. 'Certificate'."),
+				"version": stringProp("A specific served API version to fetch (optional; " +
+					"defaults to the CRD's storage version)."),
+			}, []string{"kind"}),
 		},
 	}
 }

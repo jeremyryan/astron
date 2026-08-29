@@ -103,6 +103,19 @@ type Options struct {
 	// EmbeddingBatchSize bounds how many cards are embedded per provider call.
 	// Defaults to 64; a non-positive value embeds all changed cards in one call.
 	EmbeddingBatchSize int
+	// SchemaStore is the shared, controller-wide CRD schema store (see
+	// docs/crd-schema-design.md), backing the search_resource_docs and
+	// get_resource_schema agent tools. It is independent of this projection's
+	// own spec.scope.crds (which only controls CRD-as-a-visible-node capture in
+	// this projection's own graph): CRD schema knowledge is a cluster-wide fact,
+	// captured by a single standalone syncer (internal/crdschema), not by this
+	// projection. Nil disables both tools for this projection.
+	SchemaStore graph.SchemaStore
+	// SchemaEmbedder embeds search_resource_docs queries into the same vector
+	// space SchemaStore's overview embeddings were written in (the resolved
+	// crdSchemas.embeddingProvider). Nil disables search_resource_docs even when
+	// SchemaStore is set (get_resource_schema needs no embeddings).
+	SchemaEmbedder rag.Embedder
 }
 
 // Projector watches the resources in a projection's scope and keeps the graph

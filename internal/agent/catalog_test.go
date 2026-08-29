@@ -18,9 +18,8 @@ package agent
 
 import "testing"
 
-// TestCatalogHasExpectedTools verifies the phase-1 catalog advertises exactly
-// the five documented tools, each with a non-empty description and an object
-// schema.
+// TestCatalogHasExpectedTools verifies the catalog advertises exactly the
+// documented tools, each with a non-empty description and an object schema.
 func TestCatalogHasExpectedTools(t *testing.T) {
 	want := []string{
 		ToolSearchClusterGraph,
@@ -28,6 +27,8 @@ func TestCatalogHasExpectedTools(t *testing.T) {
 		ToolQueryGraph,
 		ToolGetGraphSchema,
 		ToolGetResourceYAML,
+		ToolSearchResourceDocs,
+		ToolGetResourceSchema,
 	}
 	specs := Catalog()
 	if len(specs) != len(want) {

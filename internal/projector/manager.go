@@ -84,6 +84,13 @@ type Manager struct {
 	// providers it is set once at startup and read-only thereafter. Every
 	// projection can route a chat request to any of these by name.
 	providerChats map[string]rag.Chat
+	// schemaStore and schemaEmbedder are the shared, controller-wide CRD schema
+	// store and its query embedder (see docs/crd-schema-design.md), set once at
+	// startup by SetSchemaStore. Both nil means CRD schema capture is not
+	// configured; every projection's search_resource_docs/get_resource_schema
+	// tools are then unavailable.
+	schemaStore    graph.SchemaStore
+	schemaEmbedder rag.Embedder
 
 	mu      sync.Mutex
 	running map[graph.ProjectionID]*entry
@@ -123,6 +130,32 @@ func (m *Manager) SetProviderChats(chats map[string]rag.Chat) {
 // embeddings enabled when this is true, even without a per-projection chat.
 func (m *Manager) HasProviderChats() bool {
 	return len(m.providerChats) > 0
+}
+
+// SetSchemaStore installs the shared, controller-wide CRD schema store and the
+// embedder used to embed search_resource_docs queries (see
+// docs/crd-schema-design.md and internal/crdschema.Syncer, which is this
+// store's only writer). It is intended to be called once during startup,
+// before the manager begins reconciling, only when CRD schema capture is
+// configured; leaving it unset (both nil) disables the two CRD schema tools
+// for every projection.
+func (m *Manager) SetSchemaStore(store graph.SchemaStore, embedder rag.Embedder) {
+	m.schemaStore = store
+	m.schemaEmbedder = embedder
+}
+
+// SchemaStore returns the shared, controller-wide CRD schema store, or nil if
+// CRD schema capture is not configured. It backs the controller-wide
+// /api/schema-docs and /api/schema/{kind} routes, which (unlike every other
+// route under /api/projections/...) are not scoped to a single projection.
+func (m *Manager) SchemaStore() graph.SchemaStore {
+	return m.schemaStore
+}
+
+// SchemaEmbedder returns the embedder used to embed /api/schema-docs search
+// queries, or nil if CRD schema capture is not configured.
+func (m *Manager) SchemaEmbedder() rag.Embedder {
+	return m.schemaEmbedder
 }
 
 // SetProviders installs the controller-wide providers registry shared by every
@@ -186,6 +219,10 @@ func (m *Manager) Ensure(ctx context.Context, id graph.ProjectionID, namespace s
 		// Controller-wide chat providers are available to every projection,
 		// so a chat request can route to one by name (see chatFor).
 		ProviderChats: m.providerChats,
+		// The CRD schema store is shared and controller-wide, independent of
+		// this projection's own spec.scope.crds; see Options.SchemaStore.
+		SchemaStore:    m.schemaStore,
+		SchemaEmbedder: m.schemaEmbedder,
 	}
 	// Guarded read-only Cypher (text-to-Cypher) is available whenever the
 	// store supports it, independent of whether a chat model is configured on

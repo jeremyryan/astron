@@ -45,8 +45,10 @@ func (p *Projector) toolSet(model string) agent.ToolSet {
 		agent.ToolQueryGraph: func(ctx context.Context, args json.RawMessage) (string, error) {
 			return p.toolQuery(ctx, args, model)
 		},
-		agent.ToolGetGraphSchema:  p.toolSchema,
-		agent.ToolGetResourceYAML: p.toolResourceYAML,
+		agent.ToolGetGraphSchema:     p.toolSchema,
+		agent.ToolGetResourceYAML:    p.toolResourceYAML,
+		agent.ToolSearchResourceDocs: p.toolSearchResourceDocs,
+		agent.ToolGetResourceSchema:  p.toolGetResourceSchema,
 	}
 
 	catalog := agent.Catalog()
@@ -172,6 +174,115 @@ func (p *Projector) toolResourceYAML(ctx context.Context, raw json.RawMessage) (
 	out, err := p.ResourceYAML(ctx, a.APIVersion, a.Kind, a.Namespace, a.Name)
 	if err != nil {
 		return "", err
+	}
+	return string(out), nil
+}
+
+// defaultSchemaSearchTopK bounds how many CRD overviews search_resource_docs
+// returns when the caller doesn't specify topK.
+const defaultSchemaSearchTopK = 5
+
+// searchResourceDocsToolArgs is the search_resource_docs tool's argument
+// shape, matching agent.Catalog's schema for it.
+type searchResourceDocsToolArgs struct {
+	Query string `json:"query"`
+	TopK  int    `json:"topK"`
+}
+
+// toolSearchResourceDocs backs search_resource_docs: a vector search over the
+// shared, controller-wide CRD schema store (internal/crdschema), independent
+// of this projection's own graph or configuration — see
+// docs/crd-schema-design.md.
+func (p *Projector) toolSearchResourceDocs(ctx context.Context, raw json.RawMessage) (string, error) {
+	if p.opts.SchemaStore == nil || p.opts.SchemaEmbedder == nil {
+		return "", fmt.Errorf("CRD schema capture is not configured for this cluster")
+	}
+	var a searchResourceDocsToolArgs
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if a.Query == "" {
+		return "", fmt.Errorf("query is required")
+	}
+	topK := a.TopK
+	if topK <= 0 {
+		topK = defaultSchemaSearchTopK
+	}
+
+	vectors, err := p.opts.SchemaEmbedder.Embed(ctx, []string{a.Query})
+	if err != nil {
+		return "", fmt.Errorf("embedding search query: %w", err)
+	}
+	if len(vectors) == 0 {
+		return "", fmt.Errorf("embedding search query: no vector returned")
+	}
+	hits, err := p.opts.SchemaStore.SearchResourceSchemas(ctx, []float32(vectors[0]), topK)
+	if err != nil {
+		return "", fmt.Errorf("searching resource schemas: %w", err)
+	}
+	return marshalSchemaHits(a.Query, hits)
+}
+
+// resourceSchemaToolArgs is the get_resource_schema tool's argument shape,
+// matching agent.Catalog's schema for it.
+type resourceSchemaToolArgs struct {
+	Kind    string `json:"kind"`
+	Version string `json:"version"`
+}
+
+// toolGetResourceSchema backs get_resource_schema: a keyed lookup against the
+// shared, controller-wide CRD schema store. A kind with no captured schema is
+// a normal observation, not an error, so the agent can recover by trying
+// something else — see docs/crd-schema-design.md.
+func (p *Projector) toolGetResourceSchema(ctx context.Context, raw json.RawMessage) (string, error) {
+	if p.opts.SchemaStore == nil {
+		return "", fmt.Errorf("CRD schema capture is not configured for this cluster")
+	}
+	var a resourceSchemaToolArgs
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if a.Kind == "" {
+		return "", fmt.Errorf("kind is required")
+	}
+	doc, ok, err := p.opts.SchemaStore.ReadResourceSchema(ctx, a.Kind, a.Version)
+	if err != nil {
+		return "", fmt.Errorf("reading resource schema: %w", err)
+	}
+	if !ok {
+		return fmt.Sprintf("no schema captured for kind %q", a.Kind), nil
+	}
+	return doc, nil
+}
+
+// schemaSearchObservation is the compact JSON shape fed back to the model for
+// search_resource_docs.
+type schemaSearchObservation struct {
+	Query string           `json:"query"`
+	Hits  []schemaHitEntry `json:"hits"`
+}
+
+// schemaHitEntry is one CRD overview hit in a schemaSearchObservation.
+type schemaHitEntry struct {
+	Group    string  `json:"group"`
+	Version  string  `json:"version"`
+	Kind     string  `json:"kind"`
+	Scope    string  `json:"scope"`
+	Overview string  `json:"overview"`
+	Score    float64 `json:"score"`
+}
+
+func marshalSchemaHits(query string, hits []graph.ResourceSchemaHit) (string, error) {
+	obs := schemaSearchObservation{Query: query, Hits: make([]schemaHitEntry, 0, len(hits))}
+	for _, h := range hits {
+		obs.Hits = append(obs.Hits, schemaHitEntry{
+			Group: h.Group, Version: h.Version, Kind: h.Kind, Scope: h.Scope,
+			Overview: h.Overview, Score: h.Score,
+		})
+	}
+	out, err := json.Marshal(obs)
+	if err != nil {
+		return "", fmt.Errorf("encoding resource schema search result: %w", err)
 	}
 	return string(out), nil
 }
