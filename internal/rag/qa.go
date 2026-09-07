@@ -34,9 +34,12 @@ Rules:
 - Generate exactly one statement. It MUST be read-only: never use CREATE, MERGE,
   DELETE, SET, REMOVE, or CALL.
 - The query MUST include a RETURN clause.
+- Every resource node has exactly one label, ` + "`K8sResource`" + `. There is NO
+  per-kind label such as ` + "`:Pod`" + ` or ` + "`:Deployment`" + ` — the Kubernetes kind is
+  instead the ` + "`kind`" + ` property, e.g. ` + "`{kind: 'Pod'}`" + `.
 - Scope every matched K8sResource to the current projection by matching the
   property ` + "`_projection: $projection`" + ` on each node, e.g.
-  MATCH (p:Pod {_projection: $projection}).
+  MATCH (p:K8sResource {kind: 'Pod', _projection: $projection}).
 - Use only the labels, properties and relationship types described in the schema.
 
 Schema:

@@ -40,9 +40,9 @@ func TestSchemaSummaryIsGroundedAndDeterministic(t *testing.T) {
 	got := SchemaSummary(data)
 
 	for _, want := range []string{
-		":Pod — phase, ready", // properties sorted, identity excluded
-		":Deployment",
-		"(:Deployment)-[:OWNS]->(:Pod)",
+		"kind=Pod — phase, ready", // properties sorted, identity excluded
+		"kind=Deployment",
+		"(kind=Deployment)-[:OWNS]->(kind=Pod)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("schema summary missing %q:\n%s", want, got)
@@ -67,6 +67,29 @@ func TestCypherMessagesIncludeSchemaAndGuardrails(t *testing.T) {
 	}
 	if !strings.Contains(msgs[1].Content, "how many pods?") {
 		t.Error("user prompt should contain the question")
+	}
+}
+
+// TestCypherMessagesDoesNotImplyPerKindLabels guards against regressing to an
+// example that claims (or implies, via a bare :Pod-shaped pattern) a per-kind
+// Neo4J label exists. Every resource node has exactly one label, K8sResource;
+// the Kubernetes kind is the `kind` property. An example like
+// `MATCH (p:Pod {...})` misleads a text-to-Cypher model into generating
+// queries that silently match zero nodes.
+func TestCypherMessagesDoesNotImplyPerKindLabels(t *testing.T) {
+	msgs := CypherMessages("SCHEMA-HERE", "how many pods?")
+	system := msgs[0].Content
+	// The prompt legitimately mentions ":Pod" once, as a negative example ("there
+	// is NO per-kind label such as :Pod"); what must never appear is a MATCH
+	// clause example that uses it as if it were real, e.g. "(p:Pod {".
+	if strings.Contains(system, ":Pod {") || strings.Contains(system, ":Pod{") {
+		t.Errorf("system prompt should not show an example MATCH clause using :Pod as a label:\n%s", system)
+	}
+	if !strings.Contains(system, "kind: 'Pod'") {
+		t.Errorf("system prompt should show kind as a property, e.g. kind: 'Pod':\n%s", system)
+	}
+	if !strings.Contains(system, "K8sResource") {
+		t.Error("system prompt should name the single real label, K8sResource")
 	}
 }
 

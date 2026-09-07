@@ -34,17 +34,18 @@ import (
 // namespace, name and uid, which are noted once up front.
 func SchemaSummary(data graph.GraphData) string {
 	var b strings.Builder
-	b.WriteString("Nodes are labeled `K8sResource` and by their Kubernetes kind ")
-	b.WriteString("(e.g. `:Pod`, `:Deployment`). Every node has properties: ")
-	b.WriteString("apiVersion, kind, namespace, name, uid")
+	b.WriteString("Every node has exactly ONE label, `K8sResource` — there is NO ")
+	b.WriteString("per-kind label such as `:Pod` or `:Deployment`. The Kubernetes kind ")
+	b.WriteString("is instead the `kind` property, e.g. `{kind: 'Pod'}`. Every node also ")
+	b.WriteString("has properties: apiVersion, kind, namespace, name, uid")
 	b.WriteString(" (plus the kind-specific properties below).\n\n")
 
-	b.WriteString("Node kinds and their properties:\n")
+	b.WriteString("Kubernetes kinds present (`kind` property values) and their extra properties:\n")
 	for _, line := range nodeKindLines(data.Nodes) {
 		b.WriteString("  " + line + "\n")
 	}
 
-	b.WriteString("\nRelationship patterns:\n")
+	b.WriteString("\nRelationship patterns (`kind` is a property, not a label):\n")
 	patterns := relationshipPatterns(data)
 	if len(patterns) == 0 {
 		b.WriteString("  (none)\n")
@@ -93,9 +94,9 @@ func nodeKindLines(nodes []graph.Node) []string {
 		}
 		sort.Strings(keys)
 		if len(keys) == 0 {
-			lines = append(lines, fmt.Sprintf(":%s", kind))
+			lines = append(lines, fmt.Sprintf("kind=%s", kind))
 		} else {
-			lines = append(lines, fmt.Sprintf(":%s — %s", kind, strings.Join(keys, ", ")))
+			lines = append(lines, fmt.Sprintf("kind=%s — %s", kind, strings.Join(keys, ", ")))
 		}
 	}
 	return lines
@@ -120,7 +121,7 @@ func relationshipPatterns(data graph.GraphData) []string {
 		if to == "" {
 			to = "?"
 		}
-		p := fmt.Sprintf("(:%s)-[:%s]->(:%s)", from, r.Type, to)
+		p := fmt.Sprintf("(kind=%s)-[:%s]->(kind=%s)", from, r.Type, to)
 		if !seen[p] {
 			seen[p] = true
 			patterns = append(patterns, p)
