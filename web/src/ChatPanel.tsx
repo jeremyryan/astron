@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   ActionIcon,
   Box,
+  Collapse,
   Group,
   Loader,
   ScrollArea,
@@ -24,7 +25,7 @@ import {
 } from "./api";
 import { iconForKindOrGeneric } from "./kinds";
 import { Markdown } from "./Markdown";
-import { IconSend2, IconTool } from "./icons";
+import { IconChevronRight, IconSend2, IconTool } from "./icons";
 import { useSettings } from "./settings";
 
 // A single entry in the conversation. Assistant messages carry the resource
@@ -81,24 +82,46 @@ function SourceList({
 
 // StepList renders the tool calls a chat agent made while working out an
 // answer, for transparency into what it did (and with what arguments).
+// Collapsed by default so the answer itself stays the focus; expand to see
+// the trace.
 function StepList({ steps, stepBudgetExhausted }: { steps: AgentStep[]; stepBudgetExhausted?: boolean }) {
+  const [open, setOpen] = useState(false);
   if (steps.length === 0) return null;
   return (
     <Stack gap={2} mt={6}>
-      <Text size="xs" c="dimmed" tt="uppercase" style={{ letterSpacing: "0.05em" }}>
-        Tool activity
-      </Text>
-      {steps.map((s, i) => (
-        <Group key={i} gap={6} wrap="nowrap" align="flex-start">
-          <IconTool size={12} color="var(--muted)" style={{ marginTop: 2, flexShrink: 0 }} />
-          {/* s.summary is already prefixed with the tool name (see the
-              backend's agent.summarize), so it's shown as-is rather than
-              repeating s.tool. */}
-          <Text size="xs" c="dimmed" style={{ wordBreak: "break-word" }}>
-            {s.summary || s.tool}
+      <UnstyledButton onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        <Group gap={4} wrap="nowrap" align="center">
+          <IconChevronRight
+            size={12}
+            stroke={2}
+            color="var(--muted)"
+            style={{
+              flex: "0 0 auto",
+              transition: "transform 150ms ease",
+              transform: open ? "rotate(90deg)" : "none",
+            }}
+          />
+          <Text size="xs" c="dimmed" tt="uppercase" style={{ letterSpacing: "0.05em" }}>
+            Tool activity ({steps.length})
           </Text>
         </Group>
-      ))}
+      </UnstyledButton>
+      <Collapse expanded={open}>
+        <Stack gap={2} mt={2}>
+          {steps.map((s, i) => (
+            <Group key={i} gap={6} wrap="nowrap" align="flex-start">
+              <IconTool size={12} color="var(--muted)" style={{ marginTop: 2, flexShrink: 0 }} />
+              {/* s.summary is already prefixed with the tool name (see the
+                  backend's agent.summarize), so it's shown as-is rather than
+                  repeating s.tool. */}
+              <Text size="xs" c="dimmed" style={{ wordBreak: "break-word" }}>
+                {s.summary || s.tool}
+              </Text>
+            </Group>
+          ))}
+        </Stack>
+      </Collapse>
+      {/* Shown regardless of collapse state: actionable, not just a trace. */}
       {stepBudgetExhausted && (
         <Text size="xs" c="orange">
           Reached the tool-call limit — this answer may be incomplete.
