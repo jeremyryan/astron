@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/discovery"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	k8stesting "k8s.io/client-go/testing"
 
@@ -157,6 +158,171 @@ func TestSelectNamespacedKindsAllListsForbidden(t *testing.T) {
 			t.Errorf("error %q should mention %q", err, want)
 		}
 	}
+}
+
+// certManagerDiscoveryLists mimics the API discovery output for cert-manager's
+// CRDs: three namespaced kinds under cert-manager.io, two namespaced kinds
+// under acme.cert-manager.io, and one cluster-scoped kind.
+func certManagerDiscoveryLists() []*metav1.APIResourceList {
+	return []*metav1.APIResourceList{
+		{
+			GroupVersion: "cert-manager.io/v1",
+			APIResources: []metav1.APIResource{
+				{Name: "certificates", Kind: "Certificate", Namespaced: true, Verbs: metav1.Verbs{"list"}},
+				{Name: "certificaterequests", Kind: "CertificateRequest", Namespaced: true, Verbs: metav1.Verbs{"list"}},
+				{Name: "issuers", Kind: "Issuer", Namespaced: true, Verbs: metav1.Verbs{"list"}},
+				{Name: "clusterissuers", Kind: "ClusterIssuer", Namespaced: false, Verbs: metav1.Verbs{"list"}},
+			},
+		},
+		{
+			GroupVersion: "acme.cert-manager.io/v1",
+			APIResources: []metav1.APIResource{
+				{Name: "orders", Kind: "Order", Namespaced: true, Verbs: metav1.Verbs{"list"}},
+				{Name: "challenges", Kind: "Challenge", Namespaced: true, Verbs: metav1.Verbs{"list"}},
+			},
+		},
+	}
+}
+
+func TestResolveIncludeSpecsResolvesBareKindsViaDiscovery(t *testing.T) {
+	got, err := resolveIncludeSpecs([]string{"Order", "Challenge", "Certificate"}, certManagerDiscoveryLists())
+	if err != nil {
+		t.Fatalf("resolveIncludeSpecs: %v", err)
+	}
+	want := []astronv1alpha1.ResourceSelector{
+		{Group: "acme.cert-manager.io", Version: "v1", Kind: "Order"},
+		{Group: "acme.cert-manager.io", Version: "v1", Kind: "Challenge"},
+		{Group: "cert-manager.io", Version: "v1", Kind: "Certificate"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("selector %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+// TestResolveIncludeSpecsResolvesClusterScopedKind verifies a bare Kind that
+// is cluster-scoped (e.g. ClusterIssuer) resolves correctly: --include isn't
+// restricted to namespaced kinds the way discoverKinds is.
+func TestResolveIncludeSpecsResolvesClusterScopedKind(t *testing.T) {
+	got, err := resolveIncludeSpecs([]string{"ClusterIssuer"}, certManagerDiscoveryLists())
+	if err != nil {
+		t.Fatalf("resolveIncludeSpecs: %v", err)
+	}
+	want := astronv1alpha1.ResourceSelector{Group: "cert-manager.io", Version: "v1", Kind: "ClusterIssuer"}
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("got %+v, want [%+v]", got, want)
+	}
+}
+
+// TestResolveIncludeSpecsExplicitGroupVersionSkipsDiscovery verifies an
+// explicit "group/version/Kind" spec is trusted as given, without needing to
+// match anything in the discovery lists (e.g. for a kind discovery can't see).
+func TestResolveIncludeSpecsExplicitGroupVersionSkipsDiscovery(t *testing.T) {
+	got, err := resolveIncludeSpecs([]string{"example.com/v1/Widget"}, nil)
+	if err != nil {
+		t.Fatalf("resolveIncludeSpecs: %v", err)
+	}
+	want := astronv1alpha1.ResourceSelector{Group: "example.com", Version: "v1", Kind: "Widget"}
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("got %+v, want [%+v]", got, want)
+	}
+}
+
+func TestResolveIncludeSpecsUnknownKindErrors(t *testing.T) {
+	if _, err := resolveIncludeSpecs([]string{"NotAThing"}, certManagerDiscoveryLists()); err == nil {
+		t.Fatal("expected an error for a kind not found via discovery")
+	} else if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error should mention the kind was not found, got: %v", err)
+	}
+}
+
+func TestResolveIncludeSpecsAmbiguousKindErrors(t *testing.T) {
+	lists := []*metav1.APIResourceList{
+		{GroupVersion: "apps/v1", APIResources: []metav1.APIResource{
+			{Name: "widgets", Kind: "Widget", Namespaced: true, Verbs: metav1.Verbs{"list"}},
+		}},
+		{GroupVersion: "example.com/v1", APIResources: []metav1.APIResource{
+			{Name: "widgets", Kind: "Widget", Namespaced: true, Verbs: metav1.Verbs{"list"}},
+		}},
+	}
+	if _, err := resolveIncludeSpecs([]string{"Widget"}, lists); err == nil {
+		t.Fatal("expected an error for a kind ambiguous across API groups")
+	} else if !strings.Contains(err.Error(), "ambiguous") {
+		t.Errorf("error should mention ambiguity, got: %v", err)
+	}
+}
+
+func TestMergeSelectorsDeduplicatesByKind(t *testing.T) {
+	base := []astronv1alpha1.ResourceSelector{pod, service}
+	// A conflicting Group/Version for an already-present Kind (Pod) must not
+	// replace the original; only genuinely new Kinds (ConfigMap) are added.
+	extra := []astronv1alpha1.ResourceSelector{
+		{Group: "other", Version: "v1", Kind: "Pod"},
+		configMap,
+	}
+	got := mergeSelectors(base, extra)
+	want := []astronv1alpha1.ResourceSelector{pod, service, configMap}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("selector %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+// TestExcludeKindsCancelsOutInclude verifies a Kind named in both --include
+// and --exclude ends up excluded, since exclusion applies uniformly to
+// instance-discovered and force-included selectors alike.
+func TestExcludeKindsCancelsOutInclude(t *testing.T) {
+	selectors := []astronv1alpha1.ResourceSelector{pod, configMap}
+	got := excludeKinds(selectors, []string{"configmap"}) // case-insensitive
+	if len(got) != 1 || got[0] != pod {
+		t.Fatalf("got %+v, want [%+v]", got, pod)
+	}
+}
+
+// TestAddIncludedKindsMergesAndSorts verifies addIncludedKinds resolves
+// --include against full (namespaced + cluster-scoped) discovery and merges
+// the result with the instance-discovered selectors, deduplicated and sorted
+// (Pod's core group sorts before the cert-manager groups; Order sorts before
+// Challenge within acme.cert-manager.io).
+func TestAddIncludedKindsMergesAndSorts(t *testing.T) {
+	disco := &fakeDiscoveryClient{preferred: certManagerDiscoveryLists()}
+	got, err := addIncludedKinds(disco, []astronv1alpha1.ResourceSelector{pod}, []string{"Order", "Challenge", "Certificate"})
+	if err != nil {
+		t.Fatalf("addIncludedKinds: %v", err)
+	}
+	kinds := make([]string, 0, len(got))
+	for _, s := range got {
+		kinds = append(kinds, s.Kind)
+	}
+	want := []string{"Pod", "Challenge", "Order", "Certificate"}
+	if len(kinds) != len(want) {
+		t.Fatalf("got %v, want %v", kinds, want)
+	}
+	for i := range want {
+		if kinds[i] != want[i] {
+			t.Errorf("kinds[%d] = %q, want %q (full: %v)", i, kinds[i], want[i], kinds)
+		}
+	}
+}
+
+// fakeDiscoveryClient implements just enough of discovery.DiscoveryInterface
+// for addIncludedKinds' ServerPreferredResources call.
+type fakeDiscoveryClient struct {
+	discovery.DiscoveryInterface
+	preferred []*metav1.APIResourceList
+	err       error
+}
+
+func (f *fakeDiscoveryClient) ServerPreferredResources() ([]*metav1.APIResourceList, error) {
+	return f.preferred, f.err
 }
 
 func TestBuildRelationshipsGatedOnKinds(t *testing.T) {

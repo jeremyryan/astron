@@ -73,6 +73,11 @@ type generateOptions struct {
 	// allResources includes every namespaced kind that has instances, rather
 	// than just the standard common set.
 	allResources bool
+	// include force-includes these resource Kinds regardless of whether they
+	// currently have any instances in the namespace (and regardless of
+	// --all-resources/the standard-kind filter). Each entry is either a bare
+	// Kind (resolved via API discovery) or an explicit "[group/]version/Kind".
+	include []string
 
 	// specConfigMap optionally references a ConfigMap ("name" or
 	// "namespace/name") whose "spec" key holds a YAML document merged into the
@@ -130,6 +135,14 @@ func newGenerateCmd(opts *options) *cobra.Command {
 			"(workloads, Services, ConfigMaps/Secrets, PVCs, Ingress, ...) that\n" +
 			"currently have at least one instance in the namespace. Pass\n" +
 			"--all-resources to include every namespaced kind that has instances.\n\n" +
+			"Use --include to force one or more additional Kinds into the projection\n" +
+			"regardless of whether they currently have any instances in the\n" +
+			"namespace (and independent of --all-resources/the standard-kind\n" +
+			"filter, which only affect discovery from existing instances). Each\n" +
+			"entry may be a bare Kind, resolved via API discovery (e.g. \"Certificate\"),\n" +
+			"or an explicit \"[group/]version/Kind\" when the Kind name is ambiguous\n" +
+			"or not discoverable. A Kind named in both --include and --exclude is\n" +
+			"excluded.\n\n" +
 			"By default the manifest is written to stdout. Use --output-file to write\n" +
 			"it to a file, or --apply to create/update the GraphProjection in the\n" +
 			"cluster instead of emitting YAML.\n\n" +
@@ -171,6 +184,14 @@ func newProjectionsAddCmd(opts *options) *cobra.Command {
 			"(workloads, Services, ConfigMaps/Secrets, PVCs, Ingress, ...) that\n" +
 			"currently have at least one instance in the namespace. Pass\n" +
 			"--all-resources to include every namespaced kind that has instances.\n\n" +
+			"Use --include to force one or more additional Kinds into the projection\n" +
+			"regardless of whether they currently have any instances in the\n" +
+			"namespace (and independent of --all-resources/the standard-kind\n" +
+			"filter, which only affect discovery from existing instances). Each\n" +
+			"entry may be a bare Kind, resolved via API discovery (e.g. \"Certificate\"),\n" +
+			"or an explicit \"[group/]version/Kind\" when the Kind name is ambiguous\n" +
+			"or not discoverable. A Kind named in both --include and --exclude is\n" +
+			"excluded.\n\n" +
 			"Use --spec-from-configmap to merge shared settings (for example a\n" +
 			"graphRAG configuration) into the projection's spec, and --views to also\n" +
 			"create default GraphViews for it.\n\n" +
@@ -206,6 +227,9 @@ func addGenerateFlags(cmd *cobra.Command, gopts *generateOptions) {
 		"Resource Kinds to exclude from the projection (e.g. Event,EndpointSlice)")
 	cmd.Flags().BoolVar(&gopts.allResources, "all-resources", false,
 		"Include every namespaced kind that has instances, instead of the standard common set")
+	cmd.Flags().StringSliceVar(&gopts.include, "include", nil,
+		"Resource Kind(s) to force into the projection even without existing instances "+
+			"(bare Kind or [group/]version/Kind, repeatable, comma-separated)")
 	cmd.Flags().StringVar(&gopts.specConfigMap, "spec-from-configmap", "",
 		"ConfigMap (\"name\" or \"namespace/name\") whose \"spec\" key is a YAML document merged into the generated spec")
 	cmd.Flags().StringVarP(&gopts.labelSelector, "label-selector", "l", "",
@@ -243,11 +267,22 @@ func runGenerate(cmd *cobra.Command, gopts *generateOptions, namespace string) e
 	if err != nil {
 		return err
 	}
+
+	if len(gopts.include) > 0 {
+		selectors, err = addIncludedKinds(disco, selectors, gopts.include)
+		if err != nil {
+			return err
+		}
+	}
+	// --exclude applies uniformly to both instance-discovered and --include'd
+	// kinds: a Kind named in both flags is a contradiction, and exclusion wins.
+	selectors = excludeKinds(selectors, gopts.exclude)
+
 	if len(selectors) == 0 {
 		if !gopts.allResources {
-			return fmt.Errorf("no standard resource kinds with instances found in namespace %q (try --all-resources)", namespace)
+			return fmt.Errorf("no standard resource kinds with instances found in namespace %q (try --all-resources or --include)", namespace)
 		}
-		return fmt.Errorf("no resource types with instances found in namespace %q", namespace)
+		return fmt.Errorf("no resource types with instances found in namespace %q (try --include)", namespace)
 	}
 
 	manifest := buildManifest(gopts, namespace, selectors)
@@ -578,6 +613,130 @@ func selectNamespacedKinds(ctx context.Context, lists []*metav1.APIResourceList,
 
 	sortSelectors(selectors)
 	return selectors, nil
+}
+
+// addIncludedKinds resolves --include's requested Kinds (forcing them into the
+// manifest regardless of whether they currently have any instances) and
+// merges them into selectors, skipping any Kind already present. It queries
+// the full (namespaced and cluster-scoped) API discovery, unlike
+// discoverKinds, since a force-included kind need not be namespaced.
+func addIncludedKinds(
+	disco discovery.DiscoveryInterface, selectors []astronv1alpha1.ResourceSelector, includeSpecs []string,
+) ([]astronv1alpha1.ResourceSelector, error) {
+	lists, err := disco.ServerPreferredResources()
+	if err != nil && len(lists) == 0 {
+		return nil, fmt.Errorf("discovering API resources for --include: %w", err)
+	}
+	included, err := resolveIncludeSpecs(includeSpecs, lists)
+	if err != nil {
+		return nil, err
+	}
+	merged := mergeSelectors(selectors, included)
+	sortSelectors(merged)
+	return merged, nil
+}
+
+// resolveIncludeSpecs parses the --include values, resolving any bare Kind (no
+// explicit group/version) against the given discovery lists so it can be
+// written into scope.resources without requiring an existing instance. An
+// explicit "[group/]version/Kind" spec is used as given, without consulting
+// discovery at all.
+func resolveIncludeSpecs(specs []string, lists []*metav1.APIResourceList) ([]astronv1alpha1.ResourceSelector, error) {
+	out := make([]astronv1alpha1.ResourceSelector, 0, len(specs))
+	for _, spec := range specs {
+		sel, err := parseResourceSelector(spec)
+		if err != nil {
+			return nil, fmt.Errorf("--include %q: %w", spec, err)
+		}
+		if sel.Version != "" {
+			out = append(out, sel)
+			continue
+		}
+		resolved, err := resolveKindFromDiscovery(sel.Kind, lists)
+		if err != nil {
+			return nil, fmt.Errorf("--include %q: %w", spec, err)
+		}
+		out = append(out, resolved)
+	}
+	return out, nil
+}
+
+// resolveKindFromDiscovery finds the API resource matching kind (an exact,
+// case-sensitive match on the Kind reported by discovery) across every
+// discovered group and returns it as a ResourceSelector. It errors if no match
+// is found, or if the kind is ambiguous across more than one API group
+// (ServerPreferredResources already picks a single version per group, so
+// ambiguity here means two distinct groups expose the same Kind name).
+func resolveKindFromDiscovery(kind string, lists []*metav1.APIResourceList) (astronv1alpha1.ResourceSelector, error) {
+	var matches []astronv1alpha1.ResourceSelector
+	seenGroup := map[string]bool{}
+	for _, list := range lists {
+		gv, parseErr := schema.ParseGroupVersion(list.GroupVersion)
+		if parseErr != nil {
+			continue
+		}
+		for _, res := range list.APIResources {
+			if strings.Contains(res.Name, "/") || res.Kind != kind { // subresource, or no match
+				continue
+			}
+			if seenGroup[gv.Group] {
+				continue
+			}
+			seenGroup[gv.Group] = true
+			matches = append(matches, astronv1alpha1.ResourceSelector{Group: gv.Group, Version: gv.Version, Kind: res.Kind})
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return astronv1alpha1.ResourceSelector{}, fmt.Errorf(
+			"kind %q not found via API discovery; use \"[group/]version/Kind\" if it's a valid type", kind)
+	case 1:
+		return matches[0], nil
+	default:
+		return astronv1alpha1.ResourceSelector{}, fmt.Errorf(
+			"kind %q is ambiguous across multiple API groups; specify \"[group/]version/Kind\" instead", kind)
+	}
+}
+
+// mergeSelectors appends any selector from extra whose Kind is not already
+// present in base (first one wins on a Kind collision).
+func mergeSelectors(base, extra []astronv1alpha1.ResourceSelector) []astronv1alpha1.ResourceSelector {
+	seen := make(map[string]bool, len(base))
+	out := make([]astronv1alpha1.ResourceSelector, len(base), len(base)+len(extra))
+	copy(out, base)
+	for _, s := range base {
+		seen[s.Kind] = true
+	}
+	for _, s := range extra {
+		if seen[s.Kind] {
+			continue
+		}
+		seen[s.Kind] = true
+		out = append(out, s)
+	}
+	return out
+}
+
+// excludeKinds removes any selector whose Kind is named in exclude
+// (case-insensitively, matching selectNamespacedKinds' own exclude handling).
+// It applies uniformly to instance-discovered and --include'd selectors alike,
+// so a Kind named in both --include and --exclude ends up excluded.
+func excludeKinds(selectors []astronv1alpha1.ResourceSelector, exclude []string) []astronv1alpha1.ResourceSelector {
+	if len(exclude) == 0 {
+		return selectors
+	}
+	excluded := map[string]bool{}
+	for _, k := range exclude {
+		excluded[strings.ToLower(k)] = true
+	}
+	out := make([]astronv1alpha1.ResourceSelector, 0, len(selectors))
+	for _, s := range selectors {
+		if excluded[strings.ToLower(s.Kind)] {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 // hasInstances reports whether the given resource has at least one object in the
