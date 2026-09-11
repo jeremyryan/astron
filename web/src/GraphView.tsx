@@ -53,11 +53,21 @@ const isGroupNodeId = (id: string): boolean => id.startsWith(GROUP_NODE_PREFIX);
 // different resource kinds at once.
 const GROUP_NODE_COLOR = "#7f8c8d";
 
-// Kinds that are automatically collapsed into one group per namespace as soon
-// as two or more of them are visible, decluttering the common case of many
-// old ReplicaSets left behind by rollout history. Purely a starting point:
-// the user can Ungroup at any time (see the auto-grouping effect below).
+// Kinds that are automatically collapsed into one group per owner (the
+// resource that OWNS them, e.g. a Deployment) as soon as two or more of them
+// share an owner, decluttering the common case of many old ReplicaSets left
+// behind by rollout history. A namespace's ReplicaSets end up in one group per
+// Deployment, not a single namespace-wide group, so it stays clear which
+// Deployment each group belongs to. Purely a starting point: the user can
+// Ungroup at any time (see the auto-grouping effect below).
 const AUTO_GROUP_KINDS = new Set(["ReplicaSet"]);
+
+// ownerIdFor returns the id of the node that OWNS nodeId (e.g. a Deployment
+// owning a ReplicaSet), if any, used to bucket auto-grouped nodes by their
+// owner instead of lumping every instance of a kind in a namespace together.
+function ownerIdFor(nodeId: string, edges: GraphEdge[]): string | undefined {
+  return edges.find((e) => e.type === "OWNS" && e.target === nodeId)?.source;
+}
 
 // pluralize turns a Kubernetes kind name into a simple plural for a group
 // node's label ("Pod" -> "Pods", "Ingress" -> "Ingresses", "Gateway" ->
@@ -300,9 +310,11 @@ interface NodeGroup {
   id: string;
   memberIds: string[];
   // Set when this group was created by the auto-grouping effect (rather than
-  // an explicit "Group" action), identified by its "<namespace>|<kind>"
-  // bucket key. Lets Ungroup opt that bucket out of auto-grouping instead of
-  // having it immediately reappear on the next graph poll.
+  // an explicit "Group" action), identified by its
+  // "<namespace>|<kind>|<ownerId>" bucket key (ownerId empty when the member
+  // kind has no identifiable owner). Lets Ungroup opt that bucket out of
+  // auto-grouping instead of having it immediately reappear on the next graph
+  // poll.
   auto?: boolean;
   autoKey?: string;
 }
@@ -373,18 +385,23 @@ export function GraphView({
   // Nodes the user has merged into a collapsed group node via the context
   // menu's Group/Ungroup actions. Purely local view state, not persisted.
   const [groups, setGroups] = useState<NodeGroup[]>([]);
-  // "<namespace>|<kind>" buckets the user has explicitly opted out of
-  // auto-grouping by ungrouping them; see the auto-grouping effect below.
+  // "<namespace>|<kind>|<ownerId>" buckets the user has explicitly opted out
+  // of auto-grouping by ungrouping them; see the auto-grouping effect below.
   const [autoGroupOptOut, setAutoGroupOptOut] = useState<Set<string>>(new Set());
 
   // Collapse the raw graph according to the current groups: grouped member
-  // nodes are replaced by one synthetic node per group (labeled with the
-  // plural of each distinct kind it contains, e.g. "Pods/Services"), and edges
-  // touching a grouped node are redirected to the group, deduplicated, and
-  // dropped if both ends land on the same group (an edge internal to it).
-  // Manual (user-created) edges keep every original edge they aggregate, so
-  // the context menu can still edit/delete an edge that maps unambiguously to
-  // one real link.
+  // nodes are replaced by one synthetic node per group, and edges touching a
+  // grouped node are redirected to the group, deduplicated, and dropped if
+  // both ends land on the same group (an edge internal to it). Manual
+  // (user-created) edges keep every original edge they aggregate, so the
+  // context menu can still edit/delete an edge that maps unambiguously to one
+  // real link.
+  //
+  // A group's label is the plural of each distinct kind it contains (e.g.
+  // "Pods/Services") — unless every member shares both one kind and one
+  // identifiable owner (e.g. a Deployment's ReplicaSets), in which case the
+  // label instead names that owner (e.g. "web ReplicaSets"), so several
+  // same-kind groups in one namespace (one per Deployment) stay distinguishable.
   const { displayGraph, groupInfo, edgeOriginals } = useMemo(() => {
     const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
     const memberOfGroup = new Map<string, string>();
@@ -396,8 +413,14 @@ export function GraphView({
       const presentIds = g.memberIds.filter((id) => nodeById.has(id));
       if (presentIds.length === 0) continue;
       const kinds = [...new Set(presentIds.map((id) => nodeById.get(id)!.kind))].sort();
+      let label = kinds.map(pluralize).join("/");
+      if (kinds.length === 1) {
+        const ownerId = ownerIdFor(presentIds[0], graph.edges);
+        const ownerName = ownerId ? nodeById.get(ownerId)?.name : undefined;
+        if (ownerName) label = `${ownerName} ${pluralize(kinds[0])}`;
+      }
       groupInfo.set(g.id, {
-        label: kinds.map(pluralize).join("/"),
+        label,
         memberIds: presentIds,
         namespace: nodeById.get(presentIds[0])!.namespace,
       });
@@ -461,13 +484,16 @@ export function GraphView({
     });
   }, [graph]);
 
-  // Auto-group AUTO_GROUP_KINDS (currently just ReplicaSet) by namespace: any
-  // two or more not-yet-grouped nodes of such a kind in the same namespace are
-  // swept into (or merged into an existing) auto-created group, so the graph
-  // starts decluttered without requiring a manual "Group". Nodes already in
-  // any group (auto or manually created) are left alone, so this never
-  // disturbs a group the user built by hand. A namespace/kind bucket the user
-  // has explicitly ungrouped is skipped until this view is remounted.
+  // Auto-group AUTO_GROUP_KINDS (currently just ReplicaSet) by namespace AND
+  // owner (e.g. the owning Deployment): any two or more not-yet-grouped nodes
+  // of such a kind sharing both are swept into (or merged into an existing)
+  // auto-created group, so a namespace with several Deployments ends up with
+  // one ReplicaSet group per Deployment rather than one group for all of
+  // them. A ReplicaSet with no identifiable owner falls back to a single
+  // per-namespace bucket. Nodes already in any group (auto or manually
+  // created) are left alone, so this never disturbs a group the user built by
+  // hand. A namespace/kind/owner bucket the user has explicitly ungrouped is
+  // skipped until this view is remounted.
   useEffect(() => {
     setGroups((prev) => {
       const memberOf = new Set<string>();
@@ -476,7 +502,8 @@ export function GraphView({
       const buckets = new Map<string, string[]>();
       for (const n of graph.nodes) {
         if (!AUTO_GROUP_KINDS.has(n.kind) || memberOf.has(n.id)) continue;
-        const key = `${n.namespace ?? ""}|${n.kind}`;
+        const ownerId = ownerIdFor(n.id, graph.edges);
+        const key = `${n.namespace ?? ""}|${n.kind}|${ownerId ?? ""}`;
         (buckets.get(key) ?? buckets.set(key, []).get(key)!).push(n.id);
       }
       if (buckets.size === 0) return prev;
