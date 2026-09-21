@@ -134,6 +134,25 @@ helm-deps: ## Fetch the chart's subchart dependencies (Neo4J).
 	helm repo add neo4j https://helm.neo4j.com/neo4j 2>/dev/null || true
 	cd charts/astron && helm dependency build
 
+# Directory where "make helm-package" writes the packaged chart archive.
+CHART_DIST_DIR ?= dist
+# Chart version override for "make helm-package" (e.g. CHART_VERSION=0.3.0).
+# Leave empty to package whatever version is already set in
+# charts/astron/Chart.yaml.
+CHART_VERSION ?=
+# App version override for "make helm-package" (typically the controller image
+# tag you built/pushed for this release). Leave empty to use Chart.yaml's
+# appVersion, which values.yaml's image.tag defaults to when left unset.
+CHART_APP_VERSION ?=
+
+.PHONY: helm-package
+helm-package: helm-deps ## Package the Helm chart (charts/astron) into a .tgz under dist/.
+	mkdir -p $(CHART_DIST_DIR)
+	helm package charts/astron \
+		--destination $(CHART_DIST_DIR) \
+		$(if $(CHART_VERSION),--version $(CHART_VERSION)) \
+		$(if $(CHART_APP_VERSION),--app-version $(CHART_APP_VERSION))
+
 .PHONY: dev
 dev: helm-deps ## Skaffold dev loop: build->push->deploy to the test cluster and watch for changes.
 	skaffold dev

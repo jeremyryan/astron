@@ -42,3 +42,7 @@ README.html
 /astron-*.tgz
 /astron_*.tar.gz
 /astron_*.tgz
+
+# Build outputs: the consolidated installer manifest (make build-installer)
+# and packaged Helm charts (make helm-package).
+/dist/
