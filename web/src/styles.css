@@ -83,6 +83,18 @@ body {
   padding: 8px 4px;
 }
 
+/* Maximized: half the space between the two side panels, so if both are
+   maximized at once they together cover the graph area entirely. Unlike the
+   collapse/expand transition, the inner content is meant to actually use the
+   extra room rather than stay clipped at its normal fixed width. */
+.filters-maximized {
+  width: 50%;
+}
+
+.filters-maximized .filters-scroll {
+  width: 100%;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .filters {
     transition: none;
@@ -288,6 +300,18 @@ body {
   justify-content: center;
   padding: 8px 4px;
   width: 38px;
+}
+
+/* Maximized: half the space between the two side panels, so if both are
+   maximized at once they together cover the graph area entirely. Unlike the
+   collapse/expand transition, the inner content is meant to actually use the
+   extra room rather than stay clipped at its normal fixed width. */
+.inspector-maximized {
+  width: 50%;
+}
+
+.inspector-maximized .inspector-panel {
+  width: 100%;
 }
 
 /* Clickable kind header in the resource browser that expands/collapses the

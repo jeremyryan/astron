@@ -24,6 +24,7 @@ export {
   IconHelp,
   IconFocus2,
   IconArrowsMaximize,
+  IconArrowsMinimize,
   IconRoute,
   IconStack2,
   IconStackPop,

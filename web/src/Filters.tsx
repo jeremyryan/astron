@@ -18,6 +18,8 @@ import {
 import type { Graph } from "./api";
 import { iconForKindOrGeneric } from "./kinds";
 import {
+  IconArrowsMaximize,
+  IconArrowsMinimize,
   IconChevronLeft,
   IconChevronRight,
   IconEye,
@@ -111,6 +113,11 @@ interface Props {
   // Whether the panel is collapsed to a thin strip, and a toggle for it.
   collapsed: boolean;
   onToggleCollapse: () => void;
+  // Whether the panel is maximized to half the space between the two side
+  // panels, and a toggle for it. Only meaningful (and only offered) while
+  // expanded; collapsing clears it.
+  maximized: boolean;
+  onToggleMaximize: () => void;
 }
 
 const MAX_DISTANCE = 9;
@@ -219,6 +226,8 @@ export function FilterPanel({
   viewControls,
   collapsed,
   onToggleCollapse,
+  maximized,
+  onToggleMaximize,
 }: Props) {
   const kindVisible = (kind: string) =>
     kindMode === "show" ? visibleKinds.has(kind) : !hiddenKinds.has(kind);
@@ -228,7 +237,12 @@ export function FilterPanel({
   const nsFiltering = hiddenNamespaces.size > 0;
 
   return (
-    <Box component="aside" className={collapsed ? "filters filters-collapsed" : "filters"}>
+    <Box
+      component="aside"
+      className={
+        collapsed ? "filters filters-collapsed" : maximized ? "filters filters-maximized" : "filters"
+      }
+    >
       {collapsed ? (
         <div className="filters-collapsed-inner">
           <Tooltip label="Expand filters" position="right">
@@ -252,16 +266,28 @@ export function FilterPanel({
               Filters
             </Text>
           </Group>
-          <Tooltip label="Collapse filters" position="right">
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              onClick={onToggleCollapse}
-              aria-label="Collapse filters"
-            >
-              <IconChevronLeft size={18} />
-            </ActionIcon>
-          </Tooltip>
+          <Group gap={2} wrap="nowrap">
+            <Tooltip label={maximized ? "Restore filters" : "Maximize filters"} position="bottom">
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                onClick={onToggleMaximize}
+                aria-label={maximized ? "Restore filters" : "Maximize filters"}
+              >
+                {maximized ? <IconArrowsMinimize size={16} /> : <IconArrowsMaximize size={16} />}
+              </ActionIcon>
+            </Tooltip>
+            <Tooltip label="Collapse filters" position="right">
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                onClick={onToggleCollapse}
+                aria-label="Collapse filters"
+              >
+                <IconChevronLeft size={18} />
+              </ActionIcon>
+            </Tooltip>
+          </Group>
         </Group>
 
         {/* Views (saved filter sets) */}

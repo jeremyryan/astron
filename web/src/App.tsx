@@ -70,6 +70,8 @@ import { useSettings } from "./settings";
 import { colorForRelationship, iconForKindOrGeneric } from "./kinds";
 import {
   IconArrowLeft,
+  IconArrowsMaximize,
+  IconArrowsMinimize,
   IconBookmark,
   IconCamera,
   IconChevronLeft,
@@ -1293,12 +1295,22 @@ function GraphPanel({
   const [resourceSearch, setResourceSearch] = useState("");
   // Whether the inspector panel is collapsed to a thin strip.
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  // Whether the inspector panel is maximized to half the space between the
+  // two side panels (see filtersMaximized below for the matching left-panel
+  // state and the rationale).
+  const [inspectorMaximized, setInspectorMaximized] = useState(false);
   // Which inspector tab is active. The chat tab is only offered when the
   // projection has a GraphRAG chat provider configured.
   const [inspectorTab, setInspectorTab] = useState<"resources" | "chat">("resources");
   const chatEnabled = !!projection.chatEnabled;
   // Whether the left filters panel is collapsed to a thin strip.
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
+  // Whether the left filters panel is maximized to half the space between the
+  // two side panels, so a user who wants more room to read/edit filters (or
+  // browse/chat in the inspector) can get it — at the cost of the graph area
+  // shrinking, down to nothing if both panels are maximized at once, which is
+  // an intentional tradeoff the user opts into, not a bug.
+  const [filtersMaximized, setFiltersMaximized] = useState(false);
   // Selecting/inspecting an element returns from the list to the detail view.
   // Memoized so its identity stays stable: GraphView rebuilds its canvas when
   // onSelect changes, so an inline function here would relayout on every render.
@@ -1643,7 +1655,12 @@ function GraphPanel({
         onRemoveLabel={removeLabel}
         onChangeLabelMode={setLabelMode}
         collapsed={filtersCollapsed}
-        onToggleCollapse={() => setFiltersCollapsed((v) => !v)}
+        onToggleCollapse={() => {
+          setFiltersCollapsed((v) => !v);
+          setFiltersMaximized(false);
+        }}
+        maximized={filtersMaximized}
+        onToggleMaximize={() => setFiltersMaximized((v) => !v)}
         viewControls={
           <ViewControls
             projection={projection}
@@ -1832,7 +1849,15 @@ function GraphPanel({
           !showResourceList && (selection?.type === "edge" || !!selectedNode);
         const onChatTab = chatEnabled && inspectorTab === "chat";
         return (
-          <aside className={inspectorCollapsed ? "inspector inspector-collapsed" : "inspector"}>
+          <aside
+            className={
+              inspectorCollapsed
+                ? "inspector inspector-collapsed"
+                : inspectorMaximized
+                  ? "inspector inspector-maximized"
+                  : "inspector"
+            }
+          >
             {inspectorCollapsed && (
               <div className="inspector-collapsed-inner">
                 <Tooltip label="Expand panel" position="left">
@@ -1865,16 +1890,38 @@ function GraphPanel({
                 ) : (
                   <span />
                 )}
-                <Tooltip label="Collapse panel" position="left">
-                  <ActionIcon
-                    variant="subtle"
-                    color="gray"
-                    onClick={() => setInspectorCollapsed(true)}
-                    aria-label="Collapse panel"
+                <Group gap={2} wrap="nowrap">
+                  <Tooltip
+                    label={inspectorMaximized ? "Restore panel" : "Maximize panel"}
+                    position="bottom"
                   >
-                    <IconChevronRight size={18} />
-                  </ActionIcon>
-                </Tooltip>
+                    <ActionIcon
+                      variant="subtle"
+                      color="gray"
+                      onClick={() => setInspectorMaximized((v) => !v)}
+                      aria-label={inspectorMaximized ? "Restore panel" : "Maximize panel"}
+                    >
+                      {inspectorMaximized ? (
+                        <IconArrowsMinimize size={16} />
+                      ) : (
+                        <IconArrowsMaximize size={16} />
+                      )}
+                    </ActionIcon>
+                  </Tooltip>
+                  <Tooltip label="Collapse panel" position="left">
+                    <ActionIcon
+                      variant="subtle"
+                      color="gray"
+                      onClick={() => {
+                        setInspectorCollapsed(true);
+                        setInspectorMaximized(false);
+                      }}
+                      aria-label="Collapse panel"
+                    >
+                      <IconChevronRight size={18} />
+                    </ActionIcon>
+                  </Tooltip>
+                </Group>
               </div>
               {chatEnabled && (
                 <Tabs
