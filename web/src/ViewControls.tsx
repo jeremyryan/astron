@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button, Group, Modal, Stack, Text, TextInput } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import {
   createView,
   deleteView,
@@ -9,7 +10,34 @@ import {
   type View,
   type ViewFilters,
 } from "./api";
-import { IconDeviceFloppy, IconPlus, IconTrash } from "./icons";
+import { IconCheck, IconDeviceFloppy, IconPlus, IconTrash, IconX } from "./icons";
+
+// viewLabel renders a view's display name (falling back to its resource
+// name) for use in toast messages.
+const viewLabel = (v: Pick<View, "name" | "displayName">) => v.displayName || v.name;
+
+// notifySuccess/notifyError show a toast confirming a view action succeeded
+// or explaining why it failed, since these mutations otherwise have no
+// visible confirmation beyond a modal quietly closing (or, for the plain
+// Save button, nothing at all).
+function notifySuccess(message: string) {
+  notifications.show({
+    message,
+    color: "teal",
+    icon: <IconCheck size={16} />,
+    autoClose: 4000,
+  });
+}
+
+function notifyError(action: string, err: unknown) {
+  notifications.show({
+    title: `Failed to ${action}`,
+    message: (err as Error).message,
+    color: "red",
+    icon: <IconX size={16} />,
+    autoClose: 8000,
+  });
+}
 
 interface Props {
   projection: Projection;
@@ -59,8 +87,12 @@ export function ViewControls({ projection, currentFilters, activeView, onActiveV
       setNewName("");
       setError(null);
       invalidate();
+      notifySuccess(`View "${viewLabel(v)}" created.`);
     },
-    onError: (e) => setError((e as Error).message),
+    onError: (e) => {
+      setError((e as Error).message);
+      notifyError("create view", e);
+    },
   });
 
   const updateMut = useMutation({
@@ -75,8 +107,12 @@ export function ViewControls({ projection, currentFilters, activeView, onActiveV
       onActiveViewChange(v);
       setError(null);
       invalidate();
+      notifySuccess(`View "${viewLabel(v)}" saved.`);
     },
-    onError: (e) => setError((e as Error).message),
+    onError: (e) => {
+      setError((e as Error).message);
+      notifyError("save view", e);
+    },
   });
 
   const deleteMut = useMutation({
@@ -85,10 +121,15 @@ export function ViewControls({ projection, currentFilters, activeView, onActiveV
       return deleteView(activeView.namespace, activeView.name);
     },
     onSuccess: () => {
+      const label = activeView ? viewLabel(activeView) : "view";
       onActiveViewChange(null);
       invalidate();
+      notifySuccess(`View "${label}" deleted.`);
     },
-    onError: (e) => setError((e as Error).message),
+    onError: (e) => {
+      setError((e as Error).message);
+      notifyError("delete view", e);
+    },
   });
 
   return (
