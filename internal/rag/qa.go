@@ -41,6 +41,11 @@ Rules:
   property ` + "`_projection: $projection`" + ` on each node, e.g.
   MATCH (p:K8sResource {kind: 'Pod', _projection: $projection}).
 - Use only the labels, properties and relationship types described in the schema.
+- Property examples in the schema (e.g. ` + "`ready=\"1/1\"`" + `) show each property's
+  ACTUAL stored type and format \u2014 match values using that same type and format.
+  Do not assume a property is a boolean, number, or different string shape than
+  its example shows (e.g. a fraction-string property like ` + "`ready`" + ` is never
+  ` + "`true`" + `/` + "`false`" + `; matching it as one silently returns zero rows instead of an error).
 
 Schema:
 ` + schema

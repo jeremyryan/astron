@@ -19,6 +19,7 @@ package rag
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/project-astron/astron/internal/graph"
@@ -62,41 +63,75 @@ var identityKeys = map[string]bool{
 	"apiVersion": true, "kind": true, "namespace": true, "name": true, "uid": true,
 }
 
-// nodeKindLines returns one "Kind: prop, prop" line per kind, sorted.
+// maxExampleValueLen caps a rendered example property value in the schema
+// summary, so a large value (e.g. the JSON-encoded labels/annotations map)
+// doesn't bloat it.
+const maxExampleValueLen = 40
+
+// renderExampleValue renders one property value the way it would appear as a
+// Cypher literal: quoted for strings, bare for numbers/bools/etc. Showing a
+// real example (not just the property's name) is what lets a text-to-Cypher
+// model see a property's actual stored format instead of guessing it -- e.g.
+// Pod's `ready` is the string "1/1", not a boolean, which a name-only schema
+// summary gave a model no way to know: MATCH (p {ready: true}) matches
+// nothing, ever, regardless of how many pods are actually healthy.
+func renderExampleValue(v any) string {
+	s, ok := v.(string)
+	if !ok {
+		return fmt.Sprintf("%v", v)
+	}
+	if len(s) > maxExampleValueLen {
+		s = s[:maxExampleValueLen] + "…"
+	}
+	return strconv.Quote(s)
+}
+
+// nodeKindLines returns one "kind=Kind — prop=example, prop=example" line per
+// kind, sorted, with one representative example value per property (the
+// first one observed, for determinism given a fixed input).
 func nodeKindLines(nodes []graph.Node) []string {
-	propsByKind := map[string]map[string]bool{}
+	examplesByKind := map[string]map[string]string{}
 	for _, n := range nodes {
 		kind := n.Ref.Kind
 		if kind == "" {
 			continue
 		}
-		if propsByKind[kind] == nil {
-			propsByKind[kind] = map[string]bool{}
+		if examplesByKind[kind] == nil {
+			examplesByKind[kind] = map[string]string{}
 		}
-		for k := range n.Properties {
-			if !identityKeys[k] {
-				propsByKind[kind][k] = true
+		for k, v := range n.Properties {
+			if identityKeys[k] {
+				continue
 			}
+			if _, seen := examplesByKind[kind][k]; seen {
+				continue
+			}
+			examplesByKind[kind][k] = renderExampleValue(v)
 		}
 	}
 
-	kinds := make([]string, 0, len(propsByKind))
-	for k := range propsByKind {
+	kinds := make([]string, 0, len(examplesByKind))
+	for k := range examplesByKind {
 		kinds = append(kinds, k)
 	}
 	sort.Strings(kinds)
 
 	lines := make([]string, 0, len(kinds))
 	for _, kind := range kinds {
-		keys := make([]string, 0, len(propsByKind[kind]))
-		for k := range propsByKind[kind] {
+		examples := examplesByKind[kind]
+		keys := make([]string, 0, len(examples))
+		for k := range examples {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
 		if len(keys) == 0 {
 			lines = append(lines, fmt.Sprintf("kind=%s", kind))
 		} else {
-			lines = append(lines, fmt.Sprintf("kind=%s — %s", kind, strings.Join(keys, ", ")))
+			parts := make([]string, len(keys))
+			for i, k := range keys {
+				parts[i] = fmt.Sprintf("%s=%s", k, examples[k])
+			}
+			lines = append(lines, fmt.Sprintf("kind=%s — %s", kind, strings.Join(parts, ", ")))
 		}
 	}
 	return lines

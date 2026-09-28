@@ -40,7 +40,7 @@ func TestSchemaSummaryIsGroundedAndDeterministic(t *testing.T) {
 	got := SchemaSummary(data)
 
 	for _, want := range []string{
-		"kind=Pod — phase, ready", // properties sorted, identity excluded
+		`kind=Pod — phase="Running", ready="1/1"`, // properties sorted, identity excluded, with examples
 		"kind=Deployment",
 		"(kind=Deployment)-[:OWNS]->(kind=Pod)",
 	} {
@@ -51,6 +51,46 @@ func TestSchemaSummaryIsGroundedAndDeterministic(t *testing.T) {
 
 	if SchemaSummary(data) != got {
 		t.Error("schema summary is not deterministic")
+	}
+}
+
+// TestSchemaSummaryDistinguishesStringFromOtherTypes is a regression test for
+// a real bug: a text-to-Cypher model generated `ready: true` for Pod's `ready`
+// property, which is actually the string "1/1" -- a name-only schema summary
+// gave it no way to know that, so the query silently matched zero rows no
+// matter how many pods were actually healthy. The example value must be
+// quoted for strings and bare for other types, so the model can tell them
+// apart.
+func TestSchemaSummaryDistinguishesStringFromOtherTypes(t *testing.T) {
+	data := graph.GraphData{
+		Nodes: []graph.Node{
+			{
+				Ref: graph.Ref{Kind: "Pod", Namespace: "shop", Name: "web-1", UID: "u-pod"},
+				Properties: map[string]any{
+					"ready":    "1/1",    // a string that looks boolean-ish; must stay quoted
+					"restarts": int64(3), // a real number; must stay bare
+				},
+			},
+		},
+	}
+	got := SchemaSummary(data)
+	if !strings.Contains(got, `ready="1/1"`) {
+		t.Errorf("expected a quoted string example for ready, got:\n%s", got)
+	}
+	if !strings.Contains(got, "restarts=3") {
+		t.Errorf("expected a bare numeric example for restarts, got:\n%s", got)
+	}
+	if strings.Contains(got, `restarts="3"`) {
+		t.Errorf("restarts should not be quoted like a string:\n%s", got)
+	}
+}
+
+func TestRenderExampleValueTruncatesLongStrings(t *testing.T) {
+	long := strings.Repeat("x", maxExampleValueLen+10)
+	got := renderExampleValue(long)
+	want := `"` + strings.Repeat("x", maxExampleValueLen) + "\u2026\""
+	if got != want {
+		t.Errorf("renderExampleValue truncation:\n got  %s\n want %s", got, want)
 	}
 }
 
