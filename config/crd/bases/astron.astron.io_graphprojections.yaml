@@ -64,7 +64,7 @@ spec:
                     description: |-
                       chat optionally configures a chat model used for natural-language question
                       answering (the /rag/answer endpoint) and text-to-Cypher (the /rag/query
-                      endpoint and query_cluster MCP tool). When omitted, those features are
+                      endpoint and query_graph MCP tool). When omitted, those features are
                       disabled while semantic search remains available.
                     properties:
                       allowedModels:
@@ -224,6 +224,60 @@ spec:
                   description: RelationshipRule defines how an edge between two resource
                     kinds is derived.
                   properties:
+                    fieldRef:
+                      description: |-
+                        fieldRef configures the FieldReference strategy: which fields to read a
+                        target resource's name/namespace/kind from. Required when strategy is
+                        FieldReference; ignored otherwise.
+                      properties:
+                        kindPath:
+                          description: |-
+                            kindPath is the dotted field path to the target resource's kind, for
+                            reference fields that can point at more than one kind (e.g.
+                            cert-manager's issuerRef.kind: "Issuer" or "ClusterIssuer"). The
+                            resolved kind name is matched against the projection's own
+                            spec.scope.resources (by kind) to find its group/version; a kind that
+                            isn't in scope yields no edge for that candidate. When omitted, the
+                            rule's own static target kind (to.kind, or from.kind when on: To) is
+                            used instead.
+                          type: string
+                        listPath:
+                          description: |-
+                            listPath optionally names a list field (dotted path, rooted at the
+                            scanned object) to iterate. When set, namePath/namespacePath/kindPath are
+                            evaluated relative to each element instead of the object root, so one
+                            rule can express a field like a RoleBinding's subjects[] list.
+                          type: string
+                        namePath:
+                          description: |-
+                            namePath is the dotted field path (rooted at the scanned object, or at
+                            each element when listPath is set) to the target resource's name, e.g.
+                            "spec.issuerRef.name".
+                          minLength: 1
+                          type: string
+                        namespacePath:
+                          description: |-
+                            namespacePath is the dotted field path to the target resource's
+                            namespace. When omitted, the target namespace defaults to the scanned
+                            object's own namespace -- unless the resolved target kind turns out to
+                            be cluster-scoped, in which case no namespace is used.
+                          type: string
+                        "on":
+                          default: From
+                          description: |-
+                            on selects which end of the rule ("From" or "To") is the object whose
+                            fields are actually read. Defaults to "From" (the intuitive reading:
+                            "this rule's From resource carries the reference field", e.g.
+                            Certificate -> Issuer). Set to "To" for the reverse convention some
+                            relationships use (e.g. a ConfigMap/Secret is the From side but the
+                            mounting field lives on the consuming Pod, the To side).
+                          enum:
+                          - From
+                          - To
+                          type: string
+                      required:
+                      - namePath
+                      type: object
                     from:
                       description: from is the source resource kind of the edge.
                       properties:
@@ -264,6 +318,7 @@ spec:
                       - ServiceAccount
                       - RoleRef
                       - BindingSubject
+                      - FieldReference
                       - Custom
                       type: string
                     to:

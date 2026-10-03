@@ -18,9 +18,11 @@ package relationship
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"sort"
 	"strconv"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -818,4 +820,125 @@ func selectorAPIVersion(sel astronv1alpha1.ResourceSelector) string {
 		return sel.Version
 	}
 	return sel.Group + "/" + sel.Version
+}
+
+// fieldReferenceStrategy derives an edge from a generic, declaratively
+// configured reference field (rule.FieldRef), e.g. a Certificate's
+// spec.issuerRef naming an Issuer or ClusterIssuer by name and kind. See
+// FieldReferenceSpec and docs/relationship-extensibility-design.md for the
+// field semantics.
+type fieldReferenceStrategy struct{}
+
+func (fieldReferenceStrategy) Derive(rule astronv1alpha1.RelationshipRule, index Index) ([]graph.Relationship, error) {
+	spec := rule.FieldRef
+	if spec == nil {
+		return nil, fmt.Errorf("strategy %q requires fieldRef", astronv1alpha1.FieldReferenceStrategy)
+	}
+	if spec.NamePath == "" {
+		return nil, fmt.Errorf("fieldRef.namePath is required")
+	}
+
+	// scannedSel is the side of the rule whose fields are read; staticSel is the
+	// other side, used as the target's fixed kind when kindPath is absent.
+	scannedSel, staticSel := rule.From, rule.To
+	scannedIsFrom := true
+	if spec.On == "To" {
+		scannedSel, staticSel = rule.To, rule.From
+		scannedIsFrom = false
+	}
+
+	namePath := strings.Split(spec.NamePath, ".")
+	var namespacePath, kindPath []string
+	if spec.NamespacePath != "" {
+		namespacePath = strings.Split(spec.NamespacePath, ".")
+	}
+	if spec.KindPath != "" {
+		kindPath = strings.Split(spec.KindPath, ".")
+	}
+
+	var edges []graph.Relationship
+	for _, scanned := range index.ByKind(selectorGVK(scannedSel)) {
+		for _, item := range fieldReferenceCandidates(scanned.Object, spec.ListPath) {
+			ref, ok := resolveFieldReference(index, scanned, item, staticSel, namePath, namespacePath, kindPath)
+			if !ok {
+				continue
+			}
+			from, to := refOf(scanned), ref
+			if !scannedIsFrom {
+				from, to = ref, refOf(scanned)
+			}
+			edges = append(edges, graph.Relationship{Type: rule.Type, From: from, To: to})
+		}
+	}
+	return edges, nil
+}
+
+// fieldReferenceCandidates returns the objects (rooted maps) a FieldReference
+// rule's paths should be evaluated against: the scanned object itself, or each
+// element of its listPath list field when one is configured. Non-map list
+// elements are skipped.
+func fieldReferenceCandidates(obj map[string]any, listPath string) []map[string]any {
+	if listPath == "" {
+		return []map[string]any{obj}
+	}
+	items, _, _ := unstructured.NestedSlice(obj, strings.Split(listPath, ".")...)
+	candidates := make([]map[string]any, 0, len(items))
+	for _, it := range items {
+		if m, ok := it.(map[string]any); ok {
+			candidates = append(candidates, m)
+		}
+	}
+	return candidates
+}
+
+// resolveFieldReference reads a target identity (name/namespace/kind) from one
+// candidate map using the configured paths and resolves it to a graph.Ref,
+// looking the object up in the index for its real UID when present. It
+// returns ok=false when the candidate has no usable name, or names a kind that
+// isn't in the projection's scope.
+func resolveFieldReference(
+	index Index,
+	scanned *unstructured.Unstructured,
+	candidate map[string]any,
+	staticSel astronv1alpha1.ResourceSelector,
+	namePath, namespacePath, kindPath []string,
+) (graph.Ref, bool) {
+	name, _, _ := unstructured.NestedString(candidate, namePath...)
+	if name == "" {
+		return graph.Ref{}, false
+	}
+
+	gvk := selectorGVK(staticSel)
+	if len(kindPath) > 0 {
+		kind, _, _ := unstructured.NestedString(candidate, kindPath...)
+		if kind == "" {
+			return graph.Ref{}, false
+		}
+		resolved, ok := index.ResolveKind(kind)
+		if !ok {
+			// The referenced kind isn't in the projection's scope: no edge for
+			// this candidate, same as any other strategy's uncaptured target.
+			return graph.Ref{}, false
+		}
+		gvk = resolved
+	}
+
+	ns := scanned.GetNamespace()
+	if len(namespacePath) > 0 {
+		if explicit, ok, _ := unstructured.NestedString(candidate, namespacePath...); ok && explicit != "" {
+			ns = explicit
+		}
+	} else if namespaced, ok := index.Namespaced(gvk); ok && !namespaced {
+		ns = ""
+	}
+
+	apiVersion := gvk.Version
+	if gvk.Group != "" {
+		apiVersion = gvk.Group + "/" + gvk.Version
+	}
+	ref := graph.Ref{APIVersion: apiVersion, Kind: gvk.Kind, Namespace: ns, Name: name}
+	if obj, ok := index.Lookup(apiVersion, gvk.Kind, ns, name); ok {
+		ref = refOf(obj)
+	}
+	return ref, true
 }

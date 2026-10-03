@@ -343,7 +343,9 @@ func (p *Projector) doSync(ctx context.Context) {
 // to the store. It is safe to call directly (e.g. from tests).
 func (p *Projector) Sync(ctx context.Context) (graph.Counts, error) {
 	objs := p.snapshot()
-	index := relationship.NewMapIndex(objs...)
+	index := relationship.NewMapIndex(objs...).
+		WithScope(p.effectiveResources()).
+		WithNamespaceResolver(p.gvkNamespaced)
 
 	nodes := make([]graph.Node, 0, len(objs))
 	for _, o := range objs {
@@ -497,10 +499,7 @@ func (p *Projector) watchNamespace() string {
 // scopedGVKs resolves the resource selectors in the projection scope to GVKs.
 // When no resources are configured, a built-in default set is used.
 func (p *Projector) scopedGVKs() []schema.GroupVersionKind {
-	resources := p.opts.Spec.Scope.Resources
-	if len(resources) == 0 {
-		resources = defaultResources()
-	}
+	resources := p.effectiveResources()
 	gvks := make([]schema.GroupVersionKind, 0, len(resources)+1)
 	seen := map[schema.GroupVersionKind]bool{}
 	seenGK := map[schema.GroupKind]bool{}
@@ -545,6 +544,30 @@ func (p *Projector) mappingFor(gvk schema.GroupVersionKind) (*meta.RESTMapping, 
 		return p.opts.Mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	}
 	return p.opts.Mapper.RESTMapping(gvk.GroupKind())
+}
+
+// gvkNamespaced answers relationship.Index's Namespaced query using the REST
+// mapper, so strategies like FieldReference can tell a namespaced target kind
+// (e.g. Issuer) from a cluster-scoped one (e.g. ClusterIssuer) and default the
+// target namespace accordingly.
+func (p *Projector) gvkNamespaced(gvk schema.GroupVersionKind) (bool, bool) {
+	mapping, err := p.mappingFor(gvk)
+	if err != nil {
+		return false, false
+	}
+	return mapping.Scope.Name() == meta.RESTScopeNameNamespace, true
+}
+
+// effectiveResources returns the projection's configured scope.resources, or
+// the built-in default set when none are configured. This is the same
+// resolved Kind -> GroupVersionKind set used both to build informers
+// (scopedGVKs) and to resolve FieldReference rules' dynamic kindPath values
+// (see Sync), so both agree on what's "in scope".
+func (p *Projector) effectiveResources() []astronv1alpha1.ResourceSelector {
+	if resources := p.opts.Spec.Scope.Resources; len(resources) > 0 {
+		return resources
+	}
+	return defaultResources()
 }
 
 // defaultResources is the built-in set of resource kinds captured when a

@@ -297,8 +297,63 @@ type RelationshipRule struct {
 	// strategy selects how the relationship between source and target resources
 	// is determined.
 	// +required
-	// +kubebuilder:validation:Enum=OwnerReference;LabelSelector;VolumeMount;ClaimRef;ServiceBackend;GatewayParent;ServiceAccount;RoleRef;BindingSubject;Custom
+	// +kubebuilder:validation:Enum=OwnerReference;LabelSelector;VolumeMount;ClaimRef;ServiceBackend;GatewayParent;ServiceAccount;RoleRef;BindingSubject;FieldReference;Custom
 	Strategy RelationshipStrategy `json:"strategy"`
+
+	// fieldRef configures the FieldReference strategy: which fields to read a
+	// target resource's name/namespace/kind from. Required when strategy is
+	// FieldReference; ignored otherwise.
+	// +optional
+	FieldRef *FieldReferenceSpec `json:"fieldRef,omitempty"`
+}
+
+// FieldReferenceSpec configures the FieldReference strategy: a generic,
+// declarative way to derive an edge from a reference field on one resource
+// (e.g. a Certificate's spec.issuerRef naming an Issuer or ClusterIssuer by
+// name and kind) without writing a dedicated Go strategy.
+type FieldReferenceSpec struct {
+	// on selects which end of the rule ("From" or "To") is the object whose
+	// fields are actually read. Defaults to "From" (the intuitive reading:
+	// "this rule's From resource carries the reference field", e.g.
+	// Certificate -> Issuer). Set to "To" for the reverse convention some
+	// relationships use (e.g. a ConfigMap/Secret is the From side but the
+	// mounting field lives on the consuming Pod, the To side).
+	// +optional
+	// +kubebuilder:validation:Enum=From;To
+	// +kubebuilder:default=From
+	On string `json:"on,omitempty"`
+
+	// listPath optionally names a list field (dotted path, rooted at the
+	// scanned object) to iterate. When set, namePath/namespacePath/kindPath are
+	// evaluated relative to each element instead of the object root, so one
+	// rule can express a field like a RoleBinding's subjects[] list.
+	// +optional
+	ListPath string `json:"listPath,omitempty"`
+
+	// namePath is the dotted field path (rooted at the scanned object, or at
+	// each element when listPath is set) to the target resource's name, e.g.
+	// "spec.issuerRef.name".
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	NamePath string `json:"namePath"`
+
+	// namespacePath is the dotted field path to the target resource's
+	// namespace. When omitted, the target namespace defaults to the scanned
+	// object's own namespace -- unless the resolved target kind turns out to
+	// be cluster-scoped, in which case no namespace is used.
+	// +optional
+	NamespacePath string `json:"namespacePath,omitempty"`
+
+	// kindPath is the dotted field path to the target resource's kind, for
+	// reference fields that can point at more than one kind (e.g.
+	// cert-manager's issuerRef.kind: "Issuer" or "ClusterIssuer"). The
+	// resolved kind name is matched against the projection's own
+	// spec.scope.resources (by kind) to find its group/version; a kind that
+	// isn't in scope yields no edge for that candidate. When omitted, the
+	// rule's own static target kind (to.kind, or from.kind when on: To) is
+	// used instead.
+	// +optional
+	KindPath string `json:"kindPath,omitempty"`
 }
 
 // RelationshipStrategy enumerates the supported ways of deriving an edge.
@@ -332,6 +387,11 @@ const (
 	// ClusterRoleBinding to the subject resources (e.g. ServiceAccounts) it
 	// grants permissions to.
 	BindingSubjectStrategy RelationshipStrategy = "BindingSubject"
+	// FieldReferenceStrategy derives an edge from a generic, declaratively
+	// configured reference field (see FieldReferenceSpec), e.g. a CRD's
+	// spec.someRef.name naming another resource. It is the go-to strategy for
+	// new CRD relationships that don't need a dedicated Go implementation.
+	FieldReferenceStrategy RelationshipStrategy = "FieldReference"
 	// CustomStrategy is reserved for projection-specific relationship logic.
 	CustomStrategy RelationshipStrategy = "Custom"
 )

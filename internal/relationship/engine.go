@@ -38,6 +38,19 @@ type Index interface {
 
 	// Lookup returns a single object by identity, if present.
 	Lookup(apiVersion, kind, namespace, name string) (*unstructured.Unstructured, bool)
+
+	// ResolveKind resolves a bare Kind name (e.g. "ClusterIssuer") to its
+	// GroupVersionKind via the projection's configured scope.resources,
+	// independent of whether any instance of that kind currently exists. Used
+	// by strategies whose target kind is only known dynamically (e.g.
+	// FieldReference's kindPath). ok is false when the kind is not in scope.
+	ResolveKind(kind string) (schema.GroupVersionKind, bool)
+
+	// Namespaced reports whether gvk is a namespaced kind, when known (e.g. via
+	// a REST mapper). ok is false when the kind's scope can't be determined, in
+	// which case callers should fall back to treating it as namespaced (the
+	// common case).
+	Namespaced(gvk schema.GroupVersionKind) (namespaced bool, ok bool)
 }
 
 // Strategy derives relationships for a single rule against the index.
@@ -65,6 +78,7 @@ func NewEngine() *Engine {
 			astronv1alpha1.ServiceAccountStrategy: serviceAccountStrategy{},
 			astronv1alpha1.RoleRefStrategy:        roleRefStrategy{},
 			astronv1alpha1.BindingSubjectStrategy: bindingSubjectStrategy{},
+			astronv1alpha1.FieldReferenceStrategy: fieldReferenceStrategy{},
 		},
 	}
 }

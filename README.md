@@ -111,6 +111,9 @@ It is opt-in per `GraphProjection`.
 
 - **[UI User Guide](./docs/ui-guide.md)** — how to explore the cluster graph in
   the web UI: filters, views, selection, custom links, layout, and shortcuts.
+- **[Relationship Rules](./docs/relationships.md)** — the built-in relationship
+  strategies, and how to declare a `FieldReference` rule to capture a new
+  CRD's relationships (e.g. cert-manager) with no new Go code.
 - **[GraphRAG User Guide](./docs/graphrag-guide.md)** — enable it, configure a
   provider, call the API, and wire up the `astron mcp-server`.
 - **[GraphRAG Design](./docs/graphrag.md)** — architecture and rationale.
@@ -120,6 +123,9 @@ It is opt-in per `GraphProjection`.
   agent that calls read-only, projection-scoped tools to answer questions.
 - **[CRD Schema Knowledge Design](./docs/crd-schema-design.md)** — invisible
   schema nodes and agent tools for explaining CRD fields and discovery.
+- **[Extensible Relationship Capture Design](./docs/relationship-extensibility-design.md)**
+  — the `FieldReference` strategy's design rationale (see
+  [Relationship Rules](./docs/relationships.md) for the how-to).
 
 ## Getting Started
 
