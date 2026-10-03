@@ -294,7 +294,7 @@ func TestExcludeKindsCancelsOutInclude(t *testing.T) {
 // Challenge within acme.cert-manager.io).
 func TestAddIncludedKindsMergesAndSorts(t *testing.T) {
 	disco := &fakeDiscoveryClient{preferred: certManagerDiscoveryLists()}
-	got, err := addIncludedKinds(disco, []astronv1alpha1.ResourceSelector{pod}, []string{"Order", "Challenge", "Certificate"})
+	got, err := addIncludedKinds(disco, []astronv1alpha1.ResourceSelector{pod}, []string{"Order", "Challenge", "Certificate"}, nil)
 	if err != nil {
 		t.Fatalf("addIncludedKinds: %v", err)
 	}
@@ -309,6 +309,96 @@ func TestAddIncludedKindsMergesAndSorts(t *testing.T) {
 	for i := range want {
 		if kinds[i] != want[i] {
 			t.Errorf("kinds[%d] = %q, want %q (full: %v)", i, kinds[i], want[i], kinds)
+		}
+	}
+}
+
+// TestResolveIncludeGroupsReturnsEveryKindInTheGroup verifies --include-group
+// pulls in every Kind discovery reports under the requested group (its
+// server-preferred version), without requiring any existing instances, and
+// without pulling in kinds from other groups.
+func TestResolveIncludeGroupsReturnsEveryKindInTheGroup(t *testing.T) {
+	got, err := resolveIncludeGroups([]string{"cert-manager.io"}, certManagerDiscoveryLists())
+	if err != nil {
+		t.Fatalf("resolveIncludeGroups: %v", err)
+	}
+	kinds := make([]string, 0, len(got))
+	for _, s := range got {
+		if s.Group != "cert-manager.io" {
+			t.Errorf("unexpected group in result: %+v", s)
+		}
+		kinds = append(kinds, s.Kind)
+	}
+	want := []string{"Certificate", "CertificateRequest", "ClusterIssuer", "Issuer"} // sortSelectors orders by Kind within a group
+	if len(kinds) != len(want) {
+		t.Fatalf("got %v, want %v", kinds, want)
+	}
+	for i := range want {
+		if kinds[i] != want[i] {
+			t.Errorf("kinds[%d] = %q, want %q (full: %v)", i, kinds[i], want[i], kinds)
+		}
+	}
+}
+
+// TestResolveIncludeGroupsMultipleGroups verifies multiple requested groups
+// are each fully expanded (acme.cert-manager.io's Order/Challenge alongside
+// cert-manager.io's own kinds).
+func TestResolveIncludeGroupsMultipleGroups(t *testing.T) {
+	got, err := resolveIncludeGroups([]string{"cert-manager.io", "acme.cert-manager.io"}, certManagerDiscoveryLists())
+	if err != nil {
+		t.Fatalf("resolveIncludeGroups: %v", err)
+	}
+	if len(got) != 6 { // 4 cert-manager.io + 2 acme.cert-manager.io
+		t.Fatalf("expected 6 selectors, got %d: %+v", len(got), got)
+	}
+}
+
+// TestResolveIncludeGroupsUnknownGroupErrors verifies a group with no
+// discovered resources at all (e.g. a typo, or CRDs not installed) is
+// reported as an error rather than silently contributing nothing.
+func TestResolveIncludeGroupsUnknownGroupErrors(t *testing.T) {
+	_, err := resolveIncludeGroups([]string{"not-a-real-group.io"}, certManagerDiscoveryLists())
+	if err == nil {
+		t.Fatal("expected an error for a group with no discovered resources")
+	}
+	if !strings.Contains(err.Error(), "no API resources found") {
+		t.Errorf("error should mention no resources found, got: %v", err)
+	}
+}
+
+// TestResolveIncludeGroupsEmptyReturnsNil verifies no --include-group flags
+// is a no-op, not an error.
+func TestResolveIncludeGroupsEmptyReturnsNil(t *testing.T) {
+	got, err := resolveIncludeGroups(nil, certManagerDiscoveryLists())
+	if err != nil || got != nil {
+		t.Fatalf("resolveIncludeGroups(nil) = %v, %v; want nil, nil", got, err)
+	}
+}
+
+// TestAddIncludedKindsCombinesIncludeAndIncludeGroup verifies --include and
+// --include-group compose: a specific Kind from one group plus every Kind
+// from another, merged with the instance-discovered selectors and deduped.
+func TestAddIncludedKindsCombinesIncludeAndIncludeGroup(t *testing.T) {
+	disco := &fakeDiscoveryClient{preferred: certManagerDiscoveryLists()}
+	got, err := addIncludedKinds(disco, []astronv1alpha1.ResourceSelector{pod},
+		[]string{"ClusterIssuer"}, []string{"acme.cert-manager.io"})
+	if err != nil {
+		t.Fatalf("addIncludedKinds: %v", err)
+	}
+	kinds := map[string]bool{}
+	for _, s := range got {
+		kinds[s.Kind] = true
+	}
+	for _, want := range []string{"Pod", "ClusterIssuer", "Order", "Challenge"} {
+		if !kinds[want] {
+			t.Errorf("expected %q in result, got %+v", want, got)
+		}
+	}
+	// Only --include-group'd/--include'd kinds should appear, not the rest of
+	// cert-manager.io (Certificate, CertificateRequest, Issuer weren't asked for).
+	for _, notWant := range []string{"Certificate", "CertificateRequest", "Issuer"} {
+		if kinds[notWant] {
+			t.Errorf("did not expect %q in result, got %+v", notWant, got)
 		}
 	}
 }

@@ -78,6 +78,21 @@ their ownership back to the `Certificate`/`CertificateRequest` that created
 them is already covered by the built-in `OwnerReference` strategy, since
 cert-manager sets normal `ownerReferences` for those.
 
+To get `scope.resources` right without listing every cert-manager Kind by
+hand, `astron projections generate`/`add` can pull in a whole API group at
+once with `--include-group` (every Kind in it, regardless of whether any
+instance currently exists — unlike `--all-resources`, which only ever
+discovers kinds that already have live instances):
+
+```sh
+astron projections generate cert-manager \
+  --include-group cert-manager.io,acme.cert-manager.io
+```
+
+See `astron projections generate --help` for the full set of `--include`/
+`--include-group`/`--exclude` semantics (a Kind named in `--exclude` always
+wins, even over `--include-group`).
+
 ### `fieldRef` fields
 
 | Field | Required | Meaning |

@@ -78,6 +78,11 @@ type generateOptions struct {
 	// --all-resources/the standard-kind filter). Each entry is either a bare
 	// Kind (resolved via API discovery) or an explicit "[group/]version/Kind".
 	include []string
+	// includeGroups force-includes every resource Kind discovery reports for
+	// each of these API groups (e.g. "cert-manager.io"), the same way include
+	// force-includes individual Kinds: regardless of existing instances and
+	// independent of --all-resources/the standard-kind filter.
+	includeGroups []string
 
 	// specConfigMap optionally references a ConfigMap ("name" or
 	// "namespace/name") whose "spec" key holds a YAML document merged into the
@@ -141,8 +146,10 @@ func newGenerateCmd(opts *options) *cobra.Command {
 			"filter, which only affect discovery from existing instances). Each\n" +
 			"entry may be a bare Kind, resolved via API discovery (e.g. \"Certificate\"),\n" +
 			"or an explicit \"[group/]version/Kind\" when the Kind name is ambiguous\n" +
-			"or not discoverable. A Kind named in both --include and --exclude is\n" +
-			"excluded.\n\n" +
+			"or not discoverable. Use --include-group to force-include every Kind in\n" +
+			"one or more API groups at once (e.g. \"cert-manager.io\"), without naming\n" +
+			"each Kind individually. A Kind named in --exclude is excluded even if it\n" +
+			"was also named by --include or pulled in by --include-group.\n\n" +
 			"By default the manifest is written to stdout. Use --output-file to write\n" +
 			"it to a file, or --apply to create/update the GraphProjection in the\n" +
 			"cluster instead of emitting YAML.\n\n" +
@@ -190,8 +197,10 @@ func newProjectionsAddCmd(opts *options) *cobra.Command {
 			"filter, which only affect discovery from existing instances). Each\n" +
 			"entry may be a bare Kind, resolved via API discovery (e.g. \"Certificate\"),\n" +
 			"or an explicit \"[group/]version/Kind\" when the Kind name is ambiguous\n" +
-			"or not discoverable. A Kind named in both --include and --exclude is\n" +
-			"excluded.\n\n" +
+			"or not discoverable. Use --include-group to force-include every Kind in\n" +
+			"one or more API groups at once (e.g. \"cert-manager.io\"), without naming\n" +
+			"each Kind individually. A Kind named in --exclude is excluded even if it\n" +
+			"was also named by --include or pulled in by --include-group.\n\n" +
 			"Use --spec-from-configmap to merge shared settings (for example a\n" +
 			"graphRAG configuration) into the projection's spec, and --views to also\n" +
 			"create default GraphViews for it.\n\n" +
@@ -230,6 +239,9 @@ func addGenerateFlags(cmd *cobra.Command, gopts *generateOptions) {
 	cmd.Flags().StringSliceVar(&gopts.include, "include", nil,
 		"Resource Kind(s) to force into the projection even without existing instances "+
 			"(bare Kind or [group/]version/Kind, repeatable, comma-separated)")
+	cmd.Flags().StringSliceVar(&gopts.includeGroups, "include-group", nil,
+		"API group(s) whose resource Kinds should all be force-included in the projection, "+
+			"even without existing instances (repeatable, comma-separated, e.g. cert-manager.io)")
 	cmd.Flags().StringVar(&gopts.specConfigMap, "spec-from-configmap", "",
 		"ConfigMap (\"name\" or \"namespace/name\") whose \"spec\" key is a YAML document merged into the generated spec")
 	cmd.Flags().StringVarP(&gopts.labelSelector, "label-selector", "l", "",
@@ -268,21 +280,22 @@ func runGenerate(cmd *cobra.Command, gopts *generateOptions, namespace string) e
 		return err
 	}
 
-	if len(gopts.include) > 0 {
-		selectors, err = addIncludedKinds(disco, selectors, gopts.include)
+	if len(gopts.include) > 0 || len(gopts.includeGroups) > 0 {
+		selectors, err = addIncludedKinds(disco, selectors, gopts.include, gopts.includeGroups)
 		if err != nil {
 			return err
 		}
 	}
-	// --exclude applies uniformly to both instance-discovered and --include'd
-	// kinds: a Kind named in both flags is a contradiction, and exclusion wins.
+	// --exclude applies uniformly to instance-discovered, --include'd and
+	// --include-group'd kinds alike: a Kind named in --exclude is excluded no
+	// matter how it was otherwise selected.
 	selectors = excludeKinds(selectors, gopts.exclude)
 
 	if len(selectors) == 0 {
 		if !gopts.allResources {
-			return fmt.Errorf("no standard resource kinds with instances found in namespace %q (try --all-resources or --include)", namespace)
+			return fmt.Errorf("no standard resource kinds with instances found in namespace %q (try --all-resources, --include, or --include-group)", namespace)
 		}
-		return fmt.Errorf("no resource types with instances found in namespace %q (try --include)", namespace)
+		return fmt.Errorf("no resource types with instances found in namespace %q (try --include or --include-group)", namespace)
 	}
 
 	manifest := buildManifest(gopts, namespace, selectors)
@@ -615,25 +628,81 @@ func selectNamespacedKinds(ctx context.Context, lists []*metav1.APIResourceList,
 	return selectors, nil
 }
 
-// addIncludedKinds resolves --include's requested Kinds (forcing them into the
-// manifest regardless of whether they currently have any instances) and
-// merges them into selectors, skipping any Kind already present. It queries
-// the full (namespaced and cluster-scoped) API discovery, unlike
-// discoverKinds, since a force-included kind need not be namespaced.
+// addIncludedKinds resolves --include's requested Kinds and --include-group's
+// requested API groups (forcing them into the manifest regardless of whether
+// they currently have any instances) and merges them into selectors, skipping
+// any Kind already present. It queries the full (namespaced and
+// cluster-scoped) API discovery, unlike discoverKinds, since a force-included
+// kind need not be namespaced.
 func addIncludedKinds(
-	disco discovery.DiscoveryInterface, selectors []astronv1alpha1.ResourceSelector, includeSpecs []string,
+	disco discovery.DiscoveryInterface, selectors []astronv1alpha1.ResourceSelector, includeSpecs, includeGroups []string,
 ) ([]astronv1alpha1.ResourceSelector, error) {
 	lists, err := disco.ServerPreferredResources()
 	if err != nil && len(lists) == 0 {
-		return nil, fmt.Errorf("discovering API resources for --include: %w", err)
+		return nil, fmt.Errorf("discovering API resources for --include/--include-group: %w", err)
 	}
 	included, err := resolveIncludeSpecs(includeSpecs, lists)
 	if err != nil {
 		return nil, err
 	}
+	groupKinds, err := resolveIncludeGroups(includeGroups, lists)
+	if err != nil {
+		return nil, err
+	}
 	merged := mergeSelectors(selectors, included)
+	merged = mergeSelectors(merged, groupKinds)
 	sortSelectors(merged)
 	return merged, nil
+}
+
+// resolveIncludeGroups resolves --include-group's requested API groups to
+// every Kind API discovery reports under that group (its server-preferred
+// version), so a whole CRD-defined API group (e.g. cert-manager.io, which
+// might define Certificate, CertificateRequest, Issuer and ClusterIssuer) can
+// be captured in one flag without naming each Kind individually. As with
+// --include, no existing instance of any Kind is required. It errors if a
+// requested group has no resources in discovery at all (most likely a typo or
+// the CRDs aren't installed); a Kind name that happens to collide across two
+// requested groups keeps only the first occurrence, the same dedup-by-Kind
+// convention mergeSelectors already uses.
+func resolveIncludeGroups(groups []string, lists []*metav1.APIResourceList) ([]astronv1alpha1.ResourceSelector, error) {
+	if len(groups) == 0 {
+		return nil, nil
+	}
+	wanted := make(map[string]bool, len(groups))
+	for _, g := range groups {
+		wanted[g] = true
+	}
+
+	found := make(map[string]bool, len(groups))
+	seenKind := map[string]bool{}
+	var out []astronv1alpha1.ResourceSelector
+	for _, list := range lists {
+		gv, parseErr := schema.ParseGroupVersion(list.GroupVersion)
+		if parseErr != nil || !wanted[gv.Group] {
+			continue
+		}
+		found[gv.Group] = true
+		for _, res := range list.APIResources {
+			if strings.Contains(res.Name, "/") { // subresource
+				continue
+			}
+			if seenKind[res.Kind] {
+				continue
+			}
+			seenKind[res.Kind] = true
+			out = append(out, astronv1alpha1.ResourceSelector{Group: gv.Group, Version: gv.Version, Kind: res.Kind})
+		}
+	}
+
+	for _, g := range groups {
+		if !found[g] {
+			return nil, fmt.Errorf(
+				"--include-group %q: no API resources found for this group (check for typos, or that its CRDs are installed)", g)
+		}
+	}
+	sortSelectors(out)
+	return out, nil
 }
 
 // resolveIncludeSpecs parses the --include values, resolving any bare Kind (no
