@@ -229,7 +229,8 @@ func addGenerateFlags(cmd *cobra.Command, gopts *generateOptions) {
 	cmd.Flags().StringVar(&gopts.resyncInterval, "resync-interval", "5m",
 		"Full reconciliation interval to set on the projection")
 	cmd.Flags().BoolVar(&gopts.withRelationships, "with-relationships", true,
-		"Include well-known relationship rules (OWNS/SELECTS/MOUNTS) for the discovered kinds")
+		"Include well-known relationship rules (OWNS/SELECTS/MOUNTS, plus any known CRD "+
+			"relationship pack, e.g. cert-manager.io) for the discovered/included kinds")
 	cmd.Flags().StringVar(&gopts.views, "views", "",
 		"Also generate default GraphViews: 'defaults' for all, or a comma-separated list (e.g. compute,persistence); see 'astron views defaults'")
 	cmd.Flags().StringSliceVar(&gopts.exclude, "exclude", nil,
@@ -878,7 +879,7 @@ func buildManifest(gopts *generateOptions, namespace string, selectors []astronv
 	}
 
 	if gopts.withRelationships {
-		spec.Relationships = buildRelationships(selectors)
+		spec.Relationships = append(buildRelationships(selectors), buildCRDRelationships(selectors)...)
 	}
 
 	if sel, err := parseLabelSelector(gopts.labelSelector); err == nil && sel != nil {

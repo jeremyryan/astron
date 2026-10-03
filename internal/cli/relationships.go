@@ -44,6 +44,12 @@ var (
 	clusterRole        = astronv1alpha1.ResourceSelector{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "ClusterRole"}
 	roleBinding        = astronv1alpha1.ResourceSelector{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "RoleBinding"}
 	clusterRoleBinding = astronv1alpha1.ResourceSelector{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "ClusterRoleBinding"}
+
+	certManagerGroup   = "cert-manager.io"
+	certificate        = astronv1alpha1.ResourceSelector{Group: certManagerGroup, Version: "v1", Kind: "Certificate"}
+	certificateRequest = astronv1alpha1.ResourceSelector{Group: certManagerGroup, Version: "v1", Kind: "CertificateRequest"}
+	issuer             = astronv1alpha1.ResourceSelector{Group: certManagerGroup, Version: "v1", Kind: "Issuer"}
+	clusterIssuer      = astronv1alpha1.ResourceSelector{Group: certManagerGroup, Version: "v1", Kind: "ClusterIssuer"}
 )
 
 // buildRelationships returns the subset of well-known relationship rules whose
@@ -106,4 +112,119 @@ func buildRelationships(selectors []astronv1alpha1.ResourceSelector) []astronv1a
 		})
 	}
 	return rules
+}
+
+// fieldRefCandidate describes a potential FieldReference relationship rule
+// for a crdRelationshipPack: a From kind, an ordered list of possible To
+// kinds (for a reference field that may point at more than one kind, e.g.
+// cert-manager's issuerRef), and the fieldRef configuration to use.
+type fieldRefCandidate struct {
+	name, relType string
+	from          astronv1alpha1.ResourceSelector
+	// toCandidates are tried in order; the rule is only emitted if at least one
+	// is present among the discovered selectors, and the first present one
+	// becomes the rule's static `to` (the fallback target kind used when
+	// fieldRef.kindPath doesn't resolve a candidate).
+	toCandidates []astronv1alpha1.ResourceSelector
+	fieldRef     astronv1alpha1.FieldReferenceSpec
+}
+
+// crdRelationshipPack is a named, shippable bundle of FieldReference
+// relationship rules for a well-known CRD-defined API group (see
+// docs/relationships.md). It is applied automatically by buildCRDRelationships
+// when at least one Kind from the pack's group is among the discovered/included
+// selectors (e.g. via --include-group cert-manager.io), the same way
+// --include-group lets you pull in a whole group's Kinds without naming them
+// individually.
+type crdRelationshipPack struct {
+	group string
+	rules []fieldRefCandidate
+}
+
+// crdRelationshipPacks is the built-in registry of known CRD relationship
+// packs. cert-manager is the first and, for now, only entry; see
+// docs/relationship-extensibility-design.md for the FieldReference strategy
+// this is built on, and the "relationship packs" follow-on it anticipates.
+var crdRelationshipPacks = []crdRelationshipPack{
+	{
+		group: certManagerGroup,
+		rules: []fieldRefCandidate{
+			{
+				name: "certificate-uses-secret", relType: "USES_SECRET",
+				from: certificate, toCandidates: []astronv1alpha1.ResourceSelector{secret},
+				fieldRef: astronv1alpha1.FieldReferenceSpec{NamePath: "spec.secretName"},
+			},
+			{
+				name: "certificate-issued-by", relType: "ISSUED_BY",
+				from: certificate, toCandidates: []astronv1alpha1.ResourceSelector{issuer, clusterIssuer},
+				fieldRef: astronv1alpha1.FieldReferenceSpec{
+					NamePath: "spec.issuerRef.name",
+					KindPath: "spec.issuerRef.kind",
+				},
+			},
+			{
+				name: "certificaterequest-issued-by", relType: "ISSUED_BY",
+				from: certificateRequest, toCandidates: []astronv1alpha1.ResourceSelector{issuer, clusterIssuer},
+				fieldRef: astronv1alpha1.FieldReferenceSpec{
+					NamePath: "spec.issuerRef.name",
+					KindPath: "spec.issuerRef.kind",
+				},
+			},
+		},
+	},
+}
+
+// buildCRDRelationships returns FieldReference relationship rules from any
+// known relationship pack (crdRelationshipPacks) whose API group has at least
+// one Kind among the discovered selectors. Each candidate rule within a
+// matching pack is further gated the same way buildRelationships gates its
+// own candidates: both endpoints must actually be present, so a pack whose
+// group is only partially included (e.g. Certificate without Issuer or
+// ClusterIssuer) doesn't emit a rule with a dangling target.
+func buildCRDRelationships(selectors []astronv1alpha1.ResourceSelector) []astronv1alpha1.RelationshipRule {
+	present := map[string]bool{}
+	groupPresent := map[string]bool{}
+	for _, s := range selectors {
+		present[s.Kind] = true
+		groupPresent[s.Group] = true
+	}
+
+	var rules []astronv1alpha1.RelationshipRule
+	for _, pack := range crdRelationshipPacks {
+		if !groupPresent[pack.group] {
+			continue
+		}
+		for _, c := range pack.rules {
+			if !present[c.from.Kind] {
+				continue
+			}
+			to, ok := firstPresentSelector(c.toCandidates, present)
+			if !ok {
+				continue
+			}
+			fieldRef := c.fieldRef // copy: each rule needs its own pointer
+			rules = append(rules, astronv1alpha1.RelationshipRule{
+				Name:     c.name,
+				Type:     c.relType,
+				Strategy: astronv1alpha1.FieldReferenceStrategy,
+				From:     c.from,
+				To:       to,
+				FieldRef: &fieldRef,
+			})
+		}
+	}
+	return rules
+}
+
+// firstPresentSelector returns the first of candidates whose Kind is present,
+// or false if none are.
+func firstPresentSelector(
+	candidates []astronv1alpha1.ResourceSelector, present map[string]bool,
+) (astronv1alpha1.ResourceSelector, bool) {
+	for _, c := range candidates {
+		if present[c.Kind] {
+			return c, true
+		}
+	}
+	return astronv1alpha1.ResourceSelector{}, false
 }
