@@ -139,3 +139,25 @@ func TestBuildManifestIncludesCRDRelationships(t *testing.T) {
 		t.Errorf("expected certificate-issued-by in generated manifest, got %+v", m.Spec.Relationships)
 	}
 }
+
+// TestBuildCRDRelationshipsACMEOwnership verifies the ACME issuance chain
+// (CertificateRequest -> Order -> Challenge) is emitted as OwnerReference
+// rules, with no fieldRef, and gated on both endpoints being present.
+func TestBuildCRDRelationshipsACMEOwnership(t *testing.T) {
+	rules := buildCRDRelationships([]astronv1alpha1.ResourceSelector{certificateRequest, acmeOrder, acmeChallenge})
+	for _, name := range []string{"certificaterequest-owns-order", "order-owns-challenge"} {
+		r := findRule(rules, name)
+		if r == nil {
+			t.Fatalf("expected %s, got %+v", name, rules)
+		}
+		if r.Strategy != astronv1alpha1.OwnerReferenceStrategy || r.Type != "OWNS" || r.FieldRef != nil {
+			t.Errorf("unexpected rule: %+v", *r)
+		}
+	}
+	// Only the acme group selected (no cert-manager.io kinds): the pack still
+	// applies, but just the Order -> Challenge rule has both endpoints.
+	rules = buildCRDRelationships([]astronv1alpha1.ResourceSelector{acmeOrder, acmeChallenge})
+	if len(rules) != 1 || rules[0].Name != "order-owns-challenge" {
+		t.Errorf("expected only order-owns-challenge, got %+v", rules)
+	}
+}

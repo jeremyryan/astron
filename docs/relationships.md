@@ -174,6 +174,21 @@ rules:
     fieldRef:
       namePath: spec.issuerRef.name
       kindPath: spec.issuerRef.kind
+
+  # ACME issuance chain: cert-manager sets ownerReferences
+  # CertificateRequest -> Order -> Challenge. Non-FieldReference rules name
+  # their strategy explicitly and take no fieldRef.
+  - name: certificaterequest-owns-order
+    type: OWNS
+    strategy: OwnerReference
+    from: { group: cert-manager.io, version: v1, kind: CertificateRequest }
+    to: [{ group: acme.cert-manager.io, version: v1, kind: Order }]
+
+  - name: order-owns-challenge
+    type: OWNS
+    strategy: OwnerReference
+    from: { group: acme.cert-manager.io, version: v1, kind: Order }
+    to: [{ group: acme.cert-manager.io, version: v1, kind: Challenge }]
 ```
 
 `strategy` may be omitted when `fieldRef` is set (it defaults to

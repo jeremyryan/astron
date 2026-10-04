@@ -17,6 +17,8 @@ limitations under the License.
 package cli
 
 import (
+	"slices"
+
 	astronv1alpha1 "github.com/project-astron/astron/api/v1alpha1"
 )
 
@@ -50,6 +52,10 @@ var (
 	certificateRequest = astronv1alpha1.ResourceSelector{Group: certManagerGroup, Version: "v1", Kind: "CertificateRequest"}
 	issuer             = astronv1alpha1.ResourceSelector{Group: certManagerGroup, Version: "v1", Kind: "Issuer"}
 	clusterIssuer      = astronv1alpha1.ResourceSelector{Group: certManagerGroup, Version: "v1", Kind: "ClusterIssuer"}
+
+	certManagerACMEGroup = "acme.cert-manager.io"
+	acmeOrder            = astronv1alpha1.ResourceSelector{Group: certManagerACMEGroup, Version: "v1", Kind: "Order"}
+	acmeChallenge        = astronv1alpha1.ResourceSelector{Group: certManagerACMEGroup, Version: "v1", Kind: "Challenge"}
 )
 
 // buildRelationships returns the subset of well-known relationship rules whose
@@ -123,7 +129,11 @@ type fieldRefCandidate struct {
 	// becomes the rule's static `to` (the fallback target kind used when
 	// fieldRef.kindPath doesn't resolve a candidate).
 	toCandidates []astronv1alpha1.ResourceSelector
-	fieldRef     astronv1alpha1.FieldReferenceSpec
+	// strategy defaults to FieldReference (using fieldRef) when empty; set it
+	// to emit a rule using another built-in strategy (e.g. OwnerReference),
+	// in which case fieldRef is unused.
+	strategy astronv1alpha1.RelationshipStrategy
+	fieldRef astronv1alpha1.FieldReferenceSpec
 }
 
 // crdRelationshipPack is a named, shippable bundle of FieldReference
@@ -134,8 +144,10 @@ type fieldRefCandidate struct {
 // --include-group lets you pull in a whole group's Kinds without naming them
 // individually.
 type crdRelationshipPack struct {
-	group string
-	rules []fieldRefCandidate
+	// groups are the API groups the pack covers; it applies when at least one
+	// Kind from any of them is among the selectors.
+	groups []string
+	rules  []fieldRefCandidate
 }
 
 // crdRelationshipPacks is the built-in registry of known CRD relationship
@@ -144,7 +156,7 @@ type crdRelationshipPack struct {
 // this is built on, and the "relationship packs" follow-on it anticipates.
 var crdRelationshipPacks = []crdRelationshipPack{
 	{
-		group: certManagerGroup,
+		groups: []string{certManagerGroup, certManagerACMEGroup},
 		rules: []fieldRefCandidate{
 			{
 				name: "certificate-uses-secret", relType: "USES_SECRET",
@@ -167,6 +179,16 @@ var crdRelationshipPacks = []crdRelationshipPack{
 					KindPath: "spec.issuerRef.kind",
 				},
 			},
+			// ACME issuance chain: cert-manager sets ownerReferences
+			// CertificateRequest -> Order -> Challenge.
+			{
+				name: "certificaterequest-owns-order", relType: "OWNS", strategy: astronv1alpha1.OwnerReferenceStrategy,
+				from: certificateRequest, toCandidates: []astronv1alpha1.ResourceSelector{acmeOrder},
+			},
+			{
+				name: "order-owns-challenge", relType: "OWNS", strategy: astronv1alpha1.OwnerReferenceStrategy,
+				from: acmeOrder, toCandidates: []astronv1alpha1.ResourceSelector{acmeChallenge},
+			},
 		},
 	},
 }
@@ -187,7 +209,7 @@ func buildCRDRelationships(selectors []astronv1alpha1.ResourceSelector) []astron
 
 	var rules []astronv1alpha1.RelationshipRule
 	for _, pack := range crdRelationshipPacks {
-		if !groupPresent[pack.group] {
+		if !slices.ContainsFunc(pack.groups, func(g string) bool { return groupPresent[g] }) {
 			continue
 		}
 		for _, c := range pack.rules {
@@ -195,15 +217,20 @@ func buildCRDRelationships(selectors []astronv1alpha1.ResourceSelector) []astron
 			if !ok {
 				continue
 			}
-			fieldRef := c.fieldRef // copy: each rule needs its own pointer
-			rules = append(rules, astronv1alpha1.RelationshipRule{
+			rule := astronv1alpha1.RelationshipRule{
 				Name:     c.name,
 				Type:     c.relType,
 				Strategy: astronv1alpha1.FieldReferenceStrategy,
 				From:     c.from,
 				To:       to,
-				FieldRef: &fieldRef,
-			})
+			}
+			if c.strategy != "" {
+				rule.Strategy = c.strategy
+			} else {
+				fieldRef := c.fieldRef // copy: each rule needs its own pointer
+				rule.FieldRef = &fieldRef
+			}
+			rules = append(rules, rule)
 		}
 	}
 	return rules
