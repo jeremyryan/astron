@@ -933,3 +933,15 @@ func TestHasInstancesAcrossNamespaces(t *testing.T) {
 		}
 	}
 }
+
+func TestRunGenerateNoDiscoveryValidation(t *testing.T) {
+	cmd := &cobra.Command{}
+	err := runGenerate(cmd, &generateOptions{options: &options{}, noDiscovery: true}, demoNS)
+	if err == nil || !strings.Contains(err.Error(), "requires --include") {
+		t.Errorf("expected a requires --include error, got %v", err)
+	}
+	err = runGenerate(cmd, &generateOptions{options: &options{}, noDiscovery: true, allResources: true, include: []string{"Pod"}}, demoNS)
+	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("expected a mutually exclusive error, got %v", err)
+	}
+}

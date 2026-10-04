@@ -83,6 +83,9 @@ type generateOptions struct {
 	// force-includes individual Kinds: regardless of existing instances and
 	// independent of --all-resources/the standard-kind filter.
 	includeGroups []string
+	// noDiscovery skips instance-based discovery of kinds in the cluster, so
+	// the projection contains only what --include/--include-group name.
+	noDiscovery bool
 	// namespaces are the namespaces to scope the projection to (--namespace).
 	// Mutually exclusive with allNamespaces. When neither is set the projection
 	// is scoped to the namespace it is created in (the positional argument).
@@ -164,6 +167,9 @@ func newGenerateCmd(opts *options) *cobra.Command {
 			"one or more API groups at once (e.g. \"cert-manager.io\"), without naming\n" +
 			"each Kind individually. A Kind named in --exclude is excluded even if it\n" +
 			"was also named by --include or pulled in by --include-group.\n\n" +
+			"Pass --no-discovery to skip discovering kinds from existing instances\n" +
+			"entirely, so the projection contains only the kinds named by --include\n" +
+			"and --include-group.\n\n" +
 			"The positional <namespace> is where the GraphProjection is created. By\n" +
 			"default it also scopes the projection to that namespace; use --namespace\n" +
 			"(comma-separated list) to watch other namespaces instead, or\n" +
@@ -223,6 +229,9 @@ func newProjectionsAddCmd(opts *options) *cobra.Command {
 			"one or more API groups at once (e.g. \"cert-manager.io\"), without naming\n" +
 			"each Kind individually. A Kind named in --exclude is excluded even if it\n" +
 			"was also named by --include or pulled in by --include-group.\n\n" +
+			"Pass --no-discovery to skip discovering kinds from existing instances\n" +
+			"entirely, so the projection contains only the kinds named by --include\n" +
+			"and --include-group.\n\n" +
 			"The positional <namespace> is where the GraphProjection is created. By\n" +
 			"default it also scopes the projection to that namespace; use --namespace\n" +
 			"(comma-separated list) to watch other namespaces instead, or\n" +
@@ -270,6 +279,10 @@ func addGenerateFlags(cmd *cobra.Command, gopts *generateOptions) {
 	cmd.Flags().StringSliceVar(&gopts.include, "include", nil,
 		"Resource Kind(s) to force into the projection even without existing instances "+
 			"(bare Kind or [group/]version/Kind, repeatable, comma-separated)")
+	cmd.Flags().BoolVar(&gopts.noDiscovery, "no-discovery", false,
+		"Skip discovering kinds that have instances in the cluster; the projection then contains only "+
+			"the kinds named by --include/--include-group (at least one is required)")
+	cmd.MarkFlagsMutuallyExclusive("no-discovery", "all-resources")
 	cmd.Flags().StringSliceVar(&gopts.namespaces, "namespace", nil,
 		"Namespace(s) the projection watches (repeatable, comma-separated). "+
 			"Defaults to the namespace the projection is created in; mutually exclusive with --all-namespaces")
@@ -291,6 +304,21 @@ func addGenerateFlags(cmd *cobra.Command, gopts *generateOptions) {
 		"Also capture CustomResourceDefinitions as graph nodes")
 }
 
+// validateDiscoveryOptions rejects --no-discovery combinations that would
+// produce an empty or contradictory projection.
+func validateDiscoveryOptions(gopts *generateOptions) error {
+	if !gopts.noDiscovery {
+		return nil
+	}
+	if gopts.allResources {
+		return fmt.Errorf("--no-discovery and --all-resources are mutually exclusive")
+	}
+	if len(gopts.include) == 0 && len(gopts.includeGroups) == 0 {
+		return fmt.Errorf("--no-discovery requires --include and/or --include-group, otherwise the projection would be empty")
+	}
+	return nil
+}
+
 func runGenerate(cmd *cobra.Command, gopts *generateOptions, namespace string) error {
 	if gopts.apply && gopts.outputFile != "" {
 		return fmt.Errorf("--apply cannot be combined with --output-file")
@@ -304,6 +332,9 @@ func runGenerate(cmd *cobra.Command, gopts *generateOptions, namespace string) e
 	}
 	scopeNS, err := resolveScopeNamespaces(gopts, namespace)
 	if err != nil {
+		return err
+	}
+	if err := validateDiscoveryOptions(gopts); err != nil {
 		return err
 	}
 	// Loaded first, before any cluster access: a typo in a pack file should be
@@ -329,9 +360,12 @@ func runGenerate(cmd *cobra.Command, gopts *generateOptions, namespace string) e
 		return fmt.Errorf("creating dynamic client: %w", err)
 	}
 
-	selectors, err := discoverKinds(cmd.Context(), disco, dyn, discoveryNamespaces(scopeNS), gopts.exclude, !gopts.allResources)
-	if err != nil {
-		return err
+	var selectors []astronv1alpha1.ResourceSelector
+	if !gopts.noDiscovery {
+		selectors, err = discoverKinds(cmd.Context(), disco, dyn, discoveryNamespaces(scopeNS), gopts.exclude, !gopts.allResources)
+		if err != nil {
+			return err
+		}
 	}
 
 	if len(gopts.include) > 0 || len(gopts.includeGroups) > 0 {
