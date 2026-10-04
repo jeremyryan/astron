@@ -63,7 +63,7 @@ import {
 } from "./Filters";
 import { YamlModal } from "./YamlModal";
 import { AskAgentModal } from "./AskAgentModal";
-import { ChatPanel } from "./ChatPanel";
+import { ChatPanel, emptyConversation, type ConversationState } from "./ChatPanel";
 import { SettingsModal } from "./SettingsModal";
 import { ShortcutsModal } from "./ShortcutsModal";
 import { useSettings } from "./settings";
@@ -1303,6 +1303,19 @@ function GraphPanel({
   // projection has a GraphRAG chat provider configured.
   const [inspectorTab, setInspectorTab] = useState<"resources" | "chat">("resources");
   const chatEnabled = !!projection.chatEnabled;
+  // Every projection's chat conversation, keyed by projection.uid. Lifted
+  // here (rather than owned by ChatPanel) because GraphPanel persists across
+  // projection switches while ChatPanel does not -- it unmounts whenever the
+  // current projection has chat disabled -- so this is what makes a
+  // projection's dialog survive navigating away (even via a chat-disabled
+  // projection) and back, instead of starting over.
+  const [conversations, setConversations] = useState<Record<string, ConversationState>>({});
+  const updateConversation = (forUID: string, updater: (prev: ConversationState) => ConversationState) => {
+    setConversations((prev) => ({
+      ...prev,
+      [forUID]: updater(prev[forUID] ?? emptyConversation),
+    }));
+  };
   // Whether the left filters panel is collapsed to a thin strip.
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
   // Whether the left filters panel is maximized to half the space between the
@@ -1980,15 +1993,20 @@ function GraphPanel({
                 </Box>
               </ScrollArea>
               {/* Keep the chat mounted (hidden) so the conversation survives
-                  switching back to the resources tab. */}
+                  switching back to the resources tab -- and, since ChatPanel
+                  keeps its own per-projection conversation map, switching to
+                  a different projection and back too (no key here: that used
+                  to force a remount, and with it a lost conversation, on
+                  every projection change). */}
               {chatEnabled && (
                 <div
                   className="inspector-body"
                   style={onChatTab ? undefined : { display: "none" }}
                 >
                   <ChatPanel
-                    key={projection.uid}
                     projection={projection}
+                    conversations={conversations}
+                    onUpdateConversation={updateConversation}
                     onSelectSource={(card) => {
                       // Resolve the source card to its graph node and select
                       // it (centering it on the canvas and showing details).

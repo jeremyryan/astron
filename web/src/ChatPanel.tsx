@@ -173,21 +173,57 @@ export function MessageBubble({
   );
 }
 
+// ConversationState is one projection's chat conversation: the message
+// history plus the in-progress draft/request state. Kept per-projection (see
+// ChatPanel's conversations map) so switching between projections and back
+// shows the same conversation, rather than losing it.
+export interface ConversationState {
+  messages: ChatMessage[];
+  input: string;
+  pending: boolean;
+  // The user's explicit per-conversation model choice; null falls back to
+  // the projection's effective default.
+  model: string | null;
+}
+
+export const emptyConversation: ConversationState = {
+  messages: [],
+  input: "",
+  pending: false,
+  model: null,
+};
+
 // ChatPanel is a conversation view over the projection's GraphRAG answer
 // endpoint: the user asks natural-language questions about the cluster graph
 // and the configured chat provider replies with grounded answers.
+//
+// Conversation state is owned by the caller (see GraphPanel in App.tsx) and
+// keyed by projection.uid, not by ChatPanel itself: GraphPanel persists
+// across projection switches (unlike ChatPanel, which unmounts whenever the
+// current projection has chat disabled), so keeping the conversations map
+// there is what makes a projection's dialog survive navigating away and back,
+// even via a projection that doesn't have chat enabled at all.
 export function ChatPanel({
   projection,
+  conversations,
+  onUpdateConversation,
   onSelectSource,
 }: {
   projection: Projection;
+  conversations: Record<string, ConversationState>;
+  // Applies an update to a specific projection's conversation (uid is passed
+  // explicitly, not read from the current projection prop, so an in-flight
+  // request started for a projection the user has since navigated away from
+  // still lands in the right conversation when it resolves).
+  onUpdateConversation: (forUID: string, updater: (prev: ConversationState) => ConversationState) => void;
   // Called when the user clicks a source resource beneath an answer, so the
   // host view can select the corresponding graph node.
   onSelectSource?: (card: AnswerCard) => void;
 }) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState("");
-  const [pending, setPending] = useState(false);
+  const uid = projection.uid;
+  const { messages, input, pending, model } = conversations[uid] ?? emptyConversation;
+  const updateConversation = onUpdateConversation;
+
   const viewportRef = useRef<HTMLDivElement>(null);
 
   // Models the user may pick from (per the projection's allowedModels policy).
@@ -212,10 +248,11 @@ export function ChatPanel({
   // The effective default: the user's global preference, else the projection's
   // own default, else the first available choice.
   const effectiveDefault = settingsDefault ?? (projectionDefault || modelChoices[0] || null);
-  // The user's explicit per-conversation choice; null falls back to the
-  // effective default above.
-  const [model, setModel] = useState<string | null>(null);
+  // model (destructured from the conversation above) is this projection's
+  // explicit per-conversation choice; null falls back to the effective
+  // default above.
   const selectedModel = model && modelChoices.includes(model) ? model : effectiveDefault;
+  const setModel = (m: string | null) => updateConversation(uid, (prev) => ({ ...prev, model: m }));
 
   // Keep the newest message in view as the conversation grows.
   useEffect(() => {
@@ -228,60 +265,65 @@ export function ChatPanel({
   const send = () => {
     const question = input.trim();
     if (!question || pending) return;
-    setInput("");
+    // Captured so the request's completion updates the conversation it was
+    // asked in, even if the user has since navigated to a different
+    // projection (ChatPanel stays mounted across projection switches).
+    const forUID = uid;
+    const targetNamespace = projection.namespace;
+    const targetName = projection.name;
     // The prior conversation's user/assistant turns, for the agent's history
     // parameter (built before the new question is appended below).
     const history: ChatHistoryMessage[] = messages
       .filter((m) => m.role === "user" || m.role === "assistant")
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.text }));
-    setMessages((prev) => [
+    updateConversation(forUID, (prev) => ({
       ...prev,
-      { id: crypto.randomUUID(), role: "user", text: question },
-    ]);
-    setPending(true);
+      input: "",
+      pending: true,
+      messages: [...prev.messages, { id: crypto.randomUUID(), role: "user", text: question }],
+    }));
     // Send the chosen model whenever it isn't the projection's own default —
     // this is what routes a controller-wide provider (including the settings
     // default) to the backend.
     const override =
       selectedModel && selectedModel !== projectionDefault ? selectedModel : undefined;
     const request = settings.agenticChat
-      ? askAgent(projection.namespace, projection.name, question, history, override).then(
-          (answer) => ({
-            text: answer.answer,
-            sources: undefined,
-            steps: answer.steps,
-            stepBudgetExhausted: answer.stepBudgetExhausted,
-          }),
-        )
-      : askQuestion(projection.namespace, projection.name, question, override).then(
-          (answer) => ({
-            text: answer.answer,
-            sources: answer.retrieval.cards,
-            steps: undefined,
-            stepBudgetExhausted: undefined,
-          }),
-        );
+      ? askAgent(targetNamespace, targetName, question, history, override).then((answer) => ({
+          text: answer.answer,
+          sources: undefined,
+          steps: answer.steps,
+          stepBudgetExhausted: answer.stepBudgetExhausted,
+        }))
+      : askQuestion(targetNamespace, targetName, question, override).then((answer) => ({
+          text: answer.answer,
+          sources: answer.retrieval.cards,
+          steps: undefined,
+          stepBudgetExhausted: undefined,
+        }));
     request
       .then((result) => {
-        setMessages((prev) => [
+        updateConversation(forUID, (prev) => ({
           ...prev,
-          {
-            id: crypto.randomUUID(),
-            role: "assistant",
-            text: result.text,
-            sources: result.sources,
-            steps: result.steps,
-            stepBudgetExhausted: result.stepBudgetExhausted,
-          },
-        ]);
+          messages: [
+            ...prev.messages,
+            {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              text: result.text,
+              sources: result.sources,
+              steps: result.steps,
+              stepBudgetExhausted: result.stepBudgetExhausted,
+            },
+          ],
+        }));
       })
       .catch((err: Error) => {
-        setMessages((prev) => [
+        updateConversation(forUID, (prev) => ({
           ...prev,
-          { id: crypto.randomUUID(), role: "error", text: err.message },
-        ]);
+          messages: [...prev.messages, { id: crypto.randomUUID(), role: "error", text: err.message }],
+        }));
       })
-      .finally(() => setPending(false));
+      .finally(() => updateConversation(forUID, (prev) => ({ ...prev, pending: false })));
   };
 
   return (
@@ -326,7 +368,10 @@ export function ChatPanel({
         <div className="chat-input">
           <Textarea
             value={input}
-            onChange={(e) => setInput(e.currentTarget.value)}
+            onChange={(e) => {
+              const value = e.currentTarget.value;
+              updateConversation(uid, (prev) => ({ ...prev, input: value }));
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
