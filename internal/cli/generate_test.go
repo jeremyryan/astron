@@ -89,7 +89,7 @@ func TestSelectNamespacedKinds(t *testing.T) {
 	}
 
 	// Standard-only mode: Event has an instance but is not a standard kind.
-	got, err := selectNamespacedKinds(context.Background(), lists, dyn, ns, []string{"ConfigMap"}, true)
+	got, err := selectNamespacedKinds(context.Background(), lists, dyn, []string{ns}, []string{"ConfigMap"}, true)
 	if err != nil {
 		t.Fatalf("selectNamespacedKinds failed: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestSelectNamespacedKinds(t *testing.T) {
 	}
 
 	// With --all-resources, the non-standard Event kind is included.
-	gotAll, err := selectNamespacedKinds(context.Background(), lists, dyn, ns, []string{"ConfigMap"}, false)
+	gotAll, err := selectNamespacedKinds(context.Background(), lists, dyn, []string{ns}, []string{"ConfigMap"}, false)
 	if err != nil {
 		t.Fatalf("selectNamespacedKinds (all) failed: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestSelectNamespacedKindsAllListsForbidden(t *testing.T) {
 		},
 	}}
 
-	_, err := selectNamespacedKinds(context.Background(), lists, dyn, demoNS, nil, true)
+	_, err := selectNamespacedKinds(context.Background(), lists, dyn, []string{demoNS}, nil, true)
 	if err == nil {
 		t.Fatal("expected an error when every kind fails to list")
 	}
@@ -869,5 +869,67 @@ func TestParseLabelSelector(t *testing.T) {
 	}
 	if _, err := parseLabelSelector("=bad="); err == nil {
 		t.Fatal("expected error for invalid selector")
+	}
+}
+
+func TestResolveScopeNamespaces(t *testing.T) {
+	cases := []struct {
+		name    string
+		opts    generateOptions
+		want    []string
+		wantErr bool
+	}{
+		{name: "default is the creation namespace", want: []string{"astron"}},
+		{name: "explicit list", opts: generateOptions{namespaces: []string{"a", " b ", "a"}}, want: []string{"a", "b"}},
+		{name: "all namespaces is an empty scope", opts: generateOptions{allNamespaces: true}, want: nil},
+		{name: "mutually exclusive", opts: generateOptions{allNamespaces: true, namespaces: []string{"a"}}, wantErr: true},
+		{name: "empty entry", opts: generateOptions{namespaces: []string{"a", ""}}, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveScopeNamespaces(&tc.opts, "astron")
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tc.wantErr)
+			}
+			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestBuildManifestScopeNamespaces verifies the projection lives in the
+// creation namespace while its scope follows --namespace/--all-namespaces.
+func TestBuildManifestScopeNamespaces(t *testing.T) {
+	m := buildManifest(&generateOptions{options: &options{}, namespaces: []string{"web", "db"}}, "astron", []astronv1alpha1.ResourceSelector{pod})
+	if m.Metadata.Namespace != "astron" || strings.Join(m.Spec.Scope.Namespaces, ",") != "web,db" {
+		t.Errorf("unexpected manifest: ns=%s scope=%v", m.Metadata.Namespace, m.Spec.Scope.Namespaces)
+	}
+	m = buildManifest(&generateOptions{options: &options{}, allNamespaces: true}, "astron", []astronv1alpha1.ResourceSelector{pod})
+	if len(m.Spec.Scope.Namespaces) != 0 {
+		t.Errorf("expected empty (all) scope, got %v", m.Spec.Scope.Namespaces)
+	}
+}
+
+// TestHasInstancesAcrossNamespaces verifies an instance in any listed
+// namespace counts, and metav1.NamespaceAll probes every namespace.
+func TestHasInstancesAcrossNamespaces(t *testing.T) {
+	scheme := runtime.NewScheme()
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, map[schema.GroupVersionResource]string{
+		{Version: "v1", Resource: "pods"}: "PodList",
+	}, obj("v1", podKind, "db", "p1"))
+	gvr := schema.GroupVersionResource{Version: "v1", Resource: "pods"}
+	for _, tc := range []struct {
+		namespaces []string
+		want       bool
+	}{
+		{[]string{"web"}, false},
+		{[]string{"web", "db"}, true},
+		{[]string{metav1.NamespaceAll}, true},
+	} {
+		got, err := hasInstances(context.Background(), dyn, gvr, tc.namespaces)
+		if err != nil || got != tc.want {
+			t.Errorf("hasInstances(%v) = %v, %v; want %v", tc.namespaces, got, err, tc.want)
+		}
 	}
 }

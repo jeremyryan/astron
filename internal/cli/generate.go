@@ -83,6 +83,12 @@ type generateOptions struct {
 	// force-includes individual Kinds: regardless of existing instances and
 	// independent of --all-resources/the standard-kind filter.
 	includeGroups []string
+	// namespaces are the namespaces to scope the projection to (--namespace).
+	// Mutually exclusive with allNamespaces. When neither is set the projection
+	// is scoped to the namespace it is created in (the positional argument).
+	namespaces []string
+	// allNamespaces scopes the projection to every namespace (--all-namespaces).
+	allNamespaces bool
 	// relationshipPackFiles are paths to --relationship-pack YAML files to load
 	// and merge in (see relationship_packs.go). Independent of
 	// withRelationships: a pack file is an explicit, individually-named request,
@@ -158,6 +164,10 @@ func newGenerateCmd(opts *options) *cobra.Command {
 			"one or more API groups at once (e.g. \"cert-manager.io\"), without naming\n" +
 			"each Kind individually. A Kind named in --exclude is excluded even if it\n" +
 			"was also named by --include or pulled in by --include-group.\n\n" +
+			"The positional <namespace> is where the GraphProjection is created. By\n" +
+			"default it also scopes the projection to that namespace; use --namespace\n" +
+			"(comma-separated list) to watch other namespaces instead, or\n" +
+			"--all-namespaces to watch everything (the two are mutually exclusive).\n\n" +
 			"Use --relationship-pack to merge in custom relationship rules from one or\n" +
 			"more YAML files (e.g. for a CRD group this command doesn't already know\n" +
 			"about), independent of --with-relationships; see docs/relationships.md for\n" +
@@ -213,6 +223,10 @@ func newProjectionsAddCmd(opts *options) *cobra.Command {
 			"one or more API groups at once (e.g. \"cert-manager.io\"), without naming\n" +
 			"each Kind individually. A Kind named in --exclude is excluded even if it\n" +
 			"was also named by --include or pulled in by --include-group.\n\n" +
+			"The positional <namespace> is where the GraphProjection is created. By\n" +
+			"default it also scopes the projection to that namespace; use --namespace\n" +
+			"(comma-separated list) to watch other namespaces instead, or\n" +
+			"--all-namespaces to watch everything (the two are mutually exclusive).\n\n" +
 			"Use --relationship-pack to merge in custom relationship rules from one or\n" +
 			"more YAML files (e.g. for a CRD group this command doesn't already know\n" +
 			"about), independent of --with-relationships; see docs/relationships.md for\n" +
@@ -256,6 +270,13 @@ func addGenerateFlags(cmd *cobra.Command, gopts *generateOptions) {
 	cmd.Flags().StringSliceVar(&gopts.include, "include", nil,
 		"Resource Kind(s) to force into the projection even without existing instances "+
 			"(bare Kind or [group/]version/Kind, repeatable, comma-separated)")
+	cmd.Flags().StringSliceVar(&gopts.namespaces, "namespace", nil,
+		"Namespace(s) the projection watches (repeatable, comma-separated). "+
+			"Defaults to the namespace the projection is created in; mutually exclusive with --all-namespaces")
+	cmd.Flags().BoolVar(&gopts.allNamespaces, "all-namespaces", false,
+		"Watch every namespace (and cluster-scoped resources) instead of just the projection's own namespace; "+
+			"mutually exclusive with --namespace")
+	cmd.MarkFlagsMutuallyExclusive("namespace", "all-namespaces")
 	cmd.Flags().StringSliceVar(&gopts.includeGroups, "include-group", nil,
 		"API group(s) whose resource Kinds should all be force-included in the projection, "+
 			"even without existing instances (repeatable, comma-separated, e.g. cert-manager.io)")
@@ -281,6 +302,10 @@ func runGenerate(cmd *cobra.Command, gopts *generateOptions, namespace string) e
 	if _, err := parseLabelSelector(gopts.labelSelector); err != nil {
 		return err
 	}
+	scopeNS, err := resolveScopeNamespaces(gopts, namespace)
+	if err != nil {
+		return err
+	}
 	// Loaded first, before any cluster access: a typo in a pack file should be
 	// reported immediately rather than after discovery has already run.
 	if len(gopts.relationshipPackFiles) > 0 {
@@ -304,7 +329,7 @@ func runGenerate(cmd *cobra.Command, gopts *generateOptions, namespace string) e
 		return fmt.Errorf("creating dynamic client: %w", err)
 	}
 
-	selectors, err := discoverKinds(cmd.Context(), disco, dyn, namespace, gopts.exclude, !gopts.allResources)
+	selectors, err := discoverKinds(cmd.Context(), disco, dyn, discoveryNamespaces(scopeNS), gopts.exclude, !gopts.allResources)
 	if err != nil {
 		return err
 	}
@@ -322,9 +347,9 @@ func runGenerate(cmd *cobra.Command, gopts *generateOptions, namespace string) e
 
 	if len(selectors) == 0 {
 		if !gopts.allResources {
-			return fmt.Errorf("no standard resource kinds with instances found in namespace %q (try --all-resources, --include, or --include-group)", namespace)
+			return fmt.Errorf("no standard resource kinds with instances found in %s (try --all-resources, --include, or --include-group)", describeNamespaces(discoveryNamespaces(scopeNS)))
 		}
-		return fmt.Errorf("no resource types with instances found in namespace %q (try --include or --include-group)", namespace)
+		return fmt.Errorf("no resource types with instances found in %s (try --include or --include-group)", describeNamespaces(discoveryNamespaces(scopeNS)))
 	}
 
 	manifest := buildManifest(gopts, namespace, selectors)
@@ -572,18 +597,18 @@ func deepMerge(dst, src map[string]any) map[string]any {
 // discoverKinds enumerates the namespaced, listable resource types in the
 // cluster and returns selectors for those that currently have at least one
 // instance in the given namespace. Subresources and excluded kinds are skipped.
-func discoverKinds(ctx context.Context, disco discovery.DiscoveryInterface, dyn dynamic.Interface, namespace string, exclude []string, standardOnly bool) ([]astronv1alpha1.ResourceSelector, error) {
+func discoverKinds(ctx context.Context, disco discovery.DiscoveryInterface, dyn dynamic.Interface, namespaces []string, exclude []string, standardOnly bool) ([]astronv1alpha1.ResourceSelector, error) {
 	lists, err := disco.ServerPreferredNamespacedResources()
 	if err != nil && len(lists) == 0 {
 		return nil, fmt.Errorf("discovering namespaced resources: %w", err)
 	}
-	return selectNamespacedKinds(ctx, lists, dyn, namespace, exclude, standardOnly)
+	return selectNamespacedKinds(ctx, lists, dyn, namespaces, exclude, standardOnly)
 }
 
 // selectNamespacedKinds filters discovered resource lists to the namespaced,
 // listable kinds that have at least one instance in the namespace. It is split
 // out from discovery so it can be unit-tested with a fake dynamic client.
-func selectNamespacedKinds(ctx context.Context, lists []*metav1.APIResourceList, dyn dynamic.Interface, namespace string, exclude []string, standardOnly bool) ([]astronv1alpha1.ResourceSelector, error) {
+func selectNamespacedKinds(ctx context.Context, lists []*metav1.APIResourceList, dyn dynamic.Interface, namespaces []string, exclude []string, standardOnly bool) ([]astronv1alpha1.ResourceSelector, error) {
 	excluded := map[string]bool{}
 	for _, k := range exclude {
 		excluded[strings.ToLower(k)] = true
@@ -623,7 +648,7 @@ func selectNamespacedKinds(ctx context.Context, lists []*metav1.APIResourceList,
 			}
 
 			gvr := schema.GroupVersionResource{Group: gv.Group, Version: gv.Version, Resource: res.Name}
-			has, listErr := hasInstances(ctx, dyn, gvr, namespace)
+			has, listErr := hasInstances(ctx, dyn, gvr, namespaces)
 			if listErr != nil {
 				// A type we cannot list (RBAC, conversion errors) is skipped rather
 				// than failing the whole command.
@@ -648,9 +673,9 @@ func selectNamespacedKinds(ctx context.Context, lists []*metav1.APIResourceList,
 
 	if len(selectors) == 0 && listFailures > 0 {
 		return nil, fmt.Errorf(
-			"could not list any of the %d candidate resource kinds in namespace %q; "+
+			"could not list any of the %d candidate resource kinds in %s; "+
 				"check that the current credentials are authorized to list resources (first error: %w)",
-			listFailures, namespace, firstListErr)
+			listFailures, describeNamespaces(namespaces), firstListErr)
 	}
 
 	sortSelectors(selectors)
@@ -837,14 +862,67 @@ func excludeKinds(selectors []astronv1alpha1.ResourceSelector, exclude []string)
 	return out
 }
 
-// hasInstances reports whether the given resource has at least one object in the
-// namespace, fetching a single item to keep the request cheap.
-func hasInstances(ctx context.Context, dyn dynamic.Interface, gvr schema.GroupVersionResource, namespace string) (bool, error) {
-	list, err := dyn.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{Limit: 1})
-	if err != nil {
-		return false, err
+// hasInstances reports whether the given resource has at least one object in
+// any of the namespaces (metav1.NamespaceAll means every namespace), fetching
+// a single item per namespace to keep the requests cheap.
+func hasInstances(ctx context.Context, dyn dynamic.Interface, gvr schema.GroupVersionResource, namespaces []string) (bool, error) {
+	for _, ns := range namespaces {
+		list, err := dyn.Resource(gvr).Namespace(ns).List(ctx, metav1.ListOptions{Limit: 1})
+		if err != nil {
+			return false, err
+		}
+		if len(list.Items) > 0 {
+			return true, nil
+		}
 	}
-	return len(list.Items) > 0, nil
+	return false, nil
+}
+
+// resolveScopeNamespaces returns the namespaces the projection's scope should
+// list: nil for --all-namespaces (an empty scope.namespaces means all), the
+// --namespace values (trimmed, de-duplicated) when given, and otherwise just
+// the namespace the projection is created in.
+func resolveScopeNamespaces(gopts *generateOptions, createNamespace string) ([]string, error) {
+	if gopts.allNamespaces && len(gopts.namespaces) > 0 {
+		return nil, fmt.Errorf("--namespace and --all-namespaces are mutually exclusive")
+	}
+	if gopts.allNamespaces {
+		return nil, nil
+	}
+	if len(gopts.namespaces) == 0 {
+		return []string{createNamespace}, nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(gopts.namespaces))
+	for _, ns := range gopts.namespaces {
+		ns = strings.TrimSpace(ns)
+		if ns == "" {
+			return nil, fmt.Errorf("--namespace contains an empty namespace name")
+		}
+		if !seen[ns] {
+			seen[ns] = true
+			out = append(out, ns)
+		}
+	}
+	return out, nil
+}
+
+// discoveryNamespaces maps a projection scope's namespace list to the
+// namespaces to probe for instances: an empty (all-namespaces) scope probes
+// across every namespace at once.
+func discoveryNamespaces(scope []string) []string {
+	if len(scope) == 0 {
+		return []string{metav1.NamespaceAll}
+	}
+	return scope
+}
+
+// describeNamespaces renders a namespace list for error messages.
+func describeNamespaces(namespaces []string) string {
+	if len(namespaces) == 0 || (len(namespaces) == 1 && namespaces[0] == metav1.NamespaceAll) {
+		return "any namespace"
+	}
+	return "namespace(s) " + strings.Join(namespaces, ", ")
 }
 
 // canList reports whether a resource's verbs include "list".
@@ -895,9 +973,12 @@ func buildManifest(gopts *generateOptions, namespace string, selectors []astronv
 		name = namespace
 	}
 
+	// Invalid flag combinations are rejected earlier, in runGenerate.
+	scopeNS, _ := resolveScopeNamespaces(gopts, namespace)
+
 	spec := astronv1alpha1.GraphProjectionSpec{
 		Scope: astronv1alpha1.ProjectionScope{
-			Namespaces: []string{namespace},
+			Namespaces: scopeNS,
 			Resources:  selectors,
 		},
 	}

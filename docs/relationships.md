@@ -89,6 +89,17 @@ astron projections generate cert-manager \
   --include-group cert-manager.io,acme.cert-manager.io
 ```
 
+By default a projection watches only the namespace it is created in. Use
+`--namespace a,b` to watch other namespaces (the projection is still created
+in the positional namespace, so you can keep all your projections together),
+or `--all-namespaces` to watch every namespace; the two are mutually
+exclusive:
+
+```sh
+astron projections add astron --name cert-manager-all --all-namespaces \
+  --include-group cert-manager.io,acme.cert-manager.io
+```
+
 See `astron projections generate --help` for the full set of `--include`/
 `--include-group`/`--exclude` semantics (a Kind named in `--exclude` always
 wins, even over `--include-group`).
