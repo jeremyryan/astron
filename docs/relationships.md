@@ -110,6 +110,76 @@ populated); a `FieldReference` rule with no `fieldRef` at all (or an empty
 `namePath`) is a per-rule error, logged like any other bad rule, without
 aborting the rest of the projection's sync.
 
+## Shipping your own relationship pack as a YAML file
+
+cert-manager ships as a *built-in* relationship pack (the CLI already knows
+its rules), but you don't have to wait for a CRD group to get one: pass one
+or more YAML files to `--relationship-pack` on `astron projections
+generate`/`add`, and their rules are merged into the generated manifest the
+same way a built-in pack's are — gated on whether the relevant resource kinds
+are actually present, so a pack that's only partially relevant to this
+projection doesn't produce a rule with a dangling target.
+
+```sh
+astron projections generate cert-manager \
+  --include-group cert-manager.io \
+  --relationship-pack ./cert-manager-relationships.yaml
+```
+
+A pack file is a list of rules, each shaped like a `FieldReference` rule
+except `to` is a *list* of candidate target Kinds instead of one — the first
+candidate present in the generated projection is used, exactly like the
+built-in cert-manager pack's `Issuer`/`ClusterIssuer` fallback. In fact, the
+following file reproduces that built-in pack exactly, as a worked example you
+can adapt for another CRD group:
+
+```yaml
+# cert-manager-relationships.yaml
+rules:
+  - name: certificate-uses-secret
+    type: USES_SECRET
+    from: { group: cert-manager.io, version: v1, kind: Certificate }
+    to:
+      - { version: v1, kind: Secret }
+    fieldRef:
+      namePath: spec.secretName
+
+  - name: certificate-issued-by
+    type: ISSUED_BY
+    from: { group: cert-manager.io, version: v1, kind: Certificate }
+    to:
+      - { group: cert-manager.io, version: v1, kind: Issuer }
+      - { group: cert-manager.io, version: v1, kind: ClusterIssuer }
+    fieldRef:
+      namePath: spec.issuerRef.name
+      kindPath: spec.issuerRef.kind
+
+  - name: certificaterequest-issued-by
+    type: ISSUED_BY
+    from: { group: cert-manager.io, version: v1, kind: CertificateRequest }
+    to:
+      - { group: cert-manager.io, version: v1, kind: Issuer }
+      - { group: cert-manager.io, version: v1, kind: ClusterIssuer }
+    fieldRef:
+      namePath: spec.issuerRef.name
+      kindPath: spec.issuerRef.kind
+```
+
+`strategy` may be omitted when `fieldRef` is set (it defaults to
+`FieldReference`, as above); any other strategy — `OwnerReference`,
+`LabelSelector`, etc. — must be named explicitly and doesn't take a `fieldRef`.
+Every rule still needs a `name` (unique within the file), a `type`, and a
+`from.kind`; the file is parsed strictly (an unrecognized field is an error,
+not silently ignored) and validated before any cluster calls are made, so a
+typo is reported immediately with the specific rule and field at fault.
+
+`--relationship-pack` is independent of `--with-relationships`: a pack file is
+an explicit, individually-named request, so it's always included, even when
+`--with-relationships=false` turns off the broad auto-detected rule set. You
+can pass multiple files (repeat the flag, or comma-separate paths); if two
+rules end up with the same `name` (from different packs, or a pack and a
+built-in rule), the first one wins.
+
 See
 [`docs/relationship-extensibility-design.md`](./relationship-extensibility-design.md)
 for the full design rationale.

@@ -83,6 +83,14 @@ type generateOptions struct {
 	// force-includes individual Kinds: regardless of existing instances and
 	// independent of --all-resources/the standard-kind filter.
 	includeGroups []string
+	// relationshipPackFiles are paths to --relationship-pack YAML files to load
+	// and merge in (see relationship_packs.go). Independent of
+	// withRelationships: a pack file is an explicit, individually-named request,
+	// so it isn't gated by the flag that controls the broad auto-detected set.
+	relationshipPackFiles []string
+	// relationshipPacks holds the parsed/validated contents of
+	// relationshipPackFiles, populated by runGenerate before buildManifest runs.
+	relationshipPacks []relationshipPackFile
 
 	// specConfigMap optionally references a ConfigMap ("name" or
 	// "namespace/name") whose "spec" key holds a YAML document merged into the
@@ -150,6 +158,10 @@ func newGenerateCmd(opts *options) *cobra.Command {
 			"one or more API groups at once (e.g. \"cert-manager.io\"), without naming\n" +
 			"each Kind individually. A Kind named in --exclude is excluded even if it\n" +
 			"was also named by --include or pulled in by --include-group.\n\n" +
+			"Use --relationship-pack to merge in custom relationship rules from one or\n" +
+			"more YAML files (e.g. for a CRD group this command doesn't already know\n" +
+			"about), independent of --with-relationships; see docs/relationships.md for\n" +
+			"the file format.\n\n" +
 			"By default the manifest is written to stdout. Use --output-file to write\n" +
 			"it to a file, or --apply to create/update the GraphProjection in the\n" +
 			"cluster instead of emitting YAML.\n\n" +
@@ -201,6 +213,10 @@ func newProjectionsAddCmd(opts *options) *cobra.Command {
 			"one or more API groups at once (e.g. \"cert-manager.io\"), without naming\n" +
 			"each Kind individually. A Kind named in --exclude is excluded even if it\n" +
 			"was also named by --include or pulled in by --include-group.\n\n" +
+			"Use --relationship-pack to merge in custom relationship rules from one or\n" +
+			"more YAML files (e.g. for a CRD group this command doesn't already know\n" +
+			"about), independent of --with-relationships; see docs/relationships.md for\n" +
+			"the file format.\n\n" +
 			"Use --spec-from-configmap to merge shared settings (for example a\n" +
 			"graphRAG configuration) into the projection's spec, and --views to also\n" +
 			"create default GraphViews for it.\n\n" +
@@ -243,6 +259,9 @@ func addGenerateFlags(cmd *cobra.Command, gopts *generateOptions) {
 	cmd.Flags().StringSliceVar(&gopts.includeGroups, "include-group", nil,
 		"API group(s) whose resource Kinds should all be force-included in the projection, "+
 			"even without existing instances (repeatable, comma-separated, e.g. cert-manager.io)")
+	cmd.Flags().StringSliceVar(&gopts.relationshipPackFiles, "relationship-pack", nil,
+		"Path(s) to YAML file(s) defining custom relationship rules to include "+
+			"(repeatable, comma-separated); see docs/relationships.md for the file format")
 	cmd.Flags().StringVar(&gopts.specConfigMap, "spec-from-configmap", "",
 		"ConfigMap (\"name\" or \"namespace/name\") whose \"spec\" key is a YAML document merged into the generated spec")
 	cmd.Flags().StringVarP(&gopts.labelSelector, "label-selector", "l", "",
@@ -261,6 +280,15 @@ func runGenerate(cmd *cobra.Command, gopts *generateOptions, namespace string) e
 	}
 	if _, err := parseLabelSelector(gopts.labelSelector); err != nil {
 		return err
+	}
+	// Loaded first, before any cluster access: a typo in a pack file should be
+	// reported immediately rather than after discovery has already run.
+	if len(gopts.relationshipPackFiles) > 0 {
+		packs, packErr := loadRelationshipPackFiles(gopts.relationshipPackFiles)
+		if packErr != nil {
+			return packErr
+		}
+		gopts.relationshipPacks = packs
 	}
 
 	cfg, err := gopts.kube.restConfig()
@@ -878,8 +906,16 @@ func buildManifest(gopts *generateOptions, namespace string, selectors []astronv
 		spec.ResyncInterval = d
 	}
 
+	var rules []astronv1alpha1.RelationshipRule
 	if gopts.withRelationships {
-		spec.Relationships = append(buildRelationships(selectors), buildCRDRelationships(selectors)...)
+		rules = append(rules, buildRelationships(selectors)...)
+		rules = append(rules, buildCRDRelationships(selectors)...)
+	}
+	// --relationship-pack files are an explicit, individually-named request, so
+	// they're included regardless of --with-relationships.
+	rules = append(rules, buildPackRelationships(selectors, gopts.relationshipPacks)...)
+	if len(rules) > 0 {
+		spec.Relationships = dedupeRelationshipRulesByName(rules)
 	}
 
 	if sel, err := parseLabelSelector(gopts.labelSelector); err == nil && sel != nil {

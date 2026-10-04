@@ -56,10 +56,7 @@ var (
 // endpoint kinds are both present among the discovered selectors. This keeps the
 // generated manifest's relationships consistent with its captured resources.
 func buildRelationships(selectors []astronv1alpha1.ResourceSelector) []astronv1alpha1.RelationshipRule {
-	present := map[string]bool{}
-	for _, s := range selectors {
-		present[s.Kind] = true
-	}
+	present := presentKinds(selectors)
 
 	type candidate struct {
 		name     string
@@ -182,10 +179,9 @@ var crdRelationshipPacks = []crdRelationshipPack{
 // group is only partially included (e.g. Certificate without Issuer or
 // ClusterIssuer) doesn't emit a rule with a dangling target.
 func buildCRDRelationships(selectors []astronv1alpha1.ResourceSelector) []astronv1alpha1.RelationshipRule {
-	present := map[string]bool{}
+	present := presentKinds(selectors)
 	groupPresent := map[string]bool{}
 	for _, s := range selectors {
-		present[s.Kind] = true
 		groupPresent[s.Group] = true
 	}
 
@@ -195,10 +191,7 @@ func buildCRDRelationships(selectors []astronv1alpha1.ResourceSelector) []astron
 			continue
 		}
 		for _, c := range pack.rules {
-			if !present[c.from.Kind] {
-				continue
-			}
-			to, ok := firstPresentSelector(c.toCandidates, present)
+			to, ok := gateRule(c.from, c.toCandidates, present)
 			if !ok {
 				continue
 			}
@@ -216,12 +209,30 @@ func buildCRDRelationships(selectors []astronv1alpha1.ResourceSelector) []astron
 	return rules
 }
 
-// firstPresentSelector returns the first of candidates whose Kind is present,
-// or false if none are.
-func firstPresentSelector(
-	candidates []astronv1alpha1.ResourceSelector, present map[string]bool,
+// presentKinds indexes a resource selector list by Kind, for the
+// endpoint-presence gating buildRelationships, buildCRDRelationships and
+// buildPackRelationships all perform.
+func presentKinds(selectors []astronv1alpha1.ResourceSelector) map[string]bool {
+	present := make(map[string]bool, len(selectors))
+	for _, s := range selectors {
+		present[s.Kind] = true
+	}
+	return present
+}
+
+// gateRule reports whether a from/toCandidates pair should produce a rule
+// given which kinds are present (from must be present, and at least one
+// toCandidate must be), returning the resolved static "to" selector: the
+// first present candidate, used as the rule's fallback target kind (relevant
+// when a FieldReference rule's kindPath can resolve to more than one of
+// them).
+func gateRule(
+	from astronv1alpha1.ResourceSelector, toCandidates []astronv1alpha1.ResourceSelector, present map[string]bool,
 ) (astronv1alpha1.ResourceSelector, bool) {
-	for _, c := range candidates {
+	if !present[from.Kind] {
+		return astronv1alpha1.ResourceSelector{}, false
+	}
+	for _, c := range toCandidates {
 		if present[c.Kind] {
 			return c, true
 		}
