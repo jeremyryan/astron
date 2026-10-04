@@ -1,0 +1,157 @@
+# Relationship pack for the traefik.io API group (v1alpha1).
+#
+# Usage:
+#   astron projections add <ns> --name traefik --all-namespaces --no-discovery \
+#     --include-group traefik.io --include Secret --include Service \
+#     --relationship-pack docs/relationship-packs/traefik-io.yaml
+#
+# Not covered (FieldReference supports a single list level, and these sit in
+# nested lists): IngressRoute/IngressRouteTCP/IngressRouteUDP
+# routes[].services[] -> Service|TraefikService and routes[].middlewares[] ->
+# Middleware, and the serversTransport references.
+#
+# Note: where a reference has a `kind` field (Service | TraefikService), Traefik
+# treats an omitted kind as Service, but FieldReference skips references whose
+# kindPath value is empty, so only references that set `kind` explicitly
+# produce an edge.
+rules:
+  # --- TLS: IngressRoute / IngressRouteTCP -------------------------------
+  - name: ingressroute-uses-secret
+    type: USES_SECRET
+    from: { group: traefik.io, version: v1alpha1, kind: IngressRoute }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef: { namePath: spec.tls.secretName }
+
+  - name: ingressroutetcp-uses-secret
+    type: USES_SECRET
+    from: { group: traefik.io, version: v1alpha1, kind: IngressRouteTCP }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef: { namePath: spec.tls.secretName }
+
+  - name: ingressroute-uses-tlsoption
+    type: USES_TLS_OPTION
+    from: { group: traefik.io, version: v1alpha1, kind: IngressRoute }
+    to: [{ group: traefik.io, version: v1alpha1, kind: TLSOption }]
+    fieldRef:
+      namePath: spec.tls.options.name
+      namespacePath: spec.tls.options.namespace
+
+  - name: ingressroutetcp-uses-tlsoption
+    type: USES_TLS_OPTION
+    from: { group: traefik.io, version: v1alpha1, kind: IngressRouteTCP }
+    to: [{ group: traefik.io, version: v1alpha1, kind: TLSOption }]
+    fieldRef:
+      namePath: spec.tls.options.name
+      namespacePath: spec.tls.options.namespace
+
+  - name: ingressroute-uses-tlsstore
+    type: USES_TLS_STORE
+    from: { group: traefik.io, version: v1alpha1, kind: IngressRoute }
+    to: [{ group: traefik.io, version: v1alpha1, kind: TLSStore }]
+    fieldRef:
+      namePath: spec.tls.store.name
+      namespacePath: spec.tls.store.namespace
+
+  - name: ingressroutetcp-uses-tlsstore
+    type: USES_TLS_STORE
+    from: { group: traefik.io, version: v1alpha1, kind: IngressRouteTCP }
+    to: [{ group: traefik.io, version: v1alpha1, kind: TLSStore }]
+    fieldRef:
+      namePath: spec.tls.store.name
+      namespacePath: spec.tls.store.namespace
+
+  # --- TLSStore certificates ---------------------------------------------
+  - name: tlsstore-uses-certificate-secret
+    type: USES_SECRET
+    from: { group: traefik.io, version: v1alpha1, kind: TLSStore }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef:
+      listPath: spec.certificates
+      namePath: secretName
+
+  - name: tlsstore-uses-default-certificate-secret
+    type: USES_SECRET
+    from: { group: traefik.io, version: v1alpha1, kind: TLSStore }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef: { namePath: spec.defaultCertificate.secretName }
+
+  # --- Middleware ----------------------------------------------------------
+  - name: middleware-basicauth-secret
+    type: USES_SECRET
+    from: { group: traefik.io, version: v1alpha1, kind: Middleware }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef: { namePath: spec.basicAuth.secret }
+
+  - name: middleware-digestauth-secret
+    type: USES_SECRET
+    from: { group: traefik.io, version: v1alpha1, kind: Middleware }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef: { namePath: spec.digestAuth.secret }
+
+  - name: middleware-forwardauth-ca-secret
+    type: USES_SECRET
+    from: { group: traefik.io, version: v1alpha1, kind: Middleware }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef: { namePath: spec.forwardAuth.tls.caSecret }
+
+  - name: middleware-forwardauth-cert-secret
+    type: USES_SECRET
+    from: { group: traefik.io, version: v1alpha1, kind: Middleware }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef: { namePath: spec.forwardAuth.tls.certSecret }
+
+  - name: middleware-chains-middleware
+    type: CHAINS
+    from: { group: traefik.io, version: v1alpha1, kind: Middleware }
+    to: [{ group: traefik.io, version: v1alpha1, kind: Middleware }]
+    fieldRef:
+      listPath: spec.chain.middlewares
+      namePath: name
+      namespacePath: namespace
+
+  - name: middleware-errors-service
+    type: ROUTES
+    from: { group: traefik.io, version: v1alpha1, kind: Middleware }
+    to:
+      - { version: v1, kind: Service }
+      - { group: traefik.io, version: v1alpha1, kind: TraefikService }
+    fieldRef:
+      namePath: spec.errors.service.name
+      kindPath: spec.errors.service.kind
+      namespacePath: spec.errors.service.namespace
+
+  # --- TraefikService -------------------------------------------------------
+  - name: traefikservice-weighted-routes-service
+    type: ROUTES
+    from: { group: traefik.io, version: v1alpha1, kind: TraefikService }
+    to:
+      - { version: v1, kind: Service }
+      - { group: traefik.io, version: v1alpha1, kind: TraefikService }
+    fieldRef:
+      listPath: spec.weighted.services
+      namePath: name
+      kindPath: kind
+      namespacePath: namespace
+
+  - name: traefikservice-mirrors-service
+    type: MIRRORS
+    from: { group: traefik.io, version: v1alpha1, kind: TraefikService }
+    to:
+      - { version: v1, kind: Service }
+      - { group: traefik.io, version: v1alpha1, kind: TraefikService }
+    fieldRef:
+      listPath: spec.mirroring.mirrors
+      namePath: name
+      kindPath: kind
+      namespacePath: namespace
+
+  - name: traefikservice-mirroring-source-service
+    type: ROUTES
+    from: { group: traefik.io, version: v1alpha1, kind: TraefikService }
+    to:
+      - { version: v1, kind: Service }
+      - { group: traefik.io, version: v1alpha1, kind: TraefikService }
+    fieldRef:
+      namePath: spec.mirroring.name
+      kindPath: spec.mirroring.kind
+      namespacePath: spec.mirroring.namespace

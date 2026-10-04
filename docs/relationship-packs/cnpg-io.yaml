@@ -1,0 +1,217 @@
+# Relationship pack for CloudNativePG (API group postgresql.cnpg.io, v1).
+#
+# Usage:
+#   astron projections add <ns> --name cnpg --all-namespaces --no-discovery \
+#     --include-group postgresql.cnpg.io \
+#     --include Secret,Pod,PersistentVolumeClaim,Job,ServiceAccount \
+#     --include-group apps \
+#     --relationship-pack docs/relationship-packs/cnpg-io.yaml
+#
+# Notes:
+#  * Rules are gated on Kind name only, so a different API group that also
+#    defines a "Cluster", "Backup" or "Database" Kind would be matched too.
+#  * Not covered: the many other credential Secrets nested under
+#    spec.backup.barmanObjectStore (Azure/GCS), spec.externalClusters[]
+#    (nested objects), bootstrap.recovery.*, and spec.monitoring ConfigMaps
+#    (nested lists inside lists are not supported by FieldReference).
+rules:
+  # --- Things that belong to a Cluster ----------------------------------
+  - name: backup-targets-cluster
+    type: BACKS_UP
+    from: { group: postgresql.cnpg.io, version: v1, kind: Backup }
+    to: [{ group: postgresql.cnpg.io, version: v1, kind: Cluster }]
+    fieldRef: { namePath: spec.cluster.name }
+
+  - name: scheduledbackup-targets-cluster
+    type: BACKS_UP
+    from: { group: postgresql.cnpg.io, version: v1, kind: ScheduledBackup }
+    to: [{ group: postgresql.cnpg.io, version: v1, kind: Cluster }]
+    fieldRef: { namePath: spec.cluster.name }
+
+  - name: database-belongs-to-cluster
+    type: BELONGS_TO
+    from: { group: postgresql.cnpg.io, version: v1, kind: Database }
+    to: [{ group: postgresql.cnpg.io, version: v1, kind: Cluster }]
+    fieldRef: { namePath: spec.cluster.name }
+
+  - name: databaserole-belongs-to-cluster
+    type: BELONGS_TO
+    from: { group: postgresql.cnpg.io, version: v1, kind: DatabaseRole }
+    to: [{ group: postgresql.cnpg.io, version: v1, kind: Cluster }]
+    fieldRef: { namePath: spec.cluster.name }
+
+  - name: publication-belongs-to-cluster
+    type: BELONGS_TO
+    from: { group: postgresql.cnpg.io, version: v1, kind: Publication }
+    to: [{ group: postgresql.cnpg.io, version: v1, kind: Cluster }]
+    fieldRef: { namePath: spec.cluster.name }
+
+  - name: subscription-belongs-to-cluster
+    type: BELONGS_TO
+    from: { group: postgresql.cnpg.io, version: v1, kind: Subscription }
+    to: [{ group: postgresql.cnpg.io, version: v1, kind: Cluster }]
+    fieldRef: { namePath: spec.cluster.name }
+
+  - name: pooler-pools-cluster
+    type: POOLS
+    from: { group: postgresql.cnpg.io, version: v1, kind: Pooler }
+    to: [{ group: postgresql.cnpg.io, version: v1, kind: Cluster }]
+    fieldRef: { namePath: spec.cluster.name }
+
+  # --- Cluster -> Secrets ---------------------------------------------------
+  - name: cluster-superuser-secret
+    type: USES_SECRET
+    from: { group: postgresql.cnpg.io, version: v1, kind: Cluster }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef: { namePath: spec.superuserSecret.name }
+
+  - name: cluster-initdb-secret
+    type: USES_SECRET
+    from: { group: postgresql.cnpg.io, version: v1, kind: Cluster }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef: { namePath: spec.bootstrap.initdb.secret.name }
+
+  - name: cluster-server-ca-secret
+    type: USES_SECRET
+    from: { group: postgresql.cnpg.io, version: v1, kind: Cluster }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef: { namePath: spec.certificates.serverCASecret }
+
+  - name: cluster-server-tls-secret
+    type: USES_SECRET
+    from: { group: postgresql.cnpg.io, version: v1, kind: Cluster }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef: { namePath: spec.certificates.serverTLSSecret }
+
+  - name: cluster-client-ca-secret
+    type: USES_SECRET
+    from: { group: postgresql.cnpg.io, version: v1, kind: Cluster }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef: { namePath: spec.certificates.clientCASecret }
+
+  - name: cluster-replication-tls-secret
+    type: USES_SECRET
+    from: { group: postgresql.cnpg.io, version: v1, kind: Cluster }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef: { namePath: spec.certificates.replicationTLSSecret }
+
+  - name: cluster-managed-role-password-secret
+    type: USES_SECRET
+    from: { group: postgresql.cnpg.io, version: v1, kind: Cluster }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef:
+      listPath: spec.managed.roles
+      namePath: passwordSecret.name
+
+  - name: cluster-s3-access-key-secret
+    type: USES_SECRET
+    from: { group: postgresql.cnpg.io, version: v1, kind: Cluster }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef: { namePath: spec.backup.barmanObjectStore.s3Credentials.accessKeyId.name }
+
+  - name: cluster-s3-secret-key-secret
+    type: USES_SECRET
+    from: { group: postgresql.cnpg.io, version: v1, kind: Cluster }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef: { namePath: spec.backup.barmanObjectStore.s3Credentials.secretAccessKey.name }
+
+  - name: cluster-external-cluster-password-secret
+    type: USES_SECRET
+    from: { group: postgresql.cnpg.io, version: v1, kind: Cluster }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef:
+      listPath: spec.externalClusters
+      namePath: password.name
+
+  # --- Other references from a Cluster ---------------------------------------
+  - name: cluster-recovers-from-backup
+    type: RECOVERS_FROM
+    from: { group: postgresql.cnpg.io, version: v1, kind: Cluster }
+    to: [{ group: postgresql.cnpg.io, version: v1, kind: Backup }]
+    fieldRef: { namePath: spec.bootstrap.recovery.backup.name }
+
+  # imageCatalogRef.kind is ImageCatalog (namespaced) or ClusterImageCatalog
+  # (cluster-scoped); the cluster-scoped target gets no namespace automatically.
+  - name: cluster-uses-image-catalog
+    type: USES_IMAGE_CATALOG
+    from: { group: postgresql.cnpg.io, version: v1, kind: Cluster }
+    to:
+      - { group: postgresql.cnpg.io, version: v1, kind: ImageCatalog }
+      - { group: postgresql.cnpg.io, version: v1, kind: ClusterImageCatalog }
+    fieldRef:
+      namePath: spec.imageCatalogRef.name
+      kindPath: spec.imageCatalogRef.kind
+
+  # --- Pooler -------------------------------------------------------------------
+  - name: pooler-auth-query-secret
+    type: USES_SECRET
+    from: { group: postgresql.cnpg.io, version: v1, kind: Pooler }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef: { namePath: spec.pgbouncer.authQuerySecret.name }
+
+  - name: pooler-client-ca-secret
+    type: USES_SECRET
+    from: { group: postgresql.cnpg.io, version: v1, kind: Pooler }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef: { namePath: spec.pgbouncer.clientCASecret.name }
+
+  - name: pooler-client-tls-secret
+    type: USES_SECRET
+    from: { group: postgresql.cnpg.io, version: v1, kind: Pooler }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef: { namePath: spec.pgbouncer.clientTLSSecret.name }
+
+  - name: pooler-server-ca-secret
+    type: USES_SECRET
+    from: { group: postgresql.cnpg.io, version: v1, kind: Pooler }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef: { namePath: spec.pgbouncer.serverCASecret.name }
+
+  - name: pooler-server-tls-secret
+    type: USES_SECRET
+    from: { group: postgresql.cnpg.io, version: v1, kind: Pooler }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef: { namePath: spec.pgbouncer.serverTLSSecret.name }
+
+  - name: pooler-runs-as-serviceaccount
+    type: RUNS_AS
+    from: { group: postgresql.cnpg.io, version: v1, kind: Pooler }
+    to: [{ version: v1, kind: ServiceAccount }]
+    fieldRef: { namePath: spec.serviceAccountName }
+
+  - name: databaserole-password-secret
+    type: USES_SECRET
+    from: { group: postgresql.cnpg.io, version: v1, kind: DatabaseRole }
+    to: [{ version: v1, kind: Secret }]
+    fieldRef: { namePath: spec.passwordSecret.name }
+
+  # --- Ownership (ownerReferences set by the CNPG operator) ---------------------
+  - name: cluster-owns-pod
+    type: OWNS
+    strategy: OwnerReference
+    from: { group: postgresql.cnpg.io, version: v1, kind: Cluster }
+    to: [{ version: v1, kind: Pod }]
+
+  - name: cluster-owns-pvc
+    type: OWNS
+    strategy: OwnerReference
+    from: { group: postgresql.cnpg.io, version: v1, kind: Cluster }
+    to: [{ version: v1, kind: PersistentVolumeClaim }]
+
+  - name: cluster-owns-job
+    type: OWNS
+    strategy: OwnerReference
+    from: { group: postgresql.cnpg.io, version: v1, kind: Cluster }
+    to: [{ group: batch, version: v1, kind: Job }]
+
+  - name: scheduledbackup-owns-backup
+    type: OWNS
+    strategy: OwnerReference
+    from: { group: postgresql.cnpg.io, version: v1, kind: ScheduledBackup }
+    to: [{ group: postgresql.cnpg.io, version: v1, kind: Backup }]
+
+  - name: pooler-owns-deployment
+    type: OWNS
+    strategy: OwnerReference
+    from: { group: postgresql.cnpg.io, version: v1, kind: Pooler }
+    to: [{ group: apps, version: v1, kind: Deployment }]
